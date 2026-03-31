@@ -1,0 +1,39 @@
+{
+  "name": "@questi0nm4rk/hook-kit",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Framework for building compiled hook binaries for AI coding agents",
+  "author": { "name": "qsm" },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Questi0nM4rk/hook-kit.git"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./engine": "./src/engine/index.ts",
+    "./adapters/claude-code": "./src/adapters/claude-code.ts",
+    "./adapters/raw": "./src/adapters/raw.ts",
+    "./state": "./src/state/types.ts",
+    "./state/tmpdir": "./src/state/tmpdir-store.ts",
+    "./state/memory": "./src/state/memory-store.ts"
+  },
+  "bin": {
+    "hook-kit": "./src/build/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsgo --noEmit",
+    "lint": "biome check src/ tests/",
+    "lint:fix": "biome check --write src/ tests/",
+    "test": "bun test",
+    "build": "bun build src/build/cli.ts --compile --bytecode --outfile dist/hook-kit"
+  },
+  "dependencies": {
+    "@questi0nm4rk/shell-ast": "^0.1.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.8",
+    "@types/bun": "latest",
+    "typescript": "^5.9.3"
+  }
+}
