@@ -1,0 +1,36 @@
+version: 1
+mode: standard
+auto_review: true
+
+languages:
+  - typescript
+
+ignore_paths:
+  - "dist/**"
+  - "node_modules/**"
+  - "bun.lock"
+  - "*.baseline"
+  - "docs/**"
+  - "**/*.md"
+
+instructions: |
+  hook-kit is a framework for building compiled hook binaries that enforce
+  security policies for AI coding agents (particularly Claude Code). It provides
+  protocol-agnostic rule builders, state management, and an adapter layer for
+  integrating hook engines into various IDEs/platforms.
+
+  Focus on:
+  - correctness of evaluation logic and decision type safety
+  - rule builder DSL semantics (cmd/path/content builders)
+  - state store contract (get/set/delete/has/flush)
+  - event matchers — must not leak to wrong tool handlers
+  - module lifecycle short-circuit behavior (enabled flag)
+  - audit trail fields on HookEvent (sessionId, cwd, transcriptPath)
+
+known_patterns:
+  - "cmd()/path()/content() builders return stub Decisions (Phase 1 placeholder) — intentional"
+  - "Engine fail-open on rule evaluation errors (catch + continue) is Iron Law 3 by design"
+  - "Bare `void` statements in builder stubs suppress unused-variable warnings until engine lands"
+
+slop_detection: true
+memory: true
