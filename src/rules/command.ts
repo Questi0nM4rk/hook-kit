@@ -1,6 +1,11 @@
 // cmd() builder — shell-ast based command matching
 // See docs/SPEC.md § Rule Builders for semantics
 
+import {
+  context as contextDecision,
+  deny as denyDecision,
+  escalate as escalateDecision,
+} from "../core/decision.js";
 import type { Decision, HookEvent, Rule } from "../core/types.js";
 
 export function cmd(_command: string, ..._sub: string[]): CommandRuleBuilder {
@@ -38,15 +43,15 @@ class CommandRuleBuilder {
   }
 
   deny(reason: string, label?: string): Rule {
-    return this.buildRule({ kind: "deny", reason, label });
+    return this.buildRule(denyDecision(reason, label));
   }
 
   context(message: string, label?: string): Rule {
-    return this.buildRule({ kind: "context", message, label });
+    return this.buildRule(contextDecision(message, label));
   }
 
   escalate(reason: string, label?: string): Rule {
-    return this.buildRule({ kind: "escalate", reason, label });
+    return this.buildRule(escalateDecision(reason, label));
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {
