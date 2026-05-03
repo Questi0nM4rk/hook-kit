@@ -1,5 +1,5 @@
 // stateful() — cross-invocation state wrapper
-// See SPEC-001 § Rule Builder API
+// See docs/SPEC.md § Rule Builders
 
 import type { Decision, EvalContext, HookEvent, Rule, StateStore } from "../core/types.js";
 

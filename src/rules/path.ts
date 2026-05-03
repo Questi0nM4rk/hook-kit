@@ -1,5 +1,5 @@
 // path() builder — file path pattern matching
-// See SPEC-001 § Rule Builder API
+// See docs/SPEC.md § Rule Builders
 
 import type { Decision, HookEvent, Rule } from "../core/types.js";
 
@@ -12,8 +12,14 @@ class PathRuleBuilder {
 
   constructor(private readonly pattern: RegExp) {}
 
-  onWrite(): this { this.eventType = "write"; return this; }
-  onRead(): this { this.eventType = "read"; return this; }
+  onWrite(): this {
+    this.eventType = "write";
+    return this;
+  }
+  onRead(): this {
+    this.eventType = "read";
+    return this;
+  }
 
   deny(reason: string, label?: string): Rule {
     return this.buildRule({ kind: "deny", reason, label });
@@ -28,7 +34,7 @@ class PathRuleBuilder {
   }
 
   private buildRule(_decision: NonNullable<Decision>): Rule {
-    // TODO: implement in Phase 1
+    // TODO: implement
     return {
       kind: "path",
       evaluate(_event: HookEvent): Decision {

@@ -1,12 +1,9 @@
 // custom() — escape hatch for arbitrary predicates
-// See SPEC-001 § Rule Builder API
+// See docs/SPEC.md § Rule Builders
 
 import type { Decision, HookEvent, Rule } from "../core/types.js";
 
-export function custom(
-  id: string,
-  fn: (event: HookEvent) => Decision | Promise<Decision>,
-): Rule {
+export function custom(id: string, fn: (event: HookEvent) => Decision | Promise<Decision>): Rule {
   return {
     kind: `custom:${id}`,
     evaluate(event: HookEvent): Decision | Promise<Decision> {

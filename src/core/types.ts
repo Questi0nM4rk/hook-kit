@@ -1,6 +1,6 @@
 /**
  * Core types for hook-kit. Protocol-agnostic — no CC-specific concepts here.
- * See SPEC-001 § Core Types for the full contract.
+ * See docs/SPEC.md § Core Types for the full contract.
  */
 
 // === Decisions (blacklist semantics) ===
@@ -28,8 +28,17 @@ export type ToolEvent =
   | { readonly type: "bash"; readonly command: string }
   | { readonly type: "write"; readonly path: string; readonly content?: string }
   | { readonly type: "read"; readonly path: string }
-  | { readonly type: "edit"; readonly path: string; readonly oldStr?: string; readonly newStr?: string }
-  | { readonly type: "other"; readonly toolName: string; readonly toolInput: Readonly<Record<string, unknown>> };
+  | {
+      readonly type: "edit";
+      readonly path: string;
+      readonly oldStr?: string;
+      readonly newStr?: string;
+    }
+  | {
+      readonly type: "other";
+      readonly toolName: string;
+      readonly toolInput: Readonly<Record<string, unknown>>;
+    };
 
 // === Rules ===
 

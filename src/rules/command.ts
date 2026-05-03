@@ -1,5 +1,5 @@
 // cmd() builder — shell-ast based command matching
-// See SPEC-001 § Rule Builder API for semantics
+// See docs/SPEC.md § Rule Builders for semantics
 
 import type { Decision, HookEvent, Rule } from "../core/types.js";
 
@@ -50,7 +50,7 @@ class CommandRuleBuilder {
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {
-    // TODO: implement shell-ast evaluation in Phase 1
+    // TODO: implement shell-ast evaluation
     const _config = {
       command: this.command,
       sub: this.sub,
