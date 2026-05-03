@@ -152,6 +152,21 @@ describe("parseHookInput", () => {
     expect(ev.toolInput).toEqual({ command: "ls -la" });
   });
 
+  test("preserves harness-added extra fields on event.raw", () => {
+    const raw = JSON.stringify({
+      session_id: "abc",
+      transcript_path: "/tmp/t.jsonl",
+      cwd: "/home/me",
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "ls" },
+      // Extra field that's not in the documented schema — custom rules may need it.
+      stop_hook_active: true,
+    });
+    const ev = parseHookInput(raw);
+    expect(ev.raw.stop_hook_active).toBe(true);
+  });
+
   test("throws on empty input", () => {
     expect(() => parseHookInput("")).toThrow();
   });
