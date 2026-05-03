@@ -4,19 +4,21 @@ export function toToolEvent(event: HookEvent): ToolEvent {
   switch (event.toolName) {
     case "Bash":
       return { type: "bash", command: str(event.toolInput, "command") };
-    case "Write":
-      return {
-        type: "write",
-        path: str(event.toolInput, "file_path"),
-        content: strOpt(event.toolInput, "content"),
-      };
-    case "Edit":
-      return {
-        type: "edit",
-        path: str(event.toolInput, "file_path"),
-        oldStr: strOpt(event.toolInput, "old_string"),
-        newStr: strOpt(event.toolInput, "new_string"),
-      };
+    case "Write": {
+      const path = str(event.toolInput, "file_path");
+      const content = strOpt(event.toolInput, "content");
+      return content === undefined ? { type: "write", path } : { type: "write", path, content };
+    }
+    case "Edit": {
+      const path = str(event.toolInput, "file_path");
+      const oldStr = strOpt(event.toolInput, "old_string");
+      const newStr = strOpt(event.toolInput, "new_string");
+      const base = { type: "edit" as const, path };
+      if (oldStr !== undefined && newStr !== undefined) return { ...base, oldStr, newStr };
+      if (oldStr !== undefined) return { ...base, oldStr };
+      if (newStr !== undefined) return { ...base, newStr };
+      return base;
+    }
     case "Read":
       return { type: "read", path: str(event.toolInput, "file_path") };
     default:
