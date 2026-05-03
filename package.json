@@ -22,17 +22,19 @@
     "hook-kit": "./src/build/cli.ts"
   },
   "scripts": {
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "biome check src/ tests/",
     "lint:fix": "biome check --write src/ tests/",
     "test": "bun test",
     "build": "bun build src/build/cli.ts --compile --bytecode --outfile dist/hook-kit"
   },
   "dependencies": {
-    "@questi0nm4rk/shell-ast": "^0.1.0"
+    "@questi0nm4rk/shell-ast": "^0.1.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.8",
+    "@questi0nm4rk/feats": "1.0.1",
     "@types/bun": "latest",
     "typescript": "^5.9.3"
   }
