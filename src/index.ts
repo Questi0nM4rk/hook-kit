@@ -1,7 +1,8 @@
 // @questi0nm4rk/hook-kit — framework for building compiled hook binaries
 // See docs/SPEC.md for architecture
 
-// Adapter interface
+// Adapter interface + raw adapter (for library/test use)
+export { type RawAdapter, type RawAdapterState, rawAdapter } from "./adapters/raw.js";
 export type { ProtocolAdapter } from "./adapters/types.js";
 // Decision constructors
 export { context, deny, escalate } from "./core/decision.js";
