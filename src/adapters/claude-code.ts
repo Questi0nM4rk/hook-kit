@@ -86,14 +86,22 @@ function withLabel(message: string, label?: string): string {
  * Parse a raw stdin string into a HookEvent. Throws on empty or
  * non-conforming input — `claudeCodeAdapter.readInput` catches and
  * delegates to handleError (exit 0).
+ *
+ * `HookEvent.raw` carries the original parsed JSON (pre-Zod) so custom
+ * rules can read extra fields the harness layered on top of the
+ * documented schema.
  */
-export function parseHookInput(raw: string): HookEvent {
-  const trimmed = raw.trim();
+export function parseHookInput(rawText: string): HookEvent {
+  const trimmed = rawText.trim();
   if (trimmed === "") {
     throw new Error("[hook-kit] empty stdin");
   }
   const json: unknown = JSON.parse(trimmed);
   const parsed = HookInputSchema.parse(json);
+  const original =
+    typeof json === "object" && json !== null && !Array.isArray(json)
+      ? (json as Readonly<Record<string, unknown>>)
+      : ({} as Readonly<Record<string, unknown>>);
   return {
     eventName: parsed.hook_event_name,
     sessionId: parsed.session_id,
@@ -101,7 +109,7 @@ export function parseHookInput(raw: string): HookEvent {
     transcriptPath: parsed.transcript_path,
     toolName: parsed.tool_name,
     toolInput: parsed.tool_input,
-    raw: parsed as Readonly<Record<string, unknown>>,
+    raw: original,
   };
 }
 
