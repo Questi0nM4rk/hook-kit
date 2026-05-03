@@ -8,12 +8,17 @@ import {
 } from "../core/decision.js";
 import type { Decision, HookEvent, Rule } from "../core/types.js";
 
+type EventType = "write" | "read" | "both";
+
+const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
+const READ_TOOLS = new Set(["Read"]);
+
 export function path(pattern: RegExp): PathRuleBuilder {
   return new PathRuleBuilder(pattern);
 }
 
 class PathRuleBuilder {
-  private eventType: "write" | "read" | "both" = "both";
+  private eventType: EventType = "both";
 
   constructor(private readonly pattern: RegExp) {}
 
@@ -38,15 +43,31 @@ class PathRuleBuilder {
     return this.buildRule(escalateDecision(reason, label));
   }
 
-  private buildRule(_decision: NonNullable<Decision>): Rule {
-    // TODO: implement
-    void this.pattern;
-    void this.eventType;
+  private buildRule(decision: NonNullable<Decision>): Rule {
+    const pattern = this.pattern;
+    const eventType = this.eventType;
     return {
       kind: "path",
-      evaluate(_event: HookEvent): Decision {
-        return null;
+      evaluate(event: HookEvent): Decision {
+        const isWrite = WRITE_TOOLS.has(event.toolName);
+        const isRead = READ_TOOLS.has(event.toolName);
+        if (!isWrite && !isRead) return null;
+        if (eventType === "write" && !isWrite) return null;
+        if (eventType === "read" && !isRead) return null;
+
+        const filePath = extractFilePath(event.toolInput);
+        if (filePath === "") return null;
+
+        return pattern.test(filePath) ? decision : null;
       },
     };
   }
+}
+
+function extractFilePath(input: Readonly<Record<string, unknown>>): string {
+  const candidates = [input.file_path, input.notebook_path, input.path];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.length > 0) return c;
+  }
+  return "";
 }
