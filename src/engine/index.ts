@@ -1,7 +1,8 @@
 // evaluate() — core evaluation loop
 // See docs/SPEC.md § Engine for the full contract
 
-import type { Decision, HookEvent, HookModule, StateStore } from "../core/types.js";
+import { parse, type ShellFile } from "@questi0nm4rk/shell-ast";
+import type { Decision, EvalContext, HookEvent, HookModule, StateStore } from "../core/types.js";
 
 export interface EvaluateOptions {
   readonly state?: StateStore;
@@ -22,6 +23,7 @@ export async function evaluate(
   const contextMessages: string[] = [];
 
   const state = opts.state ?? noopState;
+  const ctx = buildEvalContext(event, state, modules);
 
   for (const mod of modules) {
     if (mod.enabled === false) continue;
@@ -36,7 +38,7 @@ export async function evaluate(
     for (const rule of mod.rules) {
       let decision: Decision;
       try {
-        decision = await rule.evaluate(event, { state, modules });
+        decision = await rule.evaluate(event, ctx);
       } catch {
         // Iron Law 3: fail open on infrastructure errors
         continue;
@@ -62,6 +64,42 @@ export async function evaluate(
   }
 
   return null;
+}
+
+/**
+ * Per-invocation context. The Bash AST is parsed lazily on first request and
+ * cached for the lifetime of the context, so all `cmd()` rules within a single
+ * `evaluate()` call share one parse.
+ */
+function buildEvalContext(
+  event: HookEvent,
+  state: StateStore,
+  modules: readonly HookModule[],
+): EvalContext {
+  let cached: ShellFile | null | undefined;
+  return {
+    state,
+    modules,
+    async getBashAst(): Promise<ShellFile | null> {
+      if (cached !== undefined) return cached;
+      if (event.toolName !== "Bash") {
+        cached = null;
+        return cached;
+      }
+      const cmdInput = event.toolInput.command;
+      const command = typeof cmdInput === "string" ? cmdInput : "";
+      if (command === "") {
+        cached = null;
+        return cached;
+      }
+      try {
+        cached = await parse(command);
+      } catch {
+        cached = null;
+      }
+      return cached;
+    },
+  };
 }
 
 const noopState: StateStore = {
