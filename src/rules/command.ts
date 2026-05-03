@@ -1,21 +1,24 @@
 // cmd() builder — shell-ast based command matching
 // See docs/SPEC.md § Rule Builders for semantics
 
+import { findCalls } from "@questi0nm4rk/shell-ast";
+import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
 import {
   context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
 } from "../core/decision.js";
-import type { Decision, HookEvent, Rule } from "../core/types.js";
+import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
+import { expandFlags, hasFlag } from "../engine/helpers.js";
 
-export function cmd(_command: string, ..._sub: string[]): CommandRuleBuilder {
-  return new CommandRuleBuilder(_command, _sub);
+export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
+  return new CommandRuleBuilder(command, sub);
 }
 
 class CommandRuleBuilder {
   constructor(
     private readonly command: string,
-    private readonly sub: string[],
+    private readonly sub: readonly string[],
     private flags: string[] = [],
     private noFlags: string[] = [],
     private argMatchPatterns: RegExp[] = [],
@@ -55,21 +58,48 @@ class CommandRuleBuilder {
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {
-    // TODO: implement shell-ast evaluation
-    const _config = {
+    const cfg = {
       command: this.command,
-      sub: this.sub,
-      flags: this.flags,
-      noFlags: this.noFlags,
-      argMatchPatterns: this.argMatchPatterns,
-      argIncludeValues: this.argIncludeValues,
+      sub: [...this.sub] as readonly string[],
+      flags: [...this.flags] as readonly string[],
+      noFlags: [...this.noFlags] as readonly string[],
+      argMatchPatterns: [...this.argMatchPatterns] as readonly RegExp[],
+      argIncludeValues: [...this.argIncludeValues] as readonly string[],
     };
     return {
       kind: "command",
-      async evaluate(_event: HookEvent): Promise<Decision> {
-        // Stub — returns null (silent) until engine is implemented
-        void _config;
-        void decision;
+      async evaluate(_event: HookEvent, ctx: EvalContext): Promise<Decision> {
+        const ast = await ctx.getBashAst();
+        if (ast === null) return null;
+
+        for (const call of findCalls(ast)) {
+          const unwrapped = unwrapCall(call);
+          if (unwrapped === null) continue;
+          if (unwrapped.cmd !== cfg.command) continue;
+
+          // Match subcommands by position
+          let subOk = true;
+          for (let i = 0; i < cfg.sub.length; i++) {
+            if (unwrapped.args[i] !== cfg.sub[i]) {
+              subOk = false;
+              break;
+            }
+          }
+          if (!subOk) continue;
+
+          // Flag predicates (alias-aware)
+          const expanded = expandFlags(unwrapped.flags);
+          if (!cfg.flags.every((f) => hasFlag(expanded, f))) continue;
+          if (cfg.noFlags.some((f) => hasFlag(expanded, f))) continue;
+
+          // Arg predicates
+          if (!cfg.argIncludeValues.every((v) => unwrapped.args.includes(v))) continue;
+          if (!cfg.argMatchPatterns.every((p) => unwrapped.args.some((a) => p.test(a)))) {
+            continue;
+          }
+
+          return decision;
+        }
         return null;
       },
     };
