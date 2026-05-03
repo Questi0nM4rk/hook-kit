@@ -5,9 +5,18 @@ export function toToolEvent(event: HookEvent): ToolEvent {
     case "Bash":
       return { type: "bash", command: str(event.toolInput, "command") };
     case "Write":
-      return { type: "write", path: str(event.toolInput, "file_path"), content: strOpt(event.toolInput, "content") };
+      return {
+        type: "write",
+        path: str(event.toolInput, "file_path"),
+        content: strOpt(event.toolInput, "content"),
+      };
     case "Edit":
-      return { type: "edit", path: str(event.toolInput, "file_path"), oldStr: strOpt(event.toolInput, "old_string"), newStr: strOpt(event.toolInput, "new_string") };
+      return {
+        type: "edit",
+        path: str(event.toolInput, "file_path"),
+        oldStr: strOpt(event.toolInput, "old_string"),
+        newStr: strOpt(event.toolInput, "new_string"),
+      };
     case "Read":
       return { type: "read", path: str(event.toolInput, "file_path") };
     default:
