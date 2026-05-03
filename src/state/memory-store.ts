@@ -1,5 +1,5 @@
 // In-memory state store (for testing)
-// See SPEC-001 § State Management
+// See docs/SPEC.md § State Management
 
 import type { StateStore } from "../core/types.js";
 

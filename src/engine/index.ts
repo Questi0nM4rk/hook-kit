@@ -1,5 +1,5 @@
 // evaluate() — core evaluation loop
-// See SPEC-001 § Engine for the full contract
+// See docs/SPEC.md § Engine for the full contract
 
 import type { Decision, HookEvent, HookModule, StateStore } from "../core/types.js";
 
@@ -11,7 +11,7 @@ export interface EvaluateOptions {
 /**
  * Evaluate all matching modules/rules against a hook event.
  * Returns Decision (action) or null (silent pass-through).
- * See SPEC-001 § Engine § Evaluation flow.
+ * See docs/SPEC.md § Engine for the full contract.
  */
 export async function evaluate(
   event: HookEvent,

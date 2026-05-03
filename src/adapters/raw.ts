@@ -1,5 +1,5 @@
 // Raw adapter — for testing and library mode
-// See SPEC-001 § Protocol Adapter
-// TODO: implement in Phase 1
+// See docs/SPEC.md § Protocol Adapters
+// TODO: implement
 
-export { type ProtocolAdapter } from "./types.js";
+export type { ProtocolAdapter } from "./types.js";
