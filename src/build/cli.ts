@@ -5,6 +5,8 @@
 import { writeFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { brokerAskpass, listPending, listSessions, submitDecision } from "../escalation/broker.js";
+import { forwardUp } from "../escalation/forward.js";
+import { registerListener } from "../escalation/listeners.js";
 import { BuildError, generateHooksJson, runBuild } from "./bundle.js";
 
 const HELP = `\
@@ -14,6 +16,12 @@ Build:
   hook-kit build <entrypoint> --out <path> [--adapter claude-code]
                               [--hooks-json <path>] [--binary-command <s>]
                               [--hook-timeout <seconds>]
+
+  --hook-timeout is REQUIRED when --hooks-json is set (no default).
+  hook-kit doesn't enforce its own timeout on escalate; this CC-side
+  timeout is the ceiling. Pick deliberately:
+    short (e.g. 5)    — plugins without escalate rules
+    long (e.g. 3600)  — plugins where escalate may need a human
 
 Escalation:
   hook-kit broker --askpass               Read an AskRequest from stdin and
@@ -25,8 +33,16 @@ Escalation:
                      [--children-of <id>] lines. Polls until interrupted.
                      [--poll-ms <n>]
   hook-kit decide <request_id>            Submit a decision atomically.
-                  --allow | --deny
-                  [--reason <text>] [--session <id>] [--by <name>]
+                  --allow | --deny | --escalate-up
+                  --session <id>
+                  [--reason <text>] [--by <name>]
+                                          --escalate-up forwards the request
+                                          to the parent session's spool and
+                                          waits there. If no parent exists,
+                                          terminates the chain at harness-ask
+                                          so the harness's native UI handles
+                                          it (no timeout — chain runs as long
+                                          as the original hook process is alive).
   hook-kit watch [--session <id>]         Minimal TTY listener — print pending
                  [--children-of <id>]     requests as they arrive (no prompt
                  [--poll-ms <n>]          UI yet; pair with \`hook-kit decide\`).
@@ -78,7 +94,15 @@ async function buildCommand(argv: readonly string[]): Promise<number> {
       const binaryCommand =
         getArg(argv, "--binary-command") ??
         `\${CLAUDE_PLUGIN_ROOT}/${out.split(/[/\\]/).pop() ?? "hooks"}`;
-      const timeoutStr = getArg(argv, "--hook-timeout") ?? "65";
+      const timeoutStr = getArg(argv, "--hook-timeout");
+      if (timeoutStr === undefined) {
+        process.stderr.write(
+          "hook-kit build: --hook-timeout <seconds> is required when --hooks-json is set.\n" +
+            "  Pick deliberately: short (e.g. 5) for hooks without escalate rules; long (e.g. 3600) when escalate may need a human in the loop.\n" +
+            "  hook-kit does not enforce its own timeout on escalate; CC's hook timeout is the only ceiling.\n",
+        );
+        return 1;
+      }
       const timeout = Number.parseInt(timeoutStr, 10);
       if (!Number.isFinite(timeout) || timeout <= 0) {
         process.stderr.write(`hook-kit build: invalid --hook-timeout "${timeoutStr}"\n`);
@@ -154,13 +178,36 @@ async function subscribeCommand(argv: readonly string[]): Promise<number> {
   const pollMs = Number.parseInt(getArg(argv, "--poll-ms") ?? "100", 10);
   const seen = new Set<string>();
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+  // Register a listener marker so the validator sees us. We register on each
+  // observed session — for --session/--children-of filters, we attach there;
+  // for unbounded (all sessions), we attach lazily as sessions appear.
+  const cleanups = new Map<string, () => void>();
+  const ensureMarker = (sessionId: string): void => {
+    if (cleanups.has(sessionId)) return;
+    cleanups.set(sessionId, registerListener(sessionId, "subscribe"));
+  };
+  const cleanupAll = (): void => {
+    for (const c of cleanups.values()) c();
+    cleanups.clear();
+  };
+  process.on("SIGINT", () => {
+    cleanupAll();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    cleanupAll();
+    process.exit(0);
+  });
+
+  if (sessionFilter !== undefined) ensureMarker(sessionFilter);
+
   while (true) {
     const sessions =
       sessionFilter !== undefined
         ? [{ sessionId: sessionFilter }]
         : listSessions(childrenOf !== undefined ? { childrenOf } : {});
     for (const s of sessions) {
+      ensureMarker(s.sessionId);
       const pending = listPending(s.sessionId);
       for (const req of pending) {
         if (seen.has(req.id)) continue;
@@ -172,7 +219,7 @@ async function subscribeCommand(argv: readonly string[]): Promise<number> {
   }
 }
 
-function decideCommand(argv: readonly string[]): number {
+async function decideCommand(argv: readonly string[]): Promise<number> {
   const positional = argv.filter(
     (a, i) => !a.startsWith("--") && (i === 0 || !argv[i - 1]?.startsWith("--")),
   );
@@ -186,14 +233,19 @@ function decideCommand(argv: readonly string[]): number {
     process.stderr.write("hook-kit decide: --session is required\n");
     return 1;
   }
+  const reason = getArg(argv, "--reason");
+  const by = getArg(argv, "--by");
+
+  if (hasFlag(argv, "--escalate-up")) {
+    return forwardCommand(session, requestId, by);
+  }
+
   const allow = hasFlag(argv, "--allow");
   const deny = hasFlag(argv, "--deny");
   if (allow === deny) {
-    process.stderr.write("hook-kit decide: pass exactly one of --allow / --deny\n");
+    process.stderr.write("hook-kit decide: pass exactly one of --allow / --deny / --escalate-up\n");
     return 1;
   }
-  const reason = getArg(argv, "--reason");
-  const by = getArg(argv, "--by");
   const ok = submitDecision(session, requestId, allow ? "allow" : "deny", reason, {
     ...(by !== undefined ? { by } : {}),
   });
@@ -207,6 +259,30 @@ function decideCommand(argv: readonly string[]): number {
   return 0;
 }
 
+async function forwardCommand(
+  session: string,
+  requestId: string,
+  by: string | undefined,
+): Promise<number> {
+  const result = await forwardUp(session, requestId, by !== undefined ? { by } : {});
+  if (result.kind === "missing-pending") {
+    process.stderr.write(
+      `hook-kit decide --escalate-up: no pending request ${requestId} in session ${session}\n`,
+    );
+    return 1;
+  }
+  if (result.kind === "harness-ask") {
+    process.stderr.write(
+      `hook-kit: forwarded ${requestId} → harness-ask (chain end at session ${session})\n`,
+    );
+    return 0;
+  }
+  process.stderr.write(
+    `hook-kit: ${requestId} decided as ${result.response?.decision} (parent ${result.parentSessionId})\n`,
+  );
+  return 0;
+}
+
 async function watchCommand(argv: readonly string[]): Promise<number> {
   // Minimal TTY listener — print a one-line summary as each new pending
   // request appears. Pair with `hook-kit decide` from another shell to
@@ -215,16 +291,37 @@ async function watchCommand(argv: readonly string[]): Promise<number> {
   const childrenOf = getArg(argv, "--children-of");
   const pollMs = Number.parseInt(getArg(argv, "--poll-ms") ?? "200", 10);
   const seen = new Set<string>();
+
+  const cleanups = new Map<string, () => void>();
+  const ensureMarker = (sessionId: string): void => {
+    if (cleanups.has(sessionId)) return;
+    cleanups.set(sessionId, registerListener(sessionId, "watch"));
+  };
+  const cleanupAll = (): void => {
+    for (const c of cleanups.values()) c();
+    cleanups.clear();
+  };
+  process.on("SIGINT", () => {
+    cleanupAll();
+    process.exit(0);
+  });
+  process.on("SIGTERM", () => {
+    cleanupAll();
+    process.exit(0);
+  });
+
+  if (sessionFilter !== undefined) ensureMarker(sessionFilter);
+
   process.stderr.write(
     `hook-kit watch: streaming pending requests (Ctrl+C to stop). To respond: \`hook-kit decide <id> --session <session> --allow|--deny\`\n`,
   );
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   while (true) {
     const sessions =
       sessionFilter !== undefined
         ? [{ sessionId: sessionFilter }]
         : listSessions(childrenOf !== undefined ? { childrenOf } : {});
     for (const s of sessions) {
+      ensureMarker(s.sessionId);
       const pending = listPending(s.sessionId);
       for (const req of pending) {
         if (seen.has(req.id)) continue;
@@ -262,7 +359,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "subscribe":
       return subscribeCommand(rest);
     case "decide":
-      return decideCommand(rest);
+      return await decideCommand(rest);
     case "watch":
       return watchCommand(rest);
     default:
