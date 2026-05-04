@@ -3,6 +3,8 @@
 
 import { z } from "zod";
 import type { Decision, HookEvent } from "../core/types.js";
+import { callAskpass } from "../escalation/askpass.js";
+import { createAskRequest } from "../escalation/envelope.js";
 import type { ProtocolAdapter } from "./types.js";
 
 const HookInputSchema = z.object({
@@ -31,6 +33,15 @@ export interface CcOutput {
  * reason that mentions the missing infrastructure (Iron Law 3 exception:
  * escalate-with-no-responder denies, never silent-allows).
  */
+/**
+ * Synchronous mapping for non-escalate decisions. Use `resolveCcOutput` for
+ * the full path including escalation; `decideCcOutput` is kept as a pure
+ * function so non-escalate tests can assert directly on the output without
+ * touching the askpass channel.
+ *
+ * For an `escalate` decision this returns the same deny shape as before —
+ * use `resolveCcOutput` (async) to actually drive the askpass channel.
+ */
 export function decideCcOutput(decision: Decision, event: HookEvent): CcOutput {
   if (decision === null) return { stdout: "", stderr: "", exitCode: 0 };
 
@@ -52,12 +63,98 @@ export function decideCcOutput(decision: Decision, event: HookEvent): CcOutput {
     return denyOutput(withLabel(decision.reason, decision.label), event.eventName);
   }
 
-  // escalate — M1 stub: no askpass yet. Deny with an explicit reason.
+  // Sync path for escalate: deny with a "use resolveCcOutput" hint. Production
+  // code should always go through resolveCcOutput, which routes via askpass.
   const reason = withLabel(
-    `[hook-kit] escalation not yet implemented; original: ${decision.reason}`,
+    `[hook-kit] escalate decision reached the sync path; use resolveCcOutput. Original: ${decision.reason}`,
     decision.label,
   );
   return denyOutput(reason, event.eventName);
+}
+
+export interface ResolveCcOutputOptions {
+  /** Override the askpass binary path (defaults to env $HOOK_KIT_ASKPASS). */
+  readonly askpassPath?: string;
+  /** Override the askpass timeout in ms (defaults to 60_000). */
+  readonly timeoutMs?: number;
+}
+
+/**
+ * Full async mapping. Routes escalate decisions through the askpass channel
+ * and translates the response back into a CcOutput. Non-escalate decisions
+ * delegate to decideCcOutput synchronously.
+ *
+ * harness-ask responses produce CC's native `permissionDecision: "ask"` for
+ * PreToolUse, letting CC's UI block indefinitely. For PostToolUse and other
+ * events that don't accept "ask", harness-ask degrades to a context message
+ * carrying the original reason (per the spec's Escalation table).
+ */
+export async function resolveCcOutput(
+  decision: Decision,
+  event: HookEvent,
+  opts: ResolveCcOutputOptions = {},
+): Promise<CcOutput> {
+  if (decision === null || decision.kind !== "escalate") {
+    return decideCcOutput(decision, event);
+  }
+
+  const request = createAskRequest({
+    sessionId: event.sessionId,
+    toolName: event.toolName,
+    toolInput: event.toolInput,
+    reason: decision.reason,
+    ...(decision.label !== undefined ? { label: decision.label } : {}),
+  });
+  const askOpts: { askpassPath?: string; timeoutMs?: number } = {};
+  if (opts.askpassPath !== undefined) askOpts.askpassPath = opts.askpassPath;
+  if (opts.timeoutMs !== undefined) askOpts.timeoutMs = opts.timeoutMs;
+  const response = await callAskpass({ request, ...askOpts });
+
+  if (response.decision === "allow") {
+    return { stdout: "", stderr: "", exitCode: 0 };
+  }
+
+  if (response.decision === "harness-ask") {
+    return harnessAskOutput(decision, event);
+  }
+
+  // deny — propagate the askpass's reason if it offered one, else fall back.
+  const reason = withLabel(
+    response.reason ?? `[hook-kit] denied: ${decision.reason}`,
+    decision.label,
+  );
+  return denyOutput(reason, event.eventName);
+}
+
+function harnessAskOutput(
+  decision: Extract<Decision, { kind: "escalate" }>,
+  event: HookEvent,
+): CcOutput {
+  const message = withLabel(decision.reason, decision.label);
+  if (event.eventName === "PreToolUse") {
+    return {
+      stdout: JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "ask",
+          permissionDecisionReason: message,
+        },
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+  }
+  // PostToolUse / SessionStart / Stop don't accept "ask" — degrade to context.
+  return {
+    stdout: JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: event.eventName,
+        additionalContext: message,
+      },
+    }),
+    stderr: "",
+    exitCode: 0,
+  };
 }
 
 function denyOutput(reason: string, eventName: string): CcOutput {
@@ -126,8 +223,8 @@ export const claudeCodeAdapter: ProtocolAdapter = {
     const raw = await readAllStdin();
     return parseHookInput(raw);
   },
-  writeOutput(decision: Decision, event: HookEvent): void {
-    const out = decideCcOutput(decision, event);
+  async writeOutput(decision: Decision, event: HookEvent): Promise<void> {
+    const out = await resolveCcOutput(decision, event);
     if (out.stdout !== "") process.stdout.write(out.stdout);
     if (out.stderr !== "") process.stderr.write(out.stderr);
     process.exit(out.exitCode);
