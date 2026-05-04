@@ -53,6 +53,8 @@ Misc:
   hook-kit --version / -v
 `;
 
+// ─────────────────────────── argv helpers ────────────────────────────
+
 function getArg(argv: readonly string[], flag: string): string | undefined {
   const i = argv.indexOf(flag);
   if (i === -1) return undefined;
@@ -63,73 +65,107 @@ function hasFlag(argv: readonly string[], flag: string): boolean {
   return argv.includes(flag);
 }
 
+/** Extract positional args (those not starting with `--` and not following a `--flag`). */
+function positionals(argv: readonly string[]): string[] {
+  return argv.filter((a, i) => !a.startsWith("--") && (i === 0 || !argv[i - 1]?.startsWith("--")));
+}
+
+/** `exactOptionalPropertyTypes` workaround: produce `{}` when value is undefined,
+ *  `{ [key]: value }` otherwise. Keeps spread idioms compact at call sites. */
+function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
+  return value === undefined ? {} : ({ [key]: value } as { [P in K]?: V });
+}
+
+function writeErr(message: string): void {
+  process.stderr.write(message);
+}
+
+function installExitHandlers(cleanup: () => void): void {
+  const handler = (): void => {
+    cleanup();
+    process.exit(0);
+  };
+  process.on("SIGINT", handler);
+  process.on("SIGTERM", handler);
+}
+
 // ──────────────────────────── build ──────────────────────────────
 
 async function buildCommand(argv: readonly string[]): Promise<number> {
-  const positional = argv.filter(
-    (a, i) => !a.startsWith("--") && (i === 0 || !argv[i - 1]?.startsWith("--")),
-  );
-  const entrypoint = positional[0];
+  const entrypoint = positionals(argv)[0];
   if (entrypoint === undefined) {
-    process.stderr.write("hook-kit build: missing <entrypoint>\n");
-    process.stderr.write(HELP);
+    writeErr("hook-kit build: missing <entrypoint>\n");
+    writeErr(HELP);
     return 1;
   }
   const out = getArg(argv, "--out");
   if (out === undefined) {
-    process.stderr.write("hook-kit build: --out is required\n");
+    writeErr("hook-kit build: --out is required\n");
     return 1;
   }
-  const adapter = (getArg(argv, "--adapter") ?? "claude-code") as "claude-code";
+  const adapter = getArg(argv, "--adapter") ?? "claude-code";
   if (adapter !== "claude-code") {
-    process.stderr.write(`hook-kit build: unsupported adapter "${adapter}"\n`);
+    writeErr(`hook-kit build: unsupported adapter "${adapter}"\n`);
     return 1;
   }
 
   try {
     const result = await runBuild({ entrypoint, out, adapter });
-    process.stderr.write(`hook-kit: compiled ${result.binPath}\n`);
+    writeErr(`hook-kit: compiled ${result.binPath}\n`);
 
     const hooksJsonPath = getArg(argv, "--hooks-json");
     if (hooksJsonPath !== undefined) {
-      const binaryCommand =
-        getArg(argv, "--binary-command") ??
-        `\${CLAUDE_PLUGIN_ROOT}/${out.split(/[/\\]/).pop() ?? "hooks"}`;
-      const timeoutStr = getArg(argv, "--hook-timeout");
-      if (timeoutStr === undefined) {
-        process.stderr.write(
-          "hook-kit build: --hook-timeout <seconds> is required when --hooks-json is set.\n" +
-            "  Pick deliberately: short (e.g. 5) for hooks without escalate rules; long (e.g. 3600) when escalate may need a human in the loop.\n" +
-            "  hook-kit does not enforce its own timeout on escalate; CC's hook timeout is the only ceiling.\n",
-        );
-        return 1;
-      }
-      const timeout = Number.parseInt(timeoutStr, 10);
-      if (!Number.isFinite(timeout) || timeout <= 0) {
-        process.stderr.write(`hook-kit build: invalid --hook-timeout "${timeoutStr}"\n`);
-        return 1;
-      }
-      const absEntry = isAbsolute(entrypoint) ? entrypoint : resolve(process.cwd(), entrypoint);
-      const userModules = await import(absEntry);
-      const modules = (userModules.default ?? []) as Parameters<typeof generateHooksJson>[0];
-      const json = generateHooksJson(modules, { binaryPath: binaryCommand, timeout });
-      const absJsonPath = isAbsolute(hooksJsonPath)
-        ? hooksJsonPath
-        : resolve(process.cwd(), hooksJsonPath);
-      writeFileSync(absJsonPath, `${JSON.stringify(json, null, 2)}\n`, "utf8");
-      process.stderr.write(`hook-kit: wrote ${absJsonPath}\n`);
+      const code = await writeHooksJson(argv, entrypoint, out, hooksJsonPath);
+      if (code !== 0) return code;
     }
     return 0;
   } catch (err) {
     if (err instanceof BuildError) {
-      process.stderr.write(`hook-kit build: ${err.message}\n`);
-      if (err.stderr !== "") process.stderr.write(err.stderr);
+      writeErr(`hook-kit build: ${err.message}\n`);
+      if (err.stderr !== "") writeErr(err.stderr);
       return 1;
     }
     const message = err instanceof Error ? err.message : String(err);
-    process.stderr.write(`hook-kit build: ${message}\n`);
+    writeErr(`hook-kit build: ${message}\n`);
     return 1;
   }
+}
+
+async function writeHooksJson(
+  argv: readonly string[],
+  entrypoint: string,
+  out: string,
+  hooksJsonPath: string,
+): Promise<number> {
+  const binaryCommand =
+    getArg(argv, "--binary-command") ??
+    `\${CLAUDE_PLUGIN_ROOT}/${out.split(/[/\\]/).pop() ?? "hooks"}`;
+
+  const timeoutStr = getArg(argv, "--hook-timeout");
+  if (timeoutStr === undefined) {
+    writeErr(
+      "hook-kit build: --hook-timeout <seconds> is required when --hooks-json is set.\n" +
+        "  Pick deliberately: short (e.g. 5) for hooks without escalate rules; long (e.g. 3600) when escalate may need a human in the loop.\n" +
+        "  hook-kit does not enforce its own timeout on escalate; CC's hook timeout is the only ceiling.\n",
+    );
+    return 1;
+  }
+  const timeout = Number.parseInt(timeoutStr, 10);
+  if (!Number.isFinite(timeout) || timeout <= 0) {
+    writeErr(`hook-kit build: invalid --hook-timeout "${timeoutStr}"\n`);
+    return 1;
+  }
+
+  const absEntry = isAbsolute(entrypoint) ? entrypoint : resolve(process.cwd(), entrypoint);
+  const userModules = await import(absEntry);
+  const modules = (userModules.default ?? []) as Parameters<typeof generateHooksJson>[0];
+  const json = generateHooksJson(modules, { binaryPath: binaryCommand, timeout });
+  const absJsonPath = isAbsolute(hooksJsonPath)
+    ? hooksJsonPath
+    : resolve(process.cwd(), hooksJsonPath);
+  writeFileSync(absJsonPath, `${JSON.stringify(json, null, 2)}\n`, "utf8");
+  writeErr(`hook-kit: wrote ${absJsonPath}\n`);
+  return 0;
 }
 
 // ────────────────────────── escalation ───────────────────────────
@@ -144,7 +180,7 @@ async function readAllStdin(): Promise<string> {
 
 async function brokerCommand(argv: readonly string[]): Promise<number> {
   if (!hasFlag(argv, "--askpass")) {
-    process.stderr.write(
+    writeErr(
       "hook-kit broker: only --askpass mode is supported. The broker doesn't run as a long-lived daemon — listeners use list/subscribe/decide on the spool directly.\n",
     );
     return 1;
@@ -155,13 +191,13 @@ async function brokerCommand(argv: readonly string[]): Promise<number> {
   return 0;
 }
 
-function listCommand(argv: readonly string[]): number {
+async function listCommand(argv: readonly string[]): Promise<number> {
   const childrenOf = getArg(argv, "--children-of");
-  const sessions = listSessions(childrenOf !== undefined ? { childrenOf } : {});
+  const sessions = listSessions(optional("childrenOf", childrenOf));
   if (hasFlag(argv, "--json")) {
     process.stdout.write(`${JSON.stringify(sessions, null, 2)}\n`);
   } else if (sessions.length === 0) {
-    process.stderr.write("(no active sessions)\n");
+    writeErr("(no active sessions)\n");
   } else {
     for (const s of sessions) {
       const lineage = s.parentSessionId !== undefined ? ` ← ${s.parentSessionId}` : "";
@@ -187,17 +223,9 @@ async function subscribeCommand(argv: readonly string[]): Promise<number> {
     if (cleanups.has(sessionId)) return;
     cleanups.set(sessionId, registerListener(sessionId, "subscribe"));
   };
-  const cleanupAll = (): void => {
+  installExitHandlers(() => {
     for (const c of cleanups.values()) c();
     cleanups.clear();
-  };
-  process.on("SIGINT", () => {
-    cleanupAll();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    cleanupAll();
-    process.exit(0);
   });
 
   if (sessionFilter !== undefined) ensureMarker(sessionFilter);
@@ -206,11 +234,10 @@ async function subscribeCommand(argv: readonly string[]): Promise<number> {
     const sessions =
       sessionFilter !== undefined
         ? [{ sessionId: sessionFilter }]
-        : listSessions(childrenOf !== undefined ? { childrenOf } : {});
+        : listSessions(optional("childrenOf", childrenOf));
     for (const s of sessions) {
       ensureMarker(s.sessionId);
-      const pending = listPending(s.sessionId);
-      for (const req of pending) {
+      for (const req of listPending(s.sessionId)) {
         if (seen.has(req.id)) continue;
         seen.add(req.id);
         process.stdout.write(`${JSON.stringify(req)}\n`);
@@ -221,67 +248,64 @@ async function subscribeCommand(argv: readonly string[]): Promise<number> {
 }
 
 async function decideCommand(argv: readonly string[]): Promise<number> {
-  const positional = argv.filter(
-    (a, i) => !a.startsWith("--") && (i === 0 || !argv[i - 1]?.startsWith("--")),
-  );
-  const requestId = positional[0];
+  const requestId = positionals(argv)[0];
   if (requestId === undefined) {
-    process.stderr.write("hook-kit decide: missing <request_id>\n");
+    writeErr("hook-kit decide: missing <request_id>\n");
     return 1;
   }
   const session = getArg(argv, "--session");
   if (session === undefined) {
-    process.stderr.write("hook-kit decide: --session is required\n");
+    writeErr("hook-kit decide: --session is required\n");
     return 1;
   }
   const reason = getArg(argv, "--reason");
   const by = getArg(argv, "--by");
 
   if (hasFlag(argv, "--escalate-up")) {
-    return forwardCommand(session, requestId, by);
+    return decideEscalateUp(session, requestId, by);
   }
 
   const allow = hasFlag(argv, "--allow");
   const deny = hasFlag(argv, "--deny");
   if (allow === deny) {
-    process.stderr.write("hook-kit decide: pass exactly one of --allow / --deny / --escalate-up\n");
+    writeErr("hook-kit decide: pass exactly one of --allow / --deny / --escalate-up\n");
     return 1;
   }
-  const ok = submitDecision(session, requestId, allow ? "allow" : "deny", reason, {
-    ...(by !== undefined ? { by } : {}),
-  });
+  const decision = allow ? "allow" : "deny";
+  const ok = submitDecision(session, requestId, decision, reason, optional("by", by));
   if (!ok) {
-    process.stderr.write(
+    writeErr(
       `hook-kit decide: a decision for ${requestId} was already submitted (first-writer-wins)\n`,
     );
     return 1;
   }
-  process.stderr.write(`hook-kit: decided ${requestId} → ${allow ? "allow" : "deny"}\n`);
+  writeErr(`hook-kit: decided ${requestId} → ${decision}\n`);
   return 0;
 }
 
-async function forwardCommand(
+async function decideEscalateUp(
   session: string,
   requestId: string,
   by: string | undefined,
 ): Promise<number> {
-  const result = await forwardUp(session, requestId, by !== undefined ? { by } : {});
-  if (result.kind === "missing-pending") {
-    process.stderr.write(
-      `hook-kit decide --escalate-up: no pending request ${requestId} in session ${session}\n`,
-    );
-    return 1;
+  const result = await forwardUp(session, requestId, optional("by", by));
+  switch (result.kind) {
+    case "missing-pending":
+      writeErr(
+        `hook-kit decide --escalate-up: no pending request ${requestId} in session ${session}\n`,
+      );
+      return 1;
+    case "harness-ask":
+      writeErr(
+        `hook-kit: forwarded ${requestId} → harness-ask (chain end at session ${session})\n`,
+      );
+      return 0;
+    case "forwarded":
+      writeErr(
+        `hook-kit: ${requestId} decided as ${result.response?.decision} (parent ${result.parentSessionId})\n`,
+      );
+      return 0;
   }
-  if (result.kind === "harness-ask") {
-    process.stderr.write(
-      `hook-kit: forwarded ${requestId} → harness-ask (chain end at session ${session})\n`,
-    );
-    return 0;
-  }
-  process.stderr.write(
-    `hook-kit: ${requestId} decided as ${result.response?.decision} (parent ${result.parentSessionId})\n`,
-  );
-  return 0;
 }
 
 async function watchCommand(argv: readonly string[]): Promise<number> {
@@ -289,11 +313,12 @@ async function watchCommand(argv: readonly string[]): Promise<number> {
   const childrenOf = getArg(argv, "--children-of");
   const pollMsArg = getArg(argv, "--poll-ms");
   const pollMs = pollMsArg !== undefined ? Number.parseInt(pollMsArg, 10) : undefined;
+  const validPollMs = pollMs !== undefined && Number.isFinite(pollMs) ? pollMs : undefined;
 
   await runWatchTui({
-    ...(sessionFilter !== undefined ? { sessionFilter } : {}),
-    ...(childrenOf !== undefined ? { childrenOf } : {}),
-    ...(pollMs !== undefined && Number.isFinite(pollMs) ? { pollMs } : {}),
+    ...optional("sessionFilter", sessionFilter),
+    ...optional("childrenOf", childrenOf),
+    ...optional("pollMs", validPollMs),
   });
   return 0;
 }
@@ -321,11 +346,11 @@ async function main(argv: readonly string[]): Promise<number> {
     case "subscribe":
       return subscribeCommand(rest);
     case "decide":
-      return await decideCommand(rest);
+      return decideCommand(rest);
     case "watch":
       return watchCommand(rest);
     default:
-      process.stderr.write(`hook-kit: unknown command '${sub}'\n${HELP}`);
+      writeErr(`hook-kit: unknown command '${sub}'\n${HELP}`);
       return 1;
   }
 }
