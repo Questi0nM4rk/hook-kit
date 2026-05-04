@@ -21,10 +21,10 @@ import {
   parseAskRequest,
   parseAskResponse,
 } from "./envelope.js";
+import { hasParentListener } from "./listeners.js";
 
 const DEFAULT_ROOT = join(homedir(), ".cache", "hook-kit", "sessions");
 const DEFAULT_POLL_MS = 100;
-const DEFAULT_TIMEOUT_MS = 60_000;
 
 export interface BrokerPaths {
   readonly sessionDir: string;
@@ -116,14 +116,31 @@ function atomicWriteIfAbsent(path: string, data: string): boolean {
 export interface BrokerAskpassOptions {
   readonly root?: string;
   readonly pollMs?: number;
+  /**
+   * Optional poll deadline. The broker's default is **no internal timeout** —
+   * questions sit in the spool until either a listener responds or the
+   * caller process is killed externally (e.g., by CC's hooks.json timeout).
+   * Pass a positive number to bound the wait for tests or specialized cases.
+   */
   readonly timeoutMs?: number;
+  /**
+   * Bypass the parent-listener validator. Set to `true` only in tests where
+   * you've already verified or staged listeners by hand.
+   */
+  readonly skipValidator?: boolean;
 }
 
 /**
- * Run the broker in askpass mode: read an AskRequest from stdin, stage it on
- * the spool, wait for a decision (or auto-deny on timeout), and write the
- * AskResponse to stdout. Always exits 0 — the askpass contract reserves
- * non-zero exits for transport failures, not policy decisions.
+ * Run the broker in askpass mode: read an AskRequest from stdin, validate
+ * that a parent listener is reachable, stage on the spool, then poll until
+ * a decision lands. Always returns; never throws.
+ *
+ * Validator: walks the parent_session_id chain and looks for a live listener
+ * (a process with a current marker file in `<session>/listeners/`). If none
+ * is found anywhere in the chain, the request is denied immediately with
+ * "NO PARENT ATTACHED". Non-escalate decisions in the calling adapter are
+ * unaffected — the validator only fires when an `escalate` decision drives
+ * the broker.
  */
 export async function brokerAskpass(
   stdinText: string,
@@ -131,7 +148,7 @@ export async function brokerAskpass(
 ): Promise<AskResponse> {
   const root = opts.root ?? DEFAULT_ROOT;
   const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = opts.timeoutMs;
 
   let request: AskRequest;
   try {
@@ -153,6 +170,17 @@ export async function brokerAskpass(
     root,
   });
 
+  // Validator: at least one live listener must be reachable up the chain.
+  if (opts.skipValidator !== true && !hasParentListener(request.sessionId, { root })) {
+    audit(paths, { kind: "no-parent-deny", id: request.id });
+    return createAskResponse({
+      id: request.id,
+      decision: "deny",
+      reason: `[hook-kit] NO PARENT ATTACHED — no live listener found anywhere in the parent chain. Original: ${request.reason}`,
+      by: "broker:validator",
+    });
+  }
+
   const pendingPath = join(paths.pendingDir, `${request.id}.json`);
   const decidedPath = join(paths.decidedDir, `${request.id}.json`);
 
@@ -168,14 +196,14 @@ export async function brokerAskpass(
   }
   audit(paths, { kind: "pending", id: request.id, toolName: request.toolName });
 
-  // Wait for a decided/<id>.json file or timeout.
+  // Poll for decided/<id>.json. With no timeout (default), this loops until
+  // either a listener writes a decision or the broker process is killed.
   const start = Date.now();
   while (true) {
     if (existsSync(decidedPath)) {
       try {
         const raw = readFileSync(decidedPath, "utf8");
         const response = parseAskResponse(raw);
-        // Cleanup
         try {
           rmSync(pendingPath, { force: true });
           rmSync(decidedPath, { force: true });
@@ -190,7 +218,6 @@ export async function brokerAskpass(
         });
         return response;
       } catch (err) {
-        // Bad decision file — log and treat as auto-deny.
         audit(paths, {
           kind: "decision-malformed",
           id: request.id,
@@ -199,16 +226,20 @@ export async function brokerAskpass(
         break;
       }
     }
-    if (Date.now() - start >= timeoutMs) break;
+    if (timeoutMs !== undefined && Date.now() - start >= timeoutMs) break;
     await sleep(pollMs);
   }
 
-  // Timeout or malformed decision: write our own deny so any race-late writer
-  // sees the slot already taken.
+  // We only get here on a) malformed decision file or b) opt-in timeout
+  // expiry. Write our own deny so any race-late real writer loses cleanly.
+  const reason =
+    timeoutMs !== undefined
+      ? `[hook-kit broker] no decision in ${Math.round(timeoutMs / 1000)}s. Original: ${request.reason}`
+      : `[hook-kit broker] decision file was malformed; original: ${request.reason}`;
   const autoDeny = createAskResponse({
     id: request.id,
     decision: "deny",
-    reason: `[hook-kit broker] no decision in ${Math.round(timeoutMs / 1000)}s. Original: ${request.reason}`,
+    reason,
     by: "broker:auto-deny",
   });
   atomicWriteIfAbsent(decidedPath, JSON.stringify(autoDeny));

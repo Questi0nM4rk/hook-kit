@@ -11,6 +11,7 @@ import {
   submitDecision,
 } from "../../src/escalation/broker.js";
 import { createAskRequest } from "../../src/escalation/envelope.js";
+import { registerListener } from "../../src/escalation/listeners.js";
 
 let workDir: string;
 
@@ -52,7 +53,6 @@ describe("brokerAskpass — happy path", () => {
       reason: "test",
     });
 
-    // Pre-write a decision so the broker doesn't have to wait.
     ensureSession("s1", { root: workDir });
     const decidedPath = join(brokerPaths("s1", workDir).decidedDir, `${req.id}.json`);
     Bun.write(
@@ -68,6 +68,7 @@ describe("brokerAskpass — happy path", () => {
       root: workDir,
       pollMs: 10,
       timeoutMs: 1000,
+      skipValidator: true,
     });
     expect(res.decision).toBe("allow");
     expect(res.id).toBe(req.id);
@@ -85,8 +86,8 @@ describe("brokerAskpass — happy path", () => {
       root: workDir,
       pollMs: 10,
       timeoutMs: 2000,
+      skipValidator: true,
     });
-    // Submit the decision after a brief delay to simulate a listener.
     setTimeout(() => {
       submitDecision("s2", req.id, "deny", "policy", { root: workDir, by: "test" });
     }, 50);
@@ -104,7 +105,12 @@ describe("brokerAskpass — happy path", () => {
       reason: "x",
     });
     submitDecision("s-cleanup", req.id, "allow", undefined, { root: workDir });
-    await brokerAskpass(JSON.stringify(req), { root: workDir, pollMs: 10, timeoutMs: 500 });
+    await brokerAskpass(JSON.stringify(req), {
+      root: workDir,
+      pollMs: 10,
+      timeoutMs: 500,
+      skipValidator: true,
+    });
 
     const paths = brokerPaths("s-cleanup", workDir);
     expect(existsSync(join(paths.pendingDir, `${req.id}.json`))).toBe(false);
@@ -112,8 +118,8 @@ describe("brokerAskpass — happy path", () => {
   });
 });
 
-describe("brokerAskpass — timeout", () => {
-  test("auto-denies when no decision is submitted within the timeout", async () => {
+describe("brokerAskpass — opt-in timeout", () => {
+  test("auto-denies on timeout when timeoutMs is set explicitly", async () => {
     const req = createAskRequest({
       sessionId: "s-timeout",
       toolName: "Bash",
@@ -124,11 +130,101 @@ describe("brokerAskpass — timeout", () => {
       root: workDir,
       pollMs: 10,
       timeoutMs: 100,
+      skipValidator: true,
     });
     expect(res.decision).toBe("deny");
     expect(res.reason).toContain("no decision");
     expect(res.reason).toContain("original reason");
     expect(res.by).toBe("broker:auto-deny");
+  });
+});
+
+describe("brokerAskpass — NO PARENT ATTACHED validator", () => {
+  test("denies immediately when no listener is attached anywhere in the chain", async () => {
+    const req = createAskRequest({
+      sessionId: "no-parent",
+      toolName: "Bash",
+      toolInput: { command: "ls" },
+      reason: "needs human",
+    });
+    const res = await brokerAskpass(JSON.stringify(req), {
+      root: workDir,
+      pollMs: 10,
+      timeoutMs: 50, // never reached — validator denies first
+    });
+    expect(res.decision).toBe("deny");
+    expect(res.reason).toContain("NO PARENT ATTACHED");
+    expect(res.reason).toContain("needs human");
+    expect(res.by).toBe("broker:validator");
+  });
+
+  test("proceeds normally when a listener exists at the same session level", async () => {
+    const req = createAskRequest({
+      sessionId: "with-listener",
+      toolName: "Bash",
+      toolInput: { command: "ls" },
+      reason: "x",
+    });
+    ensureSession("with-listener", { root: workDir });
+    const cleanup = registerListener("with-listener", "subscribe", { root: workDir });
+    try {
+      const promise = brokerAskpass(JSON.stringify(req), {
+        root: workDir,
+        pollMs: 10,
+        timeoutMs: 1000,
+      });
+      setTimeout(() => {
+        submitDecision("with-listener", req.id, "allow", undefined, { root: workDir });
+      }, 30);
+      const res = await promise;
+      expect(res.decision).toBe("allow");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("proceeds normally when a listener exists higher up the parent chain", async () => {
+    ensureSession("root", { root: workDir });
+    ensureSession("leaf", { root: workDir, parentSessionId: "root" });
+    const cleanup = registerListener("root", "watch", { root: workDir });
+    const req = createAskRequest({
+      sessionId: "leaf",
+      parentSessionId: "root",
+      toolName: "Bash",
+      toolInput: { command: "ls" },
+      reason: "x",
+    });
+    try {
+      const promise = brokerAskpass(JSON.stringify(req), {
+        root: workDir,
+        pollMs: 10,
+        timeoutMs: 1000,
+      });
+      setTimeout(() => {
+        submitDecision("leaf", req.id, "allow", undefined, { root: workDir });
+      }, 30);
+      const res = await promise;
+      expect(res.decision).toBe("allow");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("skipValidator: true bypasses the check (for tests)", async () => {
+    const req = createAskRequest({
+      sessionId: "bypass",
+      toolName: "Bash",
+      toolInput: { command: "ls" },
+      reason: "x",
+    });
+    submitDecision("bypass", req.id, "allow", undefined, { root: workDir });
+    const res = await brokerAskpass(JSON.stringify(req), {
+      root: workDir,
+      pollMs: 10,
+      timeoutMs: 200,
+      skipValidator: true,
+    });
+    expect(res.decision).toBe("allow");
   });
 });
 
