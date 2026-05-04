@@ -4,13 +4,16 @@
 import type { AskRequest, AskResponse } from "./envelope.js";
 import { createAskResponse, parseAskResponse } from "./envelope.js";
 
-const DEFAULT_TIMEOUT_MS = 60_000;
-
 export interface CallAskpassOptions {
   readonly request: AskRequest;
   /** Override askpass binary path. Defaults to process.env.HOOK_KIT_ASKPASS. */
   readonly askpassPath?: string;
-  /** Override timeout in ms. Defaults to 60_000. */
+  /**
+   * Optional wall-clock timeout in ms. Default: no timeout — the bundled
+   * broker is expected to wait until a listener answers, and CC's hooks.json
+   * timeout is the actual ceiling. Pass a positive number when wrapping a
+   * custom askpass binary you don't trust to respond.
+   */
   readonly timeoutMs?: number;
 }
 
@@ -29,7 +32,7 @@ export interface CallAskpassOptions {
  */
 export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse> {
   const askpass = opts.askpassPath ?? process.env.HOOK_KIT_ASKPASS;
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = opts.timeoutMs;
   if (askpass === undefined || askpass === "") {
     return denied(
       opts.request.id,
@@ -61,14 +64,17 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
   stdin.write(JSON.stringify(opts.request));
   stdin.end();
 
-  // Race exit against timeout. Don't await streams during the race — orphaned
-  // grandchildren can keep the pipe open after the askpass shell dies, which
-  // would block stream EOF indefinitely.
+  // Race exit against timeout (when set). Don't await streams during the
+  // race — orphaned grandchildren can keep the pipe open after the askpass
+  // shell dies, which would block stream EOF indefinitely.
   type RaceResult = { kind: "exit"; code: number } | { kind: "timeout" };
   const raceResult = await new Promise<RaceResult>((resolve) => {
-    const timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+    const timer =
+      timeoutMs !== undefined
+        ? setTimeout(() => resolve({ kind: "timeout" }), timeoutMs)
+        : undefined;
     proc.exited.then((code) => {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       resolve({ kind: "exit", code });
     });
   });
@@ -79,12 +85,12 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
     } catch {
       // ignore — already dead
     }
-    // Cancel streams so we don't leak. Errors (e.g. already-locked) are fine.
     void stdoutStream.cancel().catch(() => {});
     void stderrStream.cancel().catch(() => {});
+    const seconds = timeoutMs !== undefined ? Math.round(timeoutMs / 1000) : 0;
     return denied(
       opts.request.id,
-      `[hook-kit] no decision in ${Math.round(timeoutMs / 1000)}s. Original: ${opts.request.reason}`,
+      `[hook-kit] no decision in ${seconds}s. Original: ${opts.request.reason}`,
     );
   }
 
