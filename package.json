@@ -2,31 +2,79 @@
   "name": "@questi0nm4rk/hook-kit",
   "version": "0.1.0",
   "type": "module",
-  "description": "Framework for building compiled hook binaries for AI coding agents",
-  "author": { "name": "qsm" },
+  "description": "Build compiled hook binaries for AI coding agents — harness-agnostic, tree-shaped escalation, sub-50ms cold start.",
+  "keywords": [
+    "claude-code",
+    "claude",
+    "hooks",
+    "ai-agent",
+    "guardrails",
+    "shell-ast",
+    "bun"
+  ],
+  "author": {
+    "name": "Questi0nM4rk"
+  },
   "license": "MIT",
+  "homepage": "https://github.com/Questi0nM4rk/hook-kit",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Questi0nM4rk/hook-kit.git"
   },
+  "bugs": {
+    "url": "https://github.com/Questi0nM4rk/hook-kit/issues"
+  },
+  "engines": {
+    "bun": ">=1.2.0"
+  },
   "exports": {
-    ".": "./src/index.ts",
-    "./engine": "./src/engine/index.ts",
-    "./adapters/claude-code": "./src/adapters/claude-code.ts",
-    "./adapters/raw": "./src/adapters/raw.ts",
-    "./state": "./src/state/types.ts",
-    "./state/tmpdir": "./src/state/tmpdir-store.ts",
-    "./state/memory": "./src/state/memory-store.ts"
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./dist/types/index.d.ts"
+    },
+    "./engine": {
+      "import": "./src/engine/index.ts",
+      "types": "./dist/types/engine/index.d.ts"
+    },
+    "./adapters/claude-code": {
+      "import": "./src/adapters/claude-code.ts",
+      "types": "./dist/types/adapters/claude-code.d.ts"
+    },
+    "./adapters/raw": {
+      "import": "./src/adapters/raw.ts",
+      "types": "./dist/types/adapters/raw.d.ts"
+    },
+    "./state": {
+      "import": "./src/state/types.ts",
+      "types": "./dist/types/state/types.d.ts"
+    },
+    "./state/tmpdir": {
+      "import": "./src/state/tmpdir-store.ts",
+      "types": "./dist/types/state/tmpdir-store.d.ts"
+    },
+    "./state/memory": {
+      "import": "./src/state/memory-store.ts",
+      "types": "./dist/types/state/memory-store.d.ts"
+    }
   },
   "bin": {
     "hook-kit": "./src/build/cli.ts"
   },
+  "files": [
+    "src/",
+    "dist/types/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/ tests/",
     "lint:fix": "biome check --write src/ tests/",
     "test": "bun test",
-    "build": "bun build src/build/cli.ts --compile --bytecode --outfile dist/hook-kit"
+    "build:types": "tsc -p tsconfig.build.json",
+    "build": "bun run build:types",
+    "build:bin": "bun build src/build/cli.ts --compile --bytecode --outfile dist/hook-kit",
+    "prepublishOnly": "bun run build && bun test"
   },
   "dependencies": {
     "@questi0nm4rk/shell-ast": "^0.1.0",
