@@ -7,6 +7,7 @@ import { isAbsolute, resolve } from "node:path";
 import { brokerAskpass, listPending, listSessions, submitDecision } from "../escalation/broker.js";
 import { forwardUp } from "../escalation/forward.js";
 import { registerListener } from "../escalation/listeners.js";
+import { runWatchTui } from "../escalation/watch-tui.js";
 import { BuildError, generateHooksJson, runBuild } from "./bundle.js";
 
 const HELP = `\
@@ -284,56 +285,17 @@ async function forwardCommand(
 }
 
 async function watchCommand(argv: readonly string[]): Promise<number> {
-  // Minimal TTY listener — print a one-line summary as each new pending
-  // request appears. Pair with `hook-kit decide` from another shell to
-  // submit decisions. A richer TUI prompt is on the wishlist.
   const sessionFilter = getArg(argv, "--session");
   const childrenOf = getArg(argv, "--children-of");
-  const pollMs = Number.parseInt(getArg(argv, "--poll-ms") ?? "200", 10);
-  const seen = new Set<string>();
+  const pollMsArg = getArg(argv, "--poll-ms");
+  const pollMs = pollMsArg !== undefined ? Number.parseInt(pollMsArg, 10) : undefined;
 
-  const cleanups = new Map<string, () => void>();
-  const ensureMarker = (sessionId: string): void => {
-    if (cleanups.has(sessionId)) return;
-    cleanups.set(sessionId, registerListener(sessionId, "watch"));
-  };
-  const cleanupAll = (): void => {
-    for (const c of cleanups.values()) c();
-    cleanups.clear();
-  };
-  process.on("SIGINT", () => {
-    cleanupAll();
-    process.exit(0);
+  await runWatchTui({
+    ...(sessionFilter !== undefined ? { sessionFilter } : {}),
+    ...(childrenOf !== undefined ? { childrenOf } : {}),
+    ...(pollMs !== undefined && Number.isFinite(pollMs) ? { pollMs } : {}),
   });
-  process.on("SIGTERM", () => {
-    cleanupAll();
-    process.exit(0);
-  });
-
-  if (sessionFilter !== undefined) ensureMarker(sessionFilter);
-
-  process.stderr.write(
-    `hook-kit watch: streaming pending requests (Ctrl+C to stop). To respond: \`hook-kit decide <id> --session <session> --allow|--deny\`\n`,
-  );
-  while (true) {
-    const sessions =
-      sessionFilter !== undefined
-        ? [{ sessionId: sessionFilter }]
-        : listSessions(childrenOf !== undefined ? { childrenOf } : {});
-    for (const s of sessions) {
-      ensureMarker(s.sessionId);
-      const pending = listPending(s.sessionId);
-      for (const req of pending) {
-        if (seen.has(req.id)) continue;
-        seen.add(req.id);
-        const inputSummary = JSON.stringify(req.toolInput).slice(0, 120);
-        process.stdout.write(
-          `[${s.sessionId}] ${req.id}  ${req.toolName}  reason="${req.reason}"  toolInput=${inputSummary}\n`,
-        );
-      }
-    }
-    await new Promise<void>((r) => setTimeout(r, pollMs));
-  }
+  return 0;
 }
 
 // ───────────────────────────── main ──────────────────────────────
