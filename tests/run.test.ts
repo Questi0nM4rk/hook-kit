@@ -40,6 +40,7 @@ describe("run() — adapter round-trip", () => {
   });
 
   test("delegates readInput failure to handleError (fail-open)", async () => {
+    let captured: unknown;
     const adapter: ProtocolAdapter = {
       readInput: async () => {
         throw new Error("stdin broken");
@@ -51,7 +52,6 @@ describe("run() — adapter round-trip", () => {
         captured = e;
       },
     };
-    let captured: unknown;
     await run([], adapter);
     expect((captured as Error).message).toBe("stdin broken");
   });

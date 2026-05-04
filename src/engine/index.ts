@@ -21,6 +21,7 @@ export async function evaluate(
 ): Promise<Decision> {
   const shortCircuit = opts.shortCircuit ?? true;
   const contextMessages: string[] = [];
+  let terminalDecision: Decision = null;
 
   const state = opts.state ?? noopState;
   const ctx = buildEvalContext(event, state, modules);
@@ -47,8 +48,15 @@ export async function evaluate(
       if (decision === null) continue;
 
       if (decision.kind === "deny" || decision.kind === "escalate") {
-        await state.flush();
-        return shortCircuit ? decision : decision;
+        if (shortCircuit) {
+          await state.flush();
+          return decision;
+        }
+        // shortCircuit=false: first terminal wins but evaluation continues so
+        // later context messages still accumulate (useful for debugging /
+        // observability). Later terminals are ignored.
+        if (terminalDecision === null) terminalDecision = decision;
+        continue;
       }
 
       if (decision.kind === "context") {
@@ -58,6 +66,8 @@ export async function evaluate(
   }
 
   await state.flush();
+
+  if (terminalDecision !== null) return terminalDecision;
 
   if (contextMessages.length > 0) {
     return { kind: "context", message: contextMessages.join("\n\n") };
