@@ -1,6 +1,36 @@
-import { describe, expect, test } from "bun:test";
-import { decideCcOutput, parseHookInput } from "../../src/adapters/claude-code.js";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { decideCcOutput, parseHookInput, resolveCcOutput } from "../../src/adapters/claude-code.js";
 import type { HookEvent } from "../../src/core/types.js";
+
+let askDir: string;
+
+beforeEach(() => {
+  askDir = mkdtempSync(join(tmpdir(), "hook-kit-cc-resolve-"));
+});
+afterEach(() => {
+  rmSync(askDir, { recursive: true, force: true });
+});
+
+function stageAskpass(
+  decision: "allow" | "deny" | "harness-ask",
+  reason?: string,
+  name = "ask.sh",
+): string {
+  const reasonField = reason !== undefined ? `,\\"reason\\":\\"${reason}\\"` : "";
+  const body = [
+    "#!/bin/sh",
+    "REQ=$(cat)",
+    'ID=$(printf %s "$REQ" | grep -oE \'"id":"[^"]*"\' | head -1 | sed \'s/"id":"//; s/"$//\')',
+    `printf '{"id":"%s","decision":"${decision}"${reasonField},"decidedAt":"2026-01-01T00:00:00Z"}\\n' "$ID"`,
+  ].join("\n");
+  const path = join(askDir, name);
+  writeFileSync(path, `${body}\n`, "utf8");
+  chmodSync(path, 0o755);
+  return path;
+}
 
 function event(eventName: string): HookEvent {
   return {
@@ -115,23 +145,99 @@ describe("decideCcOutput — context", () => {
   });
 });
 
-describe("decideCcOutput — escalate (M1 stub)", () => {
-  test("PreToolUse escalate degrades to deny with explanatory reason", () => {
+describe("decideCcOutput — escalate sync path (use resolveCcOutput in production)", () => {
+  test("escalate on the sync path denies with a 'use resolveCcOutput' hint", () => {
     const out = decideCcOutput({ kind: "escalate", reason: "needs human" }, event("PreToolUse"));
     expect(out.exitCode).toBe(0);
     const parsed = JSON.parse(out.stdout);
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
-    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-      "escalation not yet implemented",
-    );
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("sync path");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("needs human");
   });
+});
 
-  test("PostToolUse escalate degrades to stderr + exit 2", () => {
-    const out = decideCcOutput({ kind: "escalate", reason: "needs human" }, event("PostToolUse"));
+describe("resolveCcOutput — escalate via askpass", () => {
+  test("askpass returns allow → silent (exit 0, no stdout)", async () => {
+    const askpass = stageAskpass("allow");
+    const out = await resolveCcOutput(
+      { kind: "escalate", reason: "needs human" },
+      event("PreToolUse"),
+      { askpassPath: askpass },
+    );
+    expect(out).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+  });
+
+  test("askpass returns deny on PreToolUse → CC block JSON", async () => {
+    const askpass = stageAskpass("deny", "policy violation");
+    const out = await resolveCcOutput(
+      { kind: "escalate", reason: "needs human" },
+      event("PreToolUse"),
+      { askpassPath: askpass },
+    );
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.stdout);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("policy violation");
+  });
+
+  test("askpass returns deny on PostToolUse → stderr + exit 2", async () => {
+    const askpass = stageAskpass("deny", "policy violation");
+    const out = await resolveCcOutput(
+      { kind: "escalate", reason: "needs human" },
+      event("PostToolUse"),
+      { askpassPath: askpass },
+    );
     expect(out.exitCode).toBe(2);
-    expect(out.stderr).toContain("escalation not yet implemented");
-    expect(out.stderr).toContain("needs human");
+    expect(out.stderr).toContain("policy violation");
+  });
+
+  test("askpass returns harness-ask on PreToolUse → CC permissionDecision: ask", async () => {
+    const askpass = stageAskpass("harness-ask");
+    const out = await resolveCcOutput(
+      { kind: "escalate", reason: "review this" },
+      event("PreToolUse"),
+      { askpassPath: askpass },
+    );
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.stdout);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("review this");
+  });
+
+  test("askpass returns harness-ask on PostToolUse → degrades to additionalContext", async () => {
+    const askpass = stageAskpass("harness-ask");
+    const out = await resolveCcOutput(
+      { kind: "escalate", reason: "review this" },
+      event("PostToolUse"),
+      { askpassPath: askpass },
+    );
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.stdout);
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("review this");
+  });
+
+  test("HOOK_KIT_ASKPASS unset → deny with infra-unavailable reason", async () => {
+    const out = await resolveCcOutput(
+      { kind: "escalate", reason: "needs human" },
+      event("PreToolUse"),
+      // Pass an empty path explicitly; do not let process.env leak in.
+      { askpassPath: "" },
+    );
+    expect(out.exitCode).toBe(0);
+    const parsed = JSON.parse(out.stdout);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
+      "infrastructure unavailable",
+    );
+  });
+
+  test("non-escalate decisions delegate to the sync path unchanged", async () => {
+    const allow = await resolveCcOutput(null, event("PreToolUse"));
+    expect(allow).toEqual({ stdout: "", stderr: "", exitCode: 0 });
+
+    const deny = await resolveCcOutput({ kind: "deny", reason: "blocked" }, event("PreToolUse"));
+    const parsed = JSON.parse(deny.stdout);
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
   });
 });
 
