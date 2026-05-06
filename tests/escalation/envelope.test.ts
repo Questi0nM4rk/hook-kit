@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { hostname } from "node:os";
 import {
   createAskRequest,
   parseAskRequest,
@@ -17,10 +18,49 @@ describe("createAskRequest", () => {
     expect(req.toolName).toBe("Bash");
     expect(req.toolInput).toEqual({ command: "rm -rf /tmp" });
     expect(req.reason).toBe("looks dangerous");
-    expect(req.version).toBe(1);
+    expect(req.version).toBe(2);
     expect(req.id.length).toBeGreaterThan(10);
     expect(typeof req.createdAt).toBe("string");
     expect(typeof req.expiresAt).toBe("string");
+  });
+
+  test("autofills pid/host/user/cwd/transcriptPath/harness when not provided", () => {
+    const req = createAskRequest({
+      sessionId: "s1",
+      toolName: "Bash",
+      toolInput: { command: "x" },
+      reason: "r",
+    });
+    expect(req.pid).toBe(process.pid);
+    expect(req.host).toBe(hostname());
+    expect(req.user.length).toBeGreaterThan(0);
+    expect(req.cwd).toBe(process.cwd());
+    expect(req.transcriptPath).toBe("");
+    expect(req.harness).toEqual({ name: "unknown" });
+    expect(req.git).toBeUndefined();
+  });
+
+  test("explicit overrides take precedence over autofill", () => {
+    const req = createAskRequest({
+      sessionId: "s1",
+      toolName: "Bash",
+      toolInput: { command: "x" },
+      reason: "r",
+      pid: 4242,
+      host: "ci-runner-7",
+      user: "ci",
+      cwd: "/work/repo",
+      transcriptPath: "/tmp/t.jsonl",
+      harness: { name: "claude-code", version: "1.0.0" },
+      git: { sha: "abc123", branch: "main", dirty: false, remote: "git@x:y" },
+    });
+    expect(req.pid).toBe(4242);
+    expect(req.host).toBe("ci-runner-7");
+    expect(req.user).toBe("ci");
+    expect(req.cwd).toBe("/work/repo");
+    expect(req.transcriptPath).toBe("/tmp/t.jsonl");
+    expect(req.harness).toEqual({ name: "claude-code", version: "1.0.0" });
+    expect(req.git).toEqual({ sha: "abc123", branch: "main", dirty: false, remote: "git@x:y" });
   });
 
   test("expiresAt = createdAt + ttlMs (default 60s)", () => {

@@ -135,6 +135,82 @@ describe("renderTui — prompt mode", () => {
   });
 });
 
+describe("renderTui — detail pane", () => {
+  function richRow(): PendingRow {
+    const req = createAskRequest({
+      sessionId: "sess-abc",
+      toolName: "Bash",
+      toolInput: { command: "rm -rf /tmp/x" },
+      reason: "rm without confirm",
+      label: "[fs-guard]",
+      harness: { name: "claude-code" },
+      cwd: "/home/me/project",
+      transcriptPath: "/tmp/cc/transcript.jsonl",
+      git: { sha: "fc7f3411223344556677", branch: "main", dirty: true, remote: "git@x:o/r.git" },
+      pid: 41832,
+      host: "lab-01",
+      user: "qs_m4rk",
+    });
+    return { request: req, observedAt: NOW - 5_000 };
+  }
+
+  test("shows harness, project, git, transcript, origin, expires, label, reason, command", () => {
+    const r = richRow();
+    const out = strip(renderTui(listState([r]), 120, NOW));
+    expect(out).toContain("details:");
+    expect(out).toContain("harness:");
+    expect(out).toContain("claude-code");
+    expect(out).toContain("project:");
+    expect(out).toContain("/home/me/project");
+    expect(out).toContain("git:");
+    expect(out).toContain("main");
+    expect(out).toContain("(dirty)");
+    expect(out).toContain("@ fc7f341");
+    expect(out).toContain("origin: git@x:o/r.git");
+    expect(out).toContain("transcript:");
+    expect(out).toContain("/tmp/cc/transcript.jsonl");
+    expect(out).toContain("origin:");
+    expect(out).toContain("pid 41832");
+    expect(out).toContain("lab-01");
+    expect(out).toContain("(qs_m4rk)");
+    expect(out).toContain("expires:");
+    expect(out).toContain("label:");
+    expect(out).toContain("[fs-guard]");
+    expect(out).toContain("reason:");
+    expect(out).toContain("rm without confirm");
+    expect(out).toContain("command:");
+    expect(out).toContain("rm -rf /tmp/x");
+  });
+
+  test("omits absent optional fields (no git, no transcript, no label)", () => {
+    const r = row("s1", "ls", NOW);
+    const out = strip(renderTui(listState([r]), 100, NOW));
+    expect(out).toContain("details:");
+    expect(out).toContain("harness:"); // always present (autofilled)
+    expect(out).not.toContain("git:");
+    expect(out).not.toContain("transcript:");
+    expect(out).not.toContain("label:");
+  });
+
+  test("no detail pane when there is no selected row (empty state)", () => {
+    const out = strip(renderTui(listState([]), 100, NOW));
+    expect(out).not.toContain("details:");
+  });
+
+  test("detail values are width-truncated", () => {
+    const long = `/${"x".repeat(500)}`;
+    const req = createAskRequest({
+      sessionId: "s1",
+      toolName: "Bash",
+      toolInput: { command: "ls" },
+      reason: "r",
+      cwd: long,
+    });
+    const out = strip(renderTui(listState([{ request: req, observedAt: NOW }]), 80, NOW));
+    expect(out.split("\n").every((l) => l.length <= 80)).toBe(true);
+  });
+});
+
 describe("renderTui — age formatting", () => {
   test("seconds for ages under a minute", () => {
     const r = row("s1", "ls", NOW - 30_000);
