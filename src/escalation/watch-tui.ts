@@ -164,6 +164,7 @@ function statusColor(level: NonNullable<TuiState["statusMessage"]>["level"]): st
 export function renderTui(state: TuiState, terminalWidth: number, now: number): string {
   const lines: string[] = [];
   const w = Math.max(60, terminalWidth);
+  const selected = state.rows[state.selectedIndex];
 
   // ─ Header
   const title = `${fg.bold}hook-kit watch${fg.reset}`;
@@ -207,7 +208,6 @@ export function renderTui(state: TuiState, terminalWidth: number, now: number): 
   }
 
   // ─ Detail pane for the selected row
-  const selected = state.rows[state.selectedIndex];
   if (selected !== undefined) {
     lines.push("");
     lines.push(...renderDetail(selected.request, w, now));
@@ -221,7 +221,6 @@ export function renderTui(state: TuiState, terminalWidth: number, now: number): 
     const action = state.mode.action.toUpperCase();
     const color =
       state.mode.action === "allow" ? fg.green : state.mode.action === "deny" ? fg.red : fg.yellow;
-    const selected = state.rows[state.selectedIndex];
     const target =
       selected !== undefined
         ? `${selected.request.id} (${selected.request.toolName})`
