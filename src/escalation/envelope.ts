@@ -138,17 +138,13 @@ export interface CreateResponseOptions {
 }
 
 export function createAskResponse(opts: CreateResponseOptions): AskResponse {
-  const base = {
+  return {
     id: opts.id,
     decision: opts.decision,
     decidedAt: new Date().toISOString(),
+    ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
+    ...(opts.by !== undefined ? { by: opts.by } : {}),
   };
-  if (opts.reason !== undefined && opts.by !== undefined) {
-    return { ...base, reason: opts.reason, by: opts.by };
-  }
-  if (opts.reason !== undefined) return { ...base, reason: opts.reason };
-  if (opts.by !== undefined) return { ...base, by: opts.by };
-  return base;
 }
 
 export { PROTOCOL_VERSION };

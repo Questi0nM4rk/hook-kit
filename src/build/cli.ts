@@ -315,14 +315,12 @@ async function decideEscalateUp(
 async function watchCommand(argv: readonly string[]): Promise<number> {
   const sessionFilter = getArg(argv, "--session");
   const childrenOf = getArg(argv, "--children-of");
-  const pollMsArg = getArg(argv, "--poll-ms");
-  const pollMs = pollMsArg !== undefined ? Number.parseInt(pollMsArg, 10) : undefined;
-  const validPollMs = pollMs !== undefined && Number.isFinite(pollMs) ? pollMs : undefined;
+  const pollMs = Number.parseInt(getArg(argv, "--poll-ms") ?? "", 10);
 
   await runWatchTui({
     ...optional("sessionFilter", sessionFilter),
     ...optional("childrenOf", childrenOf),
-    ...optional("pollMs", validPollMs),
+    ...optional("pollMs", Number.isFinite(pollMs) ? pollMs : undefined),
   });
   return 0;
 }

@@ -20,10 +20,8 @@ function traceLine(
 ): string {
   const head = `[hook-kit] event=${event.eventName} tool=${event.toolName} session=${event.sessionId} modules=${modulesConsidered}`;
   if (decision === null) return `${head} → null time=${durationMs}ms\n`;
-  const label =
-    "label" in decision && decision.label !== undefined ? ` label=${decision.label}` : "";
-  const reasonText =
-    decision.kind === "context" ? decision.message : "reason" in decision ? decision.reason : "";
+  const label = decision.label !== undefined ? ` label=${decision.label}` : "";
+  const reasonText = decision.kind === "context" ? decision.message : decision.reason;
   const reason = reasonText !== "" ? ` reason=${JSON.stringify(reasonText)}` : "";
   return `${head} → ${decision.kind}${label}${reason} time=${durationMs}ms\n`;
 }
