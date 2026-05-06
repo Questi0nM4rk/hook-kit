@@ -95,6 +95,59 @@ function fmtDetails(req: AskRequest): string {
   return JSON.stringify(req.toolInput);
 }
 
+function fmtGit(g: NonNullable<AskRequest["git"]>): string {
+  const parts: string[] = [];
+  if (g.branch !== undefined) parts.push(g.branch);
+  if (g.dirty === true) parts.push("(dirty)");
+  parts.push(`@ ${g.sha.slice(0, 7)}`);
+  if (g.remote !== undefined) parts.push(`origin: ${g.remote}`);
+  return parts.join(" ");
+}
+
+function fmtExpires(iso: string, now: number): string {
+  const expires = Date.parse(iso);
+  if (Number.isNaN(expires)) return iso;
+  const ms = expires - now;
+  if (ms <= 0) return "expired";
+  return `in ${fmtAge(ms)}`;
+}
+
+function fmtHarness(h: AskRequest["harness"]): string {
+  return h.version !== undefined ? `${h.name} ${h.version}` : h.name;
+}
+
+/** Render a multi-line detail pane for the selected request. Empty list when
+ *  no row is selected. Each line is width-truncated. */
+function renderDetail(req: AskRequest, w: number, now: number): string[] {
+  const lines: string[] = [];
+  const title = `┌─ details: ${req.id} `;
+  lines.push(`${fg.gray}${title}${"─".repeat(Math.max(0, w - title.length))}${fg.reset}`);
+
+  const fields: Array<[string, string | undefined]> = [
+    ["harness", fmtHarness(req.harness)],
+    ["project", req.cwd !== "" ? req.cwd : undefined],
+    ["git", req.git !== undefined ? fmtGit(req.git) : undefined],
+    ["transcript", req.transcriptPath !== "" ? req.transcriptPath : undefined],
+    ["origin", `pid ${req.pid} @ ${req.host} (${req.user})`],
+    ["expires", fmtExpires(req.expiresAt, now)],
+    ["label", req.label],
+    ["reason", req.reason !== "" ? req.reason : undefined],
+    ["command", fmtDetails(req)],
+  ];
+
+  const labelWidth = 11;
+  const valueBudget = Math.max(8, w - 4 - labelWidth);
+  for (const [name, value] of fields) {
+    if (value === undefined) continue;
+    const label = `${name}:`.padEnd(labelWidth);
+    lines.push(
+      `${fg.gray}│${fg.reset} ${fg.dim}${label}${fg.reset} ${truncate(value, valueBudget)}`,
+    );
+  }
+  lines.push(`${fg.gray}└${"─".repeat(Math.max(0, w - 1))}${fg.reset}`);
+  return lines;
+}
+
 function statusColor(level: NonNullable<TuiState["statusMessage"]>["level"]): string {
   switch (level) {
     case "ok":
@@ -153,8 +206,15 @@ export function renderTui(state: TuiState, terminalWidth: number, now: number): 
     }
   }
 
+  // ─ Detail pane for the selected row
+  const selected = state.rows[state.selectedIndex];
+  if (selected !== undefined) {
+    lines.push("");
+    lines.push(...renderDetail(selected.request, w, now));
+  }
+
   // ─ Padding so the prompt area is anchored
-  while (lines.length < 22) lines.push("");
+  while (lines.length < 30) lines.push("");
 
   // ─ Footer / prompt
   if (state.mode.kind === "prompt") {

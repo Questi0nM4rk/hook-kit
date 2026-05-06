@@ -4,8 +4,11 @@
 import { z } from "zod";
 import type { Decision, HookEvent } from "../core/types.js";
 import { callAskpass } from "../escalation/askpass.js";
+import { enrichGit, gitEnrichmentEnabled } from "../escalation/enrich-git.js";
 import { createAskRequest } from "../escalation/envelope.js";
 import type { ProtocolAdapter } from "./types.js";
+
+const HARNESS = { name: "claude-code" } as const;
 
 const HookInputSchema = z.object({
   session_id: z.string(),
@@ -98,12 +101,17 @@ export async function resolveCcOutput(
     return decideCcOutput(decision, event);
   }
 
+  const git = gitEnrichmentEnabled() ? await enrichGit(event.cwd) : undefined;
   const request = createAskRequest({
     sessionId: event.sessionId,
     toolName: event.toolName,
     toolInput: event.toolInput,
     reason: decision.reason,
+    harness: HARNESS,
+    cwd: event.cwd,
+    transcriptPath: event.transcriptPath,
     ...(decision.label !== undefined ? { label: decision.label } : {}),
+    ...(git !== undefined ? { git } : {}),
   });
   const askOpts: { askpassPath?: string; timeoutMs?: number } = {};
   if (opts.askpassPath !== undefined) askOpts.askpassPath = opts.askpassPath;

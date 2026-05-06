@@ -40,6 +40,10 @@
       "import": "./src/adapters/claude-code.ts",
       "types": "./dist/types/adapters/claude-code.d.ts"
     },
+    "./adapters/generic": {
+      "import": "./src/adapters/generic.ts",
+      "types": "./dist/types/adapters/generic.d.ts"
+    },
     "./adapters/raw": {
       "import": "./src/adapters/raw.ts",
       "types": "./dist/types/adapters/raw.d.ts"

@@ -8,13 +8,20 @@ import { brokerAskpass, listPending, listSessions, submitDecision } from "../esc
 import { forwardUp } from "../escalation/forward.js";
 import { registerListener } from "../escalation/listeners.js";
 import { runWatchTui } from "../escalation/watch-tui.js";
-import { BuildError, generateHooksJson, runBuild } from "./bundle.js";
+import {
+  type AdapterName,
+  BuildError,
+  generateHooksJson,
+  runBuild,
+  SUPPORTED_ADAPTERS,
+} from "./bundle.js";
 
 const HELP = `\
 hook-kit — framework for building compiled hook binaries for AI coding agents
 
 Build:
-  hook-kit build <entrypoint> --out <path> [--adapter claude-code]
+  hook-kit build <entrypoint> --out <path>
+                              [--adapter claude-code|generic]
                               [--hooks-json <path>] [--binary-command <s>]
                               [--hook-timeout <seconds>]
 
@@ -80,15 +87,6 @@ function writeErr(message: string): void {
   process.stderr.write(message);
 }
 
-function installExitHandlers(cleanup: () => void): void {
-  const handler = (): void => {
-    cleanup();
-    process.exit(0);
-  };
-  process.on("SIGINT", handler);
-  process.on("SIGTERM", handler);
-}
-
 // ──────────────────────────── build ──────────────────────────────
 
 async function buildCommand(argv: readonly string[]): Promise<number> {
@@ -103,11 +101,14 @@ async function buildCommand(argv: readonly string[]): Promise<number> {
     writeErr("hook-kit build: --out is required\n");
     return 1;
   }
-  const adapter = getArg(argv, "--adapter") ?? "claude-code";
-  if (adapter !== "claude-code") {
-    writeErr(`hook-kit build: unsupported adapter "${adapter}"\n`);
+  const adapterArg = getArg(argv, "--adapter") ?? "claude-code";
+  if (!(SUPPORTED_ADAPTERS as readonly string[]).includes(adapterArg)) {
+    writeErr(
+      `hook-kit build: unsupported adapter "${adapterArg}" (supported: ${SUPPORTED_ADAPTERS.join(", ")})\n`,
+    );
     return 1;
   }
+  const adapter = adapterArg as AdapterName;
 
   try {
     const result = await runBuild({ entrypoint, out, adapter });
@@ -223,10 +224,13 @@ async function subscribeCommand(argv: readonly string[]): Promise<number> {
     if (cleanups.has(sessionId)) return;
     cleanups.set(sessionId, registerListener(sessionId, "subscribe"));
   };
-  installExitHandlers(() => {
+  const onExit = (): void => {
     for (const c of cleanups.values()) c();
     cleanups.clear();
-  });
+    process.exit(0);
+  };
+  process.on("SIGINT", onExit);
+  process.on("SIGTERM", onExit);
 
   if (sessionFilter !== undefined) ensureMarker(sessionFilter);
 

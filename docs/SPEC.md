@@ -269,7 +269,21 @@ Multiple listeners can attach to any node simultaneously. They all see the same 
 
 When the engine returns `escalate`, the adapter:
 
-1. Constructs an envelope: `{id, sessionId, parentSessionId?, toolName, toolInput, reason, label, createdAt, expiresAt, version}`.
+1. Constructs an envelope (PROTOCOL_VERSION = 2):
+   ```
+   {
+     version, id,
+     sessionId, parentSessionId?,
+     pid, host, user,                       // autofilled by createAskRequest
+     harness: { name, version? },           // supplied by adapter (e.g. claude-code)
+     toolName, toolInput,
+     reason, label?,
+     cwd, transcriptPath,                   // forwarded from HookEvent
+     git?: { sha, branch?, dirty?, remote? }, // opt-in via HOOK_KIT_ENRICH_GIT=1
+     createdAt, expiresAt
+   }
+   ```
+   The intent is to give a listener enough context — harness identity, project / cwd, branch + dirty state, transcript pointer, originating pid — to decide an ambiguous ask without round-tripping. `cwd`, `transcriptPath`, and `harness` come from the adapter; `pid`/`host`/`user` are autofilled. `git` is populated only when `HOOK_KIT_ENRICH_GIT=1` is set in the binary's environment (cheap shell-outs against `git -C cwd`); failures swallow to undefined per Iron Law 3.
 2. Spawns the binary at `$HOOK_KIT_ASKPASS` with the envelope as JSON on stdin.
 3. Waits for the askpass to exit (no internal timeout by default — the harness's hook timeout is the ceiling):
    - Exit 0 + JSON `{decision: "allow", reason?}` on stdout → engine emits silent allow.
