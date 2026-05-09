@@ -1,7 +1,8 @@
 // cmd() builder — shell-ast based command matching
 // See docs/SPEC.md § Rule Builders for semantics
 
-import { findCalls } from "@questi0nm4rk/shell-ast";
+import type { CallExprNode } from "@questi0nm4rk/shell-ast";
+import { findCalls, wordToLit } from "@questi0nm4rk/shell-ast";
 import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
 import {
   context as contextDecision,
@@ -23,6 +24,7 @@ class CommandRuleBuilder {
     private noFlags: string[] = [],
     private argMatchPatterns: RegExp[] = [],
     private argIncludeValues: string[] = [],
+    private requireDdash: boolean = false,
   ) {}
 
   withFlag(...flags: string[]): this {
@@ -42,6 +44,13 @@ class CommandRuleBuilder {
 
   argIncludes(...values: string[]): this {
     this.argIncludeValues = [...this.argIncludeValues, ...values];
+    return this;
+  }
+
+  /** Require the call to include the POSIX `--` end-of-options separator
+   *  (e.g. `git checkout -- file` to discard, distinct from `git checkout file`). */
+  withDdash(): this {
+    this.requireDdash = true;
     return this;
   }
 
@@ -65,6 +74,7 @@ class CommandRuleBuilder {
       noFlags: [...this.noFlags] as readonly string[],
       argMatchPatterns: [...this.argMatchPatterns] as readonly RegExp[],
       argIncludeValues: [...this.argIncludeValues] as readonly string[],
+      requireDdash: this.requireDdash,
     };
     return {
       kind: "command",
@@ -98,10 +108,18 @@ class CommandRuleBuilder {
             continue;
           }
 
+          // POSIX `--` end-of-options separator (e.g. git checkout -- file)
+          if (cfg.requireDdash && !hasDdash(call)) continue;
+
           return decision;
         }
         return null;
       },
     };
   }
+}
+
+/** True if the call's raw arg list contains the POSIX `--` separator. */
+function hasDdash(call: CallExprNode): boolean {
+  return call.args.some((w) => wordToLit(w) === "--");
 }

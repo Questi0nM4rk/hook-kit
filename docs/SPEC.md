@@ -131,7 +131,23 @@ Semantics:
 - `.withoutFlag("--force-with-lease")` — forbidden (must be absent).
 - `.argMatches(/regex/)` — at least one resolved arg matches the pattern. Resolved args include flag values when literal; quoted strings (`"…"`, `'…'`) become `<dynamic>` and never match literal patterns. Use this for unquoted patterns like `event=COMMENT` in `--field event=COMMENT`.
 - `.argIncludes("literal")` — exact-string membership in resolved args.
+- `.withDdash()` — require the POSIX `--` end-of-options separator. Use to disambiguate destructive forms like `git checkout -- file` from `git checkout file`.
 - `.deny(reason)` / `.context(msg)` / `.escalate(reason)` — terminal; returns a `Rule`.
+
+```typescript
+// pipe(from, into) — `cmd1 | cmd2` detection via shell-AST BinaryCmd walk
+pipe(["curl", "wget"], ["bash", "sh", "zsh"]).deny("RCE via pipe-to-shell");
+```
+
+Catches pipes that `cmd()` cannot express. Both `|` and `|&` are matched.
+
+```typescript
+// redirect(pathPattern?) — `cmd > path` detection
+redirect(/\.env$/).deny("don't redirect into .env");
+redirect().deny("no shell redirects in this context");
+```
+
+Matches write-redirect operators (`>`, `>>`, `>|`, `&>`, `&>>`) whose target matches `pathPattern`. With no pattern, matches any write redirect. Closes the bypass where `path()` rules can be sidestepped via `echo evil > /protected/path` in a Bash event.
 
 ```typescript
 // path(pattern) — regex on file_path
@@ -175,7 +191,7 @@ custom("session-summary", async (event) => {
 async function evaluate(
   event: HookEvent,
   modules: readonly HookModule[],
-  opts?: { state?: StateStore; shortCircuit?: boolean },
+  opts?: { state?: StateStore; shortCircuit?: boolean; recurseInlineShells?: boolean },
 ): Promise<Decision>;
 ```
 
@@ -186,8 +202,9 @@ Flow:
 3. For each remaining module, evaluate rules sequentially in array order. State mutations within a rule are visible to the next rule.
 4. **Short-circuit (default true):** first `deny` or `escalate` wins immediately, skips the rest.
 5. **Context accumulation:** all `context` messages collected, joined with `\n\n`.
-6. State is flushed after evaluation (even on short-circuit).
-7. If no rule returned a non-null decision → `null`.
+6. **Inline-shell recursion (default on):** after the main pass, if no terminal decision and the event is Bash, the engine walks the AST for `bash -c "…"` / `sh -c …` / `eval …` / `exec …` calls, extracts the inner script, and re-evaluates the modules against it. Depth-limited to 5; exceeding the limit returns an `escalate` ("inspection depth"). Set `recurseInlineShells: false` to disable for tests where recursion changes the asserted outcome.
+7. State is flushed after evaluation (even on short-circuit).
+8. If no rule returned a non-null decision → `null`.
 
 Module/rule ordering is array order — deterministic API contract.
 
