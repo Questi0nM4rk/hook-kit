@@ -1,6 +1,6 @@
 {
   "name": "@questi0nm4rk/hook-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Build compiled hook binaries for AI coding agents — harness-agnostic, tree-shaped escalation, sub-50ms cold start.",
   "keywords": [
