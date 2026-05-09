@@ -1,0 +1,13 @@
+{
+  "name": "ai-guardrails-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Faithful port of ai-guardrails' CC hooks using @questi0nm4rk/hook-kit. Demonstrates cmd/path/pipe/redirect/content builders + escalate decision.",
+  "scripts": {
+    "build": "hook-kit build src/hooks.ts --out dist/hooks --adapter claude-code"
+  },
+  "dependencies": {
+    "@questi0nm4rk/hook-kit": "*"
+  }
+}
