@@ -230,6 +230,40 @@ describe("cmd() — AST traversal", () => {
   });
 });
 
+describe("cmd() — withDdash", () => {
+  test("matches when `--` separator is present", async () => {
+    const d = await runCmd(
+      "git checkout -- file.txt",
+      cmd("git", "checkout").withDdash().deny("discard"),
+    );
+    expect(d).toEqual({ kind: "deny", reason: "discard" });
+  });
+
+  test("does not match when `--` is absent", async () => {
+    const d = await runCmd(
+      "git checkout file.txt",
+      cmd("git", "checkout").withDdash().deny("discard"),
+    );
+    expect(d).toBeNull();
+  });
+
+  test("does not match when `--` follows a different command", async () => {
+    const d = await runCmd(
+      "git checkout main && rm -- file",
+      cmd("git", "checkout").withDdash().deny("discard"),
+    );
+    expect(d).toBeNull();
+  });
+
+  test("matches even with intervening flags", async () => {
+    const d = await runCmd(
+      "git restore --staged -- src/x.ts",
+      cmd("git", "restore").withDdash().deny("discard"),
+    );
+    expect(d).toEqual({ kind: "deny", reason: "discard" });
+  });
+});
+
 describe("cmd() — terminal forms", () => {
   test("context() returns a context decision", async () => {
     const d = await runCmd("rm foo", cmd("rm").context("informational"));

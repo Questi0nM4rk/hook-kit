@@ -1,13 +1,24 @@
 // evaluate() — core evaluation loop
 // See docs/SPEC.md § Engine for the full contract
 
-import { parse, type ShellFile } from "@questi0nm4rk/shell-ast";
+import { findCalls, parse, type ShellFile } from "@questi0nm4rk/shell-ast";
+import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
+import { escalate as escalateDecision } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, HookModule, StateStore } from "../core/types.js";
+import { extractInlineScript, INLINE_SHELL_CMDS } from "./helpers.js";
 
 export interface EvaluateOptions {
   readonly state?: StateStore;
   readonly shortCircuit?: boolean;
+  /** Recurse into `bash -c "…"`, `eval "…"`, `exec "…"` so banned commands
+   *  can't hide inside an inline shell. Default true. Disable for tests where
+   *  recursion changes the asserted outcome. */
+  readonly recurseInlineShells?: boolean;
+  /** @internal Recursion depth — set by evaluate() when it self-calls. */
+  readonly _depth?: number;
 }
+
+const MAX_RECURSE_DEPTH = 5;
 
 /**
  * Evaluate all matching modules/rules against a hook event.
@@ -61,6 +72,44 @@ export async function evaluate(
 
       if (decision.kind === "context") {
         contextMessages.push(decision.message);
+      }
+    }
+  }
+
+  // Inline-shell recursion: a banned command hidden inside `bash -c "rm -rf /"`
+  // wouldn't trigger normal cmd() rules because the AST sees `bash`, not `rm`.
+  // Re-parse and re-evaluate the inner script as a synthetic Bash event.
+  if (
+    terminalDecision === null &&
+    (opts.recurseInlineShells ?? true) &&
+    event.toolName === "Bash"
+  ) {
+    const depth = opts._depth ?? 0;
+    if (depth >= MAX_RECURSE_DEPTH) {
+      await state.flush();
+      // Conservative: refuse to silently allow content that exceeds inspection depth.
+      return escalateDecision("[hook-kit] inline-shell nesting exceeded inspection depth — review");
+    }
+    const ast = await ctx.getBashAst();
+    if (ast !== null) {
+      for (const call of findCalls(ast)) {
+        const unwrapped = unwrapCall(call);
+        if (unwrapped === null) continue;
+        if (!INLINE_SHELL_CMDS.has(unwrapped.cmd)) continue;
+        const inline = extractInlineScript(unwrapped);
+        if (inline === null) continue;
+        const synthetic: HookEvent = {
+          ...event,
+          toolInput: { ...event.toolInput, command: inline },
+        };
+        const inner = await evaluate(synthetic, modules, { ...opts, _depth: depth + 1, state });
+        if (inner !== null) {
+          if (inner.kind === "deny" || inner.kind === "escalate") {
+            await state.flush();
+            return inner;
+          }
+          if (inner.kind === "context") contextMessages.push(inner.message);
+        }
       }
     }
   }
