@@ -166,14 +166,14 @@ describe("escalation — compiled binary + askpass", () => {
   );
 
   test(
-    "no askpass set → binary denies with infrastructure-unavailable reason",
+    "no askpass set → binary emits CC ask JSON (delegate to harness UI)",
     async () => {
       const { dir, entry, cleanup } = stagePlugin();
       const out = join(dir, "dist", "hooks");
       mkdirSync(join(dir, "dist"), { recursive: true });
       try {
         await runBuild({ entrypoint: entry, out, adapter: "claude-code" });
-        // Strip HOOK_KIT_ASKPASS from the env so the binary can't escalate.
+        // Strip HOOK_KIT_ASKPASS so the binary has no broker infra configured.
         const env = Object.fromEntries(
           Object.entries(process.env).filter(([k]) => k !== "HOOK_KIT_ASKPASS"),
         );
@@ -191,9 +191,9 @@ describe("escalation — compiled binary + askpass", () => {
         ]);
         expect(exitCode).toBe(0);
         const parsed = JSON.parse(stdout);
-        expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-          "infrastructure unavailable",
+          "review this rm before running",
         );
       } finally {
         cleanup();
