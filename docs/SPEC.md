@@ -293,7 +293,9 @@ When the engine returns `escalate`, the adapter:
 
 `expiresAt` is computed from a TTL (default 60s) and stays in the envelope as **metadata only**. Listeners and observability layers may use it (audit logs, "raised X minutes ago" hints, MCP elicitation conformance), but neither the broker nor `callAskpass` enforce it as a deadline by default. Custom askpass binaries that callers don't trust to terminate can opt in by passing `timeoutMs` to `callAskpass`.
 
-If `$HOOK_KIT_ASKPASS` is unset or points to a missing/non-executable file → emit deny with reason `[hook-kit] escalation infrastructure unavailable`. This is the explicit exception to fail-open: an `escalate` decision with no responder cannot silently allow.
+**`$HOOK_KIT_ASKPASS` unset** → no broker infrastructure configured; the adapter delegates directly to the harness's UI tier via `harness-ask`. The CC adapter renders this as `permissionDecision: "ask"`. This is not silent-allow — the harness UI is itself a responder. Use this when you don't want the broker tree (e.g. simple "ask the human" hooks).
+
+**`$HOOK_KIT_ASKPASS` set but binary missing / non-executable / exits non-zero / returns malformed output** → emit deny with reason `[hook-kit] askpass …`. This is the Iron Law 3 exception: when broker infra was *expected* but is broken, fail closed — never silent-allow.
 
 The askpass binary is the **public contract**. Any program that reads JSON on stdin, writes a decision to stdout, and exits is a valid askpass. Examples: `/bin/true` (always-allow), `/bin/false` (always-deny), a Slack-bridge, a GitHub-issue-bridge, a desktop notification helper, a phone push relay, the bundled `hook-kit broker`.
 

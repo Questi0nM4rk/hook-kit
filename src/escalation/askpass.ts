@@ -19,11 +19,15 @@ export interface CallAskpassOptions {
 
 /**
  * Drive the askpass channel for one escalation request. Always returns an
- * AskResponse — never throws. Iron Law 3 with the explicit exception that
- * `escalate` requests with no usable responder must deny, never silent-allow.
+ * AskResponse — never throws.
  *
- * Failure modes (all map to deny with a descriptive reason):
- *   - $HOOK_KIT_ASKPASS unset or empty
+ * `$HOOK_KIT_ASKPASS` unset → no broker infrastructure configured; punt
+ * directly to the harness UI tier via `harness-ask`. The CC adapter renders
+ * this as `permissionDecision: "ask"`. This is not silent-allow — the harness
+ * UI is itself a responder.
+ *
+ * Failure modes (these map to deny — Iron Law 3 exception, never silent-allow
+ * when infra was *expected* but broken):
  *   - askpass binary not executable / not found
  *   - askpass exits non-zero
  *   - askpass stdout is empty / not a valid AskResponse JSON
@@ -34,10 +38,12 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
   const askpass = opts.askpassPath ?? process.env.HOOK_KIT_ASKPASS;
   const timeoutMs = opts.timeoutMs;
   if (askpass === undefined || askpass === "") {
-    return denied(
-      opts.request.id,
-      "[hook-kit] escalation infrastructure unavailable: HOOK_KIT_ASKPASS not set",
-    );
+    // No broker infra → delegate to the harness's native UI.
+    return createAskResponse({
+      id: opts.request.id,
+      decision: "harness-ask",
+      reason: "[hook-kit] no askpass configured — delegating to harness UI",
+    });
   }
 
   let proc: ReturnType<typeof Bun.spawn>;

@@ -31,15 +31,23 @@ function stageScript(name: string, body: string): string {
   return path;
 }
 
-describe("callAskpass — infrastructure failures map to deny", () => {
-  test("HOOK_KIT_ASKPASS unset → deny with infra-unavailable reason", async () => {
+describe("callAskpass — unset askpass falls through to harness UI", () => {
+  test("HOOK_KIT_ASKPASS unset → harness-ask (delegate to harness UI tier)", async () => {
     const req = makeRequest();
-    const res = await callAskpass({ request: req });
-    expect(res.id).toBe(req.id);
-    expect(res.decision).toBe("deny");
-    expect(res.reason).toContain("HOOK_KIT_ASKPASS not set");
+    const prev = process.env.HOOK_KIT_ASKPASS;
+    delete process.env.HOOK_KIT_ASKPASS;
+    try {
+      const res = await callAskpass({ request: req });
+      expect(res.id).toBe(req.id);
+      expect(res.decision).toBe("harness-ask");
+      expect(res.reason).toContain("no askpass configured");
+    } finally {
+      if (prev !== undefined) process.env.HOOK_KIT_ASKPASS = prev;
+    }
   });
+});
 
+describe("callAskpass — infrastructure failures map to deny", () => {
   test("askpass binary missing → deny with cannot-spawn reason", async () => {
     const req = makeRequest();
     const res = await callAskpass({

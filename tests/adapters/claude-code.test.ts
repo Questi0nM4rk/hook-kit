@@ -216,7 +216,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
     expect(parsed.hookSpecificOutput.additionalContext).toContain("review this");
   });
 
-  test("HOOK_KIT_ASKPASS unset → deny with infra-unavailable reason", async () => {
+  test("HOOK_KIT_ASKPASS unset → CC ask JSON (delegate to harness UI)", async () => {
     const out = await resolveCcOutput(
       { kind: "escalate", reason: "needs human" },
       event("PreToolUse"),
@@ -225,10 +225,8 @@ describe("resolveCcOutput — escalate via askpass", () => {
     );
     expect(out.exitCode).toBe(0);
     const parsed = JSON.parse(out.stdout);
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
-    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
-      "infrastructure unavailable",
-    );
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("needs human");
   });
 
   test("non-escalate decisions delegate to the sync path unchanged", async () => {
