@@ -30,32 +30,38 @@ listeners can answer via `hook-kit decide`.
 ```bash
 cd examples/ai-guardrails
 bun install
-bun run build
+bun run build      # produces dist/hk + dist/hk-cc-tools
 ```
 
-Produces `dist/hooks` — a self-contained ~50 MB bytecode binary with sub-50 ms
-cold start. Wire into Claude Code via `hooks.json`:
+Two binaries:
 
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/dist/hooks", "timeout": 10 }]
-      }
-    ],
-    "PostToolUse": [
-      {
+- **`dist/hk`** — the shell wrapper. Substitute for `bash -c "<cmd>"`. Catches
+  every Bash-tool-event rule (cmd, pipe, redirect, recurse). Agent-agnostic.
+  Output convention:
+  - silent + exit 0 → command was approved (executed transparently)
+  - stderr + exit 2 → denied
+  - stdout + exit 1 → needs review (escalate)
+- **`dist/hk-cc-tools`** — Claude Code tool-call adapter. Catches `Edit`,
+  `Write`, `NotebookEdit`, `Read` events that bypass the shell. Wire via
+  `hooks.json`:
+  ```json
+  {
+    "hooks": {
+      "PreToolUse": [{
+        "matcher": "Edit|Write|NotebookEdit|Read",
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/dist/hk-cc-tools", "timeout": 10 }]
+      }],
+      "PostToolUse": [{
         "matcher": "Edit|Write|NotebookEdit",
-        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/dist/hooks", "timeout": 10 }]
-      }
-    ]
+        "hooks": [{ "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/dist/hk-cc-tools", "timeout": 10 }]
+      }]
+    }
   }
-}
-```
+  ```
 
-(Or generate it: `hook-kit build … --hooks-json hooks.json --hook-timeout 10`.)
+For agents that shell out for everything (Aider, Cursor's terminal mode,
+custom CLI agents), `hk` alone gives full coverage. CC users add `hk-cc-tools`
+on top because CC's Edit/Write/Read tool calls don't surface in the shell.
 
 ## How it maps to hook-kit primitives
 

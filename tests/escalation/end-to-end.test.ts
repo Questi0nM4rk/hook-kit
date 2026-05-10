@@ -76,7 +76,7 @@ describe("escalation — compiled binary + askpass", () => {
       const out = join(dir, "dist", "hooks");
       mkdirSync(join(dir, "dist"), { recursive: true });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "claude-code" });
+        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
         const askpass = stageAskpass(dir, "allow");
         const proc = Bun.spawn([out], {
           stdin: "pipe",
@@ -106,7 +106,7 @@ describe("escalation — compiled binary + askpass", () => {
       const out = join(dir, "dist", "hooks");
       mkdirSync(join(dir, "dist"), { recursive: true });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "claude-code" });
+        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
         const askpass = stageAskpass(dir, "deny", "policy violation");
         const proc = Bun.spawn([out], {
           stdin: "pipe",
@@ -138,7 +138,7 @@ describe("escalation — compiled binary + askpass", () => {
       const out = join(dir, "dist", "hooks");
       mkdirSync(join(dir, "dist"), { recursive: true });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "claude-code" });
+        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
         const askpass = stageAskpass(dir, "harness-ask");
         const proc = Bun.spawn([out], {
           stdin: "pipe",
@@ -172,7 +172,7 @@ describe("escalation — compiled binary + askpass", () => {
       const out = join(dir, "dist", "hooks");
       mkdirSync(join(dir, "dist"), { recursive: true });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "claude-code" });
+        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
         // Strip HOOK_KIT_ASKPASS so the binary has no broker infra configured.
         const env = Object.fromEntries(
           Object.entries(process.env).filter(([k]) => k !== "HOOK_KIT_ASKPASS"),

@@ -59,7 +59,7 @@ describe("hook-kit build — end to end", () => {
         const result = await runBuild({
           entrypoint: entry,
           out,
-          adapter: "claude-code",
+          adapter: "cc-tools",
         });
         expect(result.binPath).toBe(out);
         expect(existsSync(out)).toBe(true);
@@ -97,7 +97,7 @@ describe("hook-kit build — end to end", () => {
       const out = join(dir, "dist", "hooks");
       mkdirSync(join(dir, "dist"), { recursive: true });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "claude-code" });
+        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
         const proc = Bun.spawn([out], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
         proc.stdin.write(
           JSON.stringify({
@@ -130,7 +130,7 @@ describe("hook-kit build — end to end", () => {
       const out = join(dir, "dist", "hooks");
       mkdirSync(join(dir, "dist"), { recursive: true });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "claude-code" });
+        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
         const proc = Bun.spawn([out], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
         proc.stdin.end();
         const [stdout, exitCode] = await Promise.all([

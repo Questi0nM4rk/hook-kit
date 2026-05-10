@@ -1,8 +1,8 @@
 {
   "name": "@questi0nm4rk/hook-kit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
-  "description": "Build compiled hook binaries for AI coding agents — harness-agnostic, tree-shaped escalation, sub-50ms cold start.",
+  "description": "Shell-wrapper hook binaries — agent-agnostic command gating via shell-AST. Decisions surface through stdout/stderr/exit-code; works for any caller (agent, human, CI).",
   "keywords": [
     "claude-code",
     "claude",
@@ -36,13 +36,13 @@
       "import": "./src/engine/index.ts",
       "types": "./dist/types/engine/index.d.ts"
     },
+    "./wrapper/hk": {
+      "import": "./src/wrapper/hk.ts",
+      "types": "./dist/types/wrapper/hk.d.ts"
+    },
     "./adapters/claude-code": {
       "import": "./src/adapters/claude-code.ts",
       "types": "./dist/types/adapters/claude-code.d.ts"
-    },
-    "./adapters/generic": {
-      "import": "./src/adapters/generic.ts",
-      "types": "./dist/types/adapters/generic.d.ts"
     },
     "./adapters/raw": {
       "import": "./src/adapters/raw.ts",

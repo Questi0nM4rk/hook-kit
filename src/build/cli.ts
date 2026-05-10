@@ -8,6 +8,7 @@ import { brokerAskpass, listPending, listSessions, submitDecision } from "../esc
 import { forwardUp } from "../escalation/forward.js";
 import { registerListener } from "../escalation/listeners.js";
 import { runWatchTui } from "../escalation/watch-tui.js";
+import { VERSION } from "../version.js";
 import {
   type AdapterName,
   BuildError,
@@ -17,13 +18,23 @@ import {
 } from "./bundle.js";
 
 const HELP = `\
-hook-kit — framework for building compiled hook binaries for AI coding agents
+hook-kit — framework for building shell-wrapper hook binaries
 
 Build:
   hook-kit build <entrypoint> --out <path>
-                              [--adapter claude-code|generic]
+                              [--adapter shell|cc-tools]   (default: shell)
                               [--hooks-json <path>] [--binary-command <s>]
                               [--hook-timeout <seconds>]
+
+  Adapter modes:
+    shell     (default) — produces an \`hk\`-style wrapper. Substitutes for
+                          \`bash -c "<cmd>"\`. Agent-agnostic. Outputs
+                          decisions via stdout/stderr/exit-code (silent
+                          exec on approved, stderr+exit 2 on deny,
+                          stdout+exit 1 on escalate).
+    cc-tools            — Claude Code tool-call adapter. Hooks Edit /
+                          Write / NotebookEdit / Read events that bypass
+                          the shell. Use alongside the shell wrapper.
 
   --hook-timeout is REQUIRED when --hooks-json is set (no default).
   hook-kit doesn't enforce its own timeout on escalate; this CC-side
@@ -101,7 +112,7 @@ async function buildCommand(argv: readonly string[]): Promise<number> {
     writeErr("hook-kit build: --out is required\n");
     return 1;
   }
-  const adapterArg = getArg(argv, "--adapter") ?? "claude-code";
+  const adapterArg = getArg(argv, "--adapter") ?? "shell";
   if (!(SUPPORTED_ADAPTERS as readonly string[]).includes(adapterArg)) {
     writeErr(
       `hook-kit build: unsupported adapter "${adapterArg}" (supported: ${SUPPORTED_ADAPTERS.join(", ")})\n`,
@@ -333,7 +344,7 @@ async function main(argv: readonly string[]): Promise<number> {
     return 0;
   }
   if (argv[0] === "--version" || argv[0] === "-v") {
-    process.stdout.write("0.2.0\n");
+    process.stdout.write(`${VERSION}\n`);
     return 0;
   }
   const sub = argv[0];
