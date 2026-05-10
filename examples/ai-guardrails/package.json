@@ -3,9 +3,11 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Faithful port of ai-guardrails' CC hooks using @questi0nm4rk/hook-kit. Demonstrates cmd/path/pipe/redirect/content builders + escalate decision.",
+  "description": "Faithful port of ai-guardrails using @questi0nm4rk/hook-kit. Builds two binaries: hk (shell wrapper, default) for command gating, and hk-cc-tools for Claude Code's Edit/Write/Read tool-call channel.",
   "scripts": {
-    "build": "hook-kit build src/hooks.ts --out dist/hooks --adapter claude-code"
+    "build": "bun run build:hk && bun run build:cc-tools",
+    "build:hk": "hook-kit build src/hooks.ts --out dist/hk --adapter shell",
+    "build:cc-tools": "hook-kit build src/hooks.ts --out dist/hk-cc-tools --adapter cc-tools"
   },
   "dependencies": {
     "@questi0nm4rk/hook-kit": "*"

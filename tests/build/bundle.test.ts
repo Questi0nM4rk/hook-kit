@@ -10,7 +10,7 @@ describe("generateEntrypoint", () => {
     const src = generateEntrypoint({
       entrypoint: "/abs/path/to/user/hooks.ts",
       out: "/dist/hooks",
-      adapter: "claude-code",
+      adapter: "cc-tools",
     });
     expect(src).toContain('from "@questi0nm4rk/hook-kit/adapters/claude-code"');
     expect(src).toContain("claudeCodeAdapter");
@@ -22,7 +22,7 @@ describe("generateEntrypoint", () => {
     const src = generateEntrypoint({
       entrypoint: '/path/with spaces/and"quote.ts',
       out: "/dist/hooks",
-      adapter: "claude-code",
+      adapter: "cc-tools",
     });
     expect(src).toContain('import modules from "/path/with spaces/and\\"quote.ts"');
   });

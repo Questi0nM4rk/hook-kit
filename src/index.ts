@@ -29,5 +29,7 @@ export { path } from "./rules/path.js";
 export { pipe } from "./rules/pipe.js";
 export { redirect } from "./rules/redirect.js";
 export { stateful } from "./rules/state.js";
-// Entry point
+// Entry point — adapter mode (used by cc-tools binary, library consumers)
 export { type RunOptions, run } from "./run.js";
+// Entry point — shell-wrapper mode (the v0.3 default for compiled binaries)
+export { type RunShellOptions, runShell } from "./wrapper/hk.js";
