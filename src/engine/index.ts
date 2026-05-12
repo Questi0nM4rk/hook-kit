@@ -4,7 +4,14 @@
 import { findCalls, parse, type ShellFile } from "@questi0nm4rk/shell-ast";
 import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
 import { escalate as escalateDecision } from "../core/decision.js";
-import type { Decision, EvalContext, HookEvent, HookModule, StateStore } from "../core/types.js";
+import type {
+  Decision,
+  EvalContext,
+  HookEvent,
+  HookModule,
+  Rule,
+  StateStore,
+} from "../core/types.js";
 import { extractInlineScript, INLINE_SHELL_CMDS } from "./helpers.js";
 
 export interface EvaluateOptions {
@@ -19,6 +26,35 @@ export interface EvaluateOptions {
 }
 
 const MAX_RECURSE_DEPTH = 5;
+
+/**
+ * Test helper: evaluate a single rule against an event without hand-building
+ * an EvalContext. Wraps the rule in a synthetic single-rule module whose
+ * `events` matches the event and whose `matchers` is empty (so the matcher
+ * check is skipped — the rule's own logic decides whether to fire). Returns
+ * the engine's decision, with full inline-shell-recursion / state semantics
+ * intact.
+ *
+ * Use in unit tests so test authors don't have to call `evaluate(event,
+ * [createModule(…, [rule])])` boilerplate for every rule assertion. For
+ * production hook entrypoints, keep using `createModule` + `evaluate` /
+ * `run` / `runShell` — those carry the real module config (events list,
+ * matchers, id) that drives per-event filtering.
+ */
+export async function evaluateRule(
+  event: HookEvent,
+  rule: Rule,
+  opts: EvaluateOptions = {},
+): Promise<Decision> {
+  const mod: HookModule = {
+    id: "__test-rule",
+    name: "__test-rule",
+    events: [event.eventName],
+    rules: [rule],
+    enabled: true,
+  };
+  return evaluate(event, [mod], opts);
+}
 
 // shell-ast WASM-load (or any parse) failures are caught by getBashAst()
 // per Iron Law 4 ("fail open on infra errors"). That keeps a framework bug
