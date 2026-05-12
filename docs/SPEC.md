@@ -460,6 +460,23 @@ export default [
 ];
 ```
 
+**Async-init entrypoint** — when the modules depend on async work (e.g.
+loading a config file at startup), default-export an async function instead
+of an array. The build wrapper calls it on startup and awaits the result:
+
+```typescript
+// src/hooks.ts
+export default async () => {
+  const config = await loadHookConfig();
+  return buildModules(config);
+};
+```
+
+Top-level `await` directly in `hooks.ts` is not supported — `bun build
+--compile --bytecode` rejects TLA in any module reachable from the
+entrypoint. Wrap the async work in an exported function and the generated
+wrapper handles the rest.
+
 ```bash
 $ hk -c "git push --force origin main"
 [hook-kit] needs review: Use --force-with-lease, not raw --force
