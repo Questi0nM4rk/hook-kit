@@ -145,4 +145,29 @@ describe("hook-kit build — end to end", () => {
     },
     BUILD_TIMEOUT_MS,
   );
+
+  test(
+    "--target option produces a host-runnable binary (BUG-002 cross-compile wiring)",
+    async () => {
+      const { dir, entry, cleanup } = stagePlugin();
+      const out = join(dir, "dist", "hooks-host");
+      mkdirSync(join(dir, "dist"), { recursive: true });
+      try {
+        // Build with target=bun-linux-x64 (the host) so the produced binary
+        // is runnable in CI. The contract under test is that --target is
+        // forwarded to bun build and the build succeeds.
+        const result = await runBuild({
+          entrypoint: entry,
+          out,
+          adapter: "cc-tools",
+          target: "bun-linux-x64",
+        });
+        expect(result.binPath).toBe(out);
+        expect(existsSync(out)).toBe(true);
+      } finally {
+        cleanup();
+      }
+    },
+    BUILD_TIMEOUT_MS,
+  );
 });

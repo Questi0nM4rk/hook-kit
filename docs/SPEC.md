@@ -393,6 +393,7 @@ The envelope JSON Schema is shaped to match Model Context Protocol elicitation r
 ```
 hook-kit build <entrypoint> --out <path>
                             [--adapter shell|cc-tools]   (default: shell)
+                            [--target <bun-target>]      (e.g. bun-linux-arm64; default: host)
                             [--hooks-json <path>] [--binary-command <s>]
                             [--hook-timeout <seconds>]
 
@@ -408,7 +409,7 @@ hook-kit list [--children-of <id>] [--json]
 `build`:
 
 1. Generates a thin entrypoint wrapping the user's modules + adapter mode.
-2. Runs `bun build <entrypoint> --compile --bytecode --outfile <out>`.
+2. Runs `bun build <entrypoint> --compile --bytecode --outfile <out>`. With `--target <bun-target>` passed, the value forwards verbatim to `bun build --target=<bun-target>` for cross-compilation (e.g. `bun-linux-x64`, `bun-linux-arm64`, `bun-darwin-x64`, `bun-darwin-arm64`). bun's own error surfaces if the value is unrecognized.
 3. Generates `hooks.json` from module metadata (events, matchers) when `--hooks-json <path>` is set. Only meaningful for `--adapter cc-tools` (the shell wrapper isn't wired through CC's hook system). **`--hook-timeout <seconds>` is required** in this mode — no default.
 
 Adapter modes:

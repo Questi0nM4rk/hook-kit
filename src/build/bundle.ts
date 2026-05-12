@@ -51,6 +51,11 @@ export interface BundleOptions {
   readonly out: string;
   /** Which build mode. Defaults to `shell`. */
   readonly adapter: AdapterName;
+  /** Optional `bun build --target=<value>` for cross-compilation
+   *  (e.g. `bun-linux-arm64`, `bun-darwin-x64`). When omitted, bun
+   *  builds for the host platform. Passed through verbatim — bun's own
+   *  error surfaces if the value is unrecognized. */
+  readonly target?: string;
 }
 
 /**
@@ -147,14 +152,15 @@ export async function runBuild(opts: BundleOptions): Promise<BuildResult> {
       "utf8",
     );
 
-    const proc = Bun.spawn(
-      ["bun", "build", wrapperPath, "--compile", "--bytecode", "--outfile", absOut],
-      {
-        cwd: pluginDir,
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
+    const cmd = ["bun", "build", wrapperPath, "--compile", "--bytecode", "--outfile", absOut];
+    if (opts.target !== undefined && opts.target !== "") {
+      cmd.push(`--target=${opts.target}`);
+    }
+    const proc = Bun.spawn(cmd, {
+      cwd: pluginDir,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
