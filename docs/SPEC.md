@@ -229,8 +229,13 @@ hk --help
 |---|---|---|---|
 | `null` (no rule fired) | 0 | — | (silent, then exec the command verbatim, pass-through stdout/stderr/exit) |
 | `context` (info, non-blocking) | 0 | — | (silent — context messages are dropped in shell-wrapper mode; use cc-tools or library mode for context output) |
-| `escalate` (warning, needs review) | non-zero (1) | **stdout** | `[hook-kit] needs review: <reason>` |
-| `deny` (error, hard block) | non-zero (2) | **stderr** | `[hook-kit] denied: <reason>` |
+| `escalate` (warning, needs review) | non-zero (1) | **stdout** | `<prefix> needs review: <reason>` |
+| `deny` (error, hard block) | non-zero (2) | **stderr** | `<prefix> denied: <reason>` |
+
+`<prefix>` is the user-supplied decision label when set (e.g. `[my-plugin]`),
+or `[hook-kit]` when no label is provided. The label leads because it
+identifies which plugin/rule made the call — more meaningful for log
+grepping than the framework name.
 
 The synthesized HookEvent always has `toolName: "Bash"` and `eventName: "PreToolUse"`. Path/content rules don't fire here — they're inert without a tool channel that surfaces non-shell events. Use `redirect()` for shell-side write protection; use the cc-tools adapter alongside if you need full Edit/Write/Read coverage.
 
