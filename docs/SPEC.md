@@ -590,3 +590,23 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
 | No default `--hook-timeout` (required when `--hooks-json` set) | Sensible default like 65s or 3600s | Either default has a wrong tail. Forcing the plugin author to pick makes the trade-off explicit at build time. |
 | Filesystem spool inside the broker | Socket-only or HTTP | Inspectable, crash-safe, atomic via `rename(2)`, no daemon strictly required. |
 | Askpass as the public escalation contract | A dedicated socket protocol | Decades of prior art (sudo, ssh, git, gpg). Any binary can be a responder. |
+
+## Considered Future Additions
+
+Things explored but deliberately deferred. Logged so we don't re-litigate.
+
+### Direct-ask tool (sibling project)
+
+**Idea:** A CLI an agent invokes via its Bash tool to ask the user a discrete question with named options, e.g. `ask "Use vitest or bun:test?" --option vitest:... --option bun-test:...`. Stdout returns the chosen option, exit code encodes accept/deny/timeout. Reuses the same broker spool + TUI listeners that hook escalations already use; question envelopes vs. approval envelopes differ only in `kind`.
+
+**Why not now:** hook-kit's purpose is hooking — intercepting tool calls the agent already made. A direct-ask tool serves the inverse flow (agent volunteers a question) and shouldn't share a binary with the wrapper. The broker substrate is reusable, but a CLI surface for it doesn't belong inside the `hk` bin.
+
+**When to revisit:** when a concrete consumer needs it. Build as a separate project; copy the askpass envelope protocol over rather than depend on hook-kit as a library — the protocol is the contract, the code is incidental. Per-rule `timeoutMs` on `escalate()` belongs in the same revisit window if/when it shows up.
+
+### `hk exec` wrapper for non-bash-timeout harnesses
+
+**Idea:** A second wrapper shape — `hk exec -- <cmd>` — distinct from the default `hk -c "<cmd>"`. Aimed at harnesses where the agent's bash tool timeout isn't configurable from the rule side. Hook-kit spawns the command, evaluates rules, enforces its own ask timeout end-to-end. Opt-in.
+
+**Why not now:** CC has per-hook `timeout` in `hooks.json`, and adapter-level `timeoutMs` on `resolveCcOutput`/`callAskpass` already covers library and shell-wrapper consumers. No known harness today actually needs hook-kit to own the budget. New argv shape + exit-code mapping is non-trivial for a hypothetical user.
+
+**When to revisit:** when a real harness ships that swallows hook timeouts silently or caps them below ~110s without override. Add `hk exec` as a sibling binary, not a subcommand of `hk` — keep the default wrapper as a pure `bash -c` substitute.
