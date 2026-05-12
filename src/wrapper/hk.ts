@@ -11,6 +11,7 @@
 
 import type { Decision, HookEvent, HookModule } from "../core/types.js";
 import { type EvaluateOptions, evaluate } from "../engine/index.js";
+import { emitVerbose, isVerbose } from "../engine/trace.js";
 import { VERSION } from "../version.js";
 
 const USAGE = `\
@@ -131,7 +132,15 @@ export async function runShell(
     raw: {},
   };
 
+  const verbose = isVerbose();
+  const startedAt = verbose ? performance.now() : 0;
+
   const decision = await evaluate(event, modules, opts);
+
+  if (verbose) {
+    const durationMs = Math.round(performance.now() - startedAt);
+    emitVerbose(event, decision, modules.length, durationMs);
+  }
 
   if (decision === null || decision.kind === "context") {
     // Approved (or just context — non-blocking) → exec verbatim, transparent.

@@ -4,27 +4,9 @@
 import type { ProtocolAdapter } from "./adapters/types.js";
 import type { Decision, HookEvent, HookModule } from "./core/types.js";
 import { type EvaluateOptions, evaluate } from "./engine/index.js";
+import { emitVerbose, isVerbose } from "./engine/trace.js";
 
 export type RunOptions = EvaluateOptions;
-
-function isVerbose(): boolean {
-  const v = process.env.HOOK_KIT_VERBOSE;
-  return v === "1" || v === "true";
-}
-
-function traceLine(
-  event: HookEvent,
-  decision: Decision,
-  modulesConsidered: number,
-  durationMs: number,
-): string {
-  const head = `[hook-kit] event=${event.eventName} tool=${event.toolName} session=${event.sessionId} modules=${modulesConsidered}`;
-  if (decision === null) return `${head} → null time=${durationMs}ms\n`;
-  const label = decision.label !== undefined ? ` label=${decision.label}` : "";
-  const reasonText = decision.kind === "context" ? decision.message : decision.reason;
-  const reason = reasonText !== "" ? ` reason=${JSON.stringify(reasonText)}` : "";
-  return `${head} → ${decision.kind}${label}${reason} time=${durationMs}ms\n`;
-}
 
 /**
  * The compiled-binary entry point. Reads input via the adapter, runs the
@@ -61,7 +43,7 @@ export async function run(
 
   if (verbose) {
     const durationMs = Math.round(performance.now() - startedAt);
-    process.stderr.write(traceLine(event, decision, modules.length, durationMs));
+    emitVerbose(event, decision, modules.length, durationMs);
   }
 
   await adapter.writeOutput(decision, event);
