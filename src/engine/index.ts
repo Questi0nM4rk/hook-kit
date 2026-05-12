@@ -20,6 +20,18 @@ export interface EvaluateOptions {
 
 const MAX_RECURSE_DEPTH = 5;
 
+// shell-ast WASM-load (or any parse) failures are caught by getBashAst()
+// per Iron Law 4 ("fail open on infra errors"). That keeps a framework bug
+// from blocking the user, but it also silently disables every shell-AST
+// rule with no signal — invisible loss of coverage. Emit a one-shot stderr
+// warning on the first failure so operators can investigate.
+let astErrorLogged = false;
+
+/** @internal Reset hook used by tests to verify the once-per-process warning. */
+export function __resetAstErrorLoggedForTests(): void {
+  astErrorLogged = false;
+}
+
 /**
  * Evaluate all matching modules/rules against a hook event.
  * Returns Decision (action) or null (silent pass-through).
@@ -157,7 +169,15 @@ function buildEvalContext(
       }
       try {
         cached = await parse(command);
-      } catch {
+      } catch (err) {
+        if (!astErrorLogged) {
+          astErrorLogged = true;
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(
+            "[hook-kit] shell-ast parse failed — command/pipe/redirect rules disabled for failed inputs\n",
+          );
+          process.stderr.write(`[hook-kit] details: ${msg}\n`);
+        }
         cached = null;
       }
       return cached;
