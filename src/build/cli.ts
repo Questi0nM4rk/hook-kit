@@ -369,5 +369,11 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 if (import.meta.main) {
-  process.exit(await main(process.argv.slice(2)));
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err) => {
+      writeErr(`hook-kit: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+      process.exit(1);
+    },
+  );
 }

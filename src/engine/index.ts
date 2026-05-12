@@ -95,7 +95,11 @@ export async function evaluate(
       for (const call of findCalls(ast)) {
         const unwrapped = unwrapCall(call);
         if (unwrapped === null) continue;
-        if (!INLINE_SHELL_CMDS.has(unwrapped.cmd)) continue;
+        // shell-ast 0.2+ treats bash/sh/etc as WRAPPERS, so `bash -c '…'` arrives with
+        // wrapper="bash" and cmd=null (the inner script is opaque). Prefer wrapper for
+        // the inline-shell check; fall back to cmd for legacy/non-wrapped forms (eval, exec).
+        const shellName = unwrapped.wrapper ?? unwrapped.cmd;
+        if (shellName === null || !INLINE_SHELL_CMDS.has(shellName)) continue;
         const inline = extractInlineScript(unwrapped);
         if (inline === null) continue;
         const synthetic: HookEvent = {

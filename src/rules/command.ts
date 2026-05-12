@@ -2,7 +2,8 @@
 // See docs/SPEC.md § Rule Builders for semantics
 
 import type { CallExprNode } from "@questi0nm4rk/shell-ast";
-import { findCalls, wordToLit } from "@questi0nm4rk/shell-ast";
+import { findCalls, resolveFlags, wordToLit } from "@questi0nm4rk/shell-ast";
+import type { UnwrappedCall } from "@questi0nm4rk/shell-ast/semantic";
 import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
 import {
   context as contextDecision,
@@ -83,7 +84,7 @@ class CommandRuleBuilder {
         if (ast === null) return null;
 
         for (const call of findCalls(ast)) {
-          const unwrapped = unwrapCall(call);
+          const unwrapped = resolveUnwrappedOrFallback(call);
           if (unwrapped === null) continue;
           if (unwrapped.cmd !== cfg.command) continue;
 
@@ -104,7 +105,11 @@ class CommandRuleBuilder {
 
           // Arg predicates
           if (!cfg.argIncludeValues.every((v) => unwrapped.args.includes(v))) continue;
-          if (!cfg.argMatchPatterns.every((p) => unwrapped.args.some((a) => p.test(a)))) {
+          if (
+            !cfg.argMatchPatterns.every((p) =>
+              unwrapped.args.some((a) => typeof a === "string" && p.test(a)),
+            )
+          ) {
             continue;
           }
 
@@ -122,4 +127,19 @@ class CommandRuleBuilder {
 /** True if the call's raw arg list contains the POSIX `--` separator. */
 function hasDdash(call: CallExprNode): boolean {
   return call.args.some((w) => wordToLit(w) === "--");
+}
+
+/**
+ * shell-ast 0.2.1 returns null from unwrapCall when a WRAPPERS-listed command
+ * (bash, sh, …) is invoked without an inner command — e.g. `bash --version`,
+ * bare `bash`. Fall back to resolveFlags so cmd() rules can still match the
+ * underlying command. Tracked upstream — remove fallback when the regression
+ * is fixed in shell-ast.
+ */
+function resolveUnwrappedOrFallback(call: CallExprNode): UnwrappedCall | null {
+  const u = unwrapCall(call);
+  if (u !== null) return u;
+  const r = resolveFlags(call);
+  if (r === null) return null;
+  return { wrapper: null, cmd: r.cmd, flags: r.flags, args: r.args, raw: r.raw };
 }

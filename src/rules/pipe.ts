@@ -3,7 +3,7 @@
 // See docs/SPEC.md § Rule Builders for semantics.
 
 import type { BinaryCmd, Stmt } from "@questi0nm4rk/shell-ast";
-import { walk } from "@questi0nm4rk/shell-ast";
+import { resolveFlags, walk } from "@questi0nm4rk/shell-ast";
 import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
 import {
   context as contextDecision,
@@ -65,5 +65,16 @@ class PipeRuleBuilder {
 function stmtToCmdName(stmt: Stmt): string | null {
   const cmd = stmt.cmd;
   if (cmd === null || cmd.type !== "CallExpr") return null;
-  return unwrapCall(cmd)?.cmd ?? null;
+  const u = unwrapCall(cmd);
+  if (u !== null) {
+    // shell-ast 0.2+ unwraps bash/sh/etc — for `curl … | bash -c '…'` the
+    // right-side arrives as { wrapper: "bash", cmd: null }. Prefer cmd for
+    // normal commands; fall back to wrapper for wrapper-only calls.
+    return u.cmd ?? u.wrapper;
+  }
+  // shell-ast 0.2.1 returns null from unwrapCall when a WRAPPERS-listed command
+  // (bash, sh, …) is called with no args, e.g. the bare `bash` on the right of
+  // `curl … | bash`. Fall back to resolveFlags so we still recognize it.
+  // Tracked upstream — remove fallback when shell-ast fixes the regression.
+  return resolveFlags(cmd)?.cmd ?? null;
 }
