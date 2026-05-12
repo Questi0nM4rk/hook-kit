@@ -79,8 +79,11 @@ The contract every caller can rely on:
 |---|---|---|---|
 | `null` (no rule fired) | 0 | — | (silent, then exec the command verbatim — caller sees its own output) |
 | `context` (info, non-blocking) | 0 | — | (silent in shell-wrapper mode; use cc-tools adapter or library mode for context output) |
-| `escalate` (warning, needs review) | 1 | **stdout** | `[hook-kit] needs review: <reason>` |
-| `deny` (error, hard block) | 2 | **stderr** | `[hook-kit] denied: <reason>` |
+| `escalate` (warning, needs review) | 1 | **stdout** | `<prefix> needs review: <reason>` |
+| `deny` (error, hard block) | 2 | **stderr** | `<prefix> denied: <reason>` |
+
+`<prefix>` is the user-supplied decision label when set (e.g. `[my-plugin]`),
+or `[hook-kit]` when no label is provided.
 
 Approved commands run transparently. Denied commands never run. Escalated commands never run, but the warning goes to stdout (so a tail-the-output agent sees it without losing access to stderr for actual errors).
 
