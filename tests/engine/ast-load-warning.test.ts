@@ -4,31 +4,9 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createModule } from "../../src/core/module.js";
-import type { HookEvent } from "../../src/core/types.js";
 import { __resetAstErrorLoggedForTests, evaluate } from "../../src/engine/index.js";
 import { cmd } from "../../src/rules/command.js";
-
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
-  };
-}
-
-function captureStderr(): { restore: () => void; output: () => string } {
-  const buf: string[] = [];
-  const original = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
-    buf.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
-    return true;
-  }) as typeof process.stderr.write;
-  return { restore: () => (process.stderr.write = original), output: () => buf.join("") };
-}
+import { bashEvent, captureStderr } from "../_helpers.js";
 
 describe("engine — shell-ast parse failure warning (BUG-001)", () => {
   let captured: { restore: () => void; output: () => string };

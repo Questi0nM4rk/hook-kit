@@ -6,40 +6,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Decision, HookEvent } from "../../src/core/types.js";
 import { emitVerbose, isVerbose, traceLine } from "../../src/engine/trace.js";
+import { bashEvent, captureStderr, withEnv } from "../_helpers.js";
 
 function makeEvent(partial: Partial<HookEvent> = {}): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command: "rm foo" },
-    raw: {},
-    ...partial,
-  };
-}
-
-function captureStderr(): { restore: () => void; output: () => string } {
-  const buf: string[] = [];
-  const original = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
-    buf.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
-    return true;
-  }) as typeof process.stderr.write;
-  return { restore: () => (process.stderr.write = original), output: () => buf.join("") };
-}
-
-function withEnv(key: string, value: string | undefined, fn: () => void): void {
-  const prev = process.env[key];
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
-  try {
-    fn();
-  } finally {
-    if (prev === undefined) delete process.env[key];
-    else process.env[key] = prev;
-  }
+  return { ...bashEvent("rm foo"), ...partial };
 }
 
 describe("engine/trace — isVerbose()", () => {

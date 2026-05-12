@@ -2,16 +2,14 @@
 // See docs/SPEC.md § Rule Builders for semantics
 
 import type { CallExprNode } from "@questi0nm4rk/shell-ast";
-import { findCalls, resolveFlags, wordToLit } from "@questi0nm4rk/shell-ast";
-import type { UnwrappedCall } from "@questi0nm4rk/shell-ast/semantic";
-import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
+import { findCalls, wordToLit } from "@questi0nm4rk/shell-ast";
 import {
   context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
-import { expandFlags, hasFlag } from "../engine/helpers.js";
+import { expandFlags, hasFlag, resolveUnwrappedOrFallback } from "../engine/helpers.js";
 
 export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
   return new CommandRuleBuilder(command, sub);
@@ -127,19 +125,4 @@ class CommandRuleBuilder {
 /** True if the call's raw arg list contains the POSIX `--` separator. */
 function hasDdash(call: CallExprNode): boolean {
   return call.args.some((w) => wordToLit(w) === "--");
-}
-
-/**
- * shell-ast 0.2.1 returns null from unwrapCall when a WRAPPERS-listed command
- * (bash, sh, …) is invoked without an inner command — e.g. `bash --version`,
- * bare `bash`. Fall back to resolveFlags so cmd() rules can still match the
- * underlying command. Tracked upstream — remove fallback when the regression
- * is fixed in shell-ast.
- */
-function resolveUnwrappedOrFallback(call: CallExprNode): UnwrappedCall | null {
-  const u = unwrapCall(call);
-  if (u !== null) return u;
-  const r = resolveFlags(call);
-  if (r === null) return null;
-  return { wrapper: null, cmd: r.cmd, flags: r.flags, args: r.args, raw: r.raw };
 }

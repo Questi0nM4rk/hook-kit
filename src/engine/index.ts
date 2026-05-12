@@ -210,9 +210,8 @@ function buildEvalContext(
           astErrorLogged = true;
           const msg = err instanceof Error ? err.message : String(err);
           process.stderr.write(
-            "[hook-kit] shell-ast parse failed — command/pipe/redirect rules disabled for failed inputs\n",
+            `[hook-kit] shell-ast parse failed — command/pipe/redirect rules disabled for failed inputs\n[hook-kit] details: ${msg}\n`,
           );
-          process.stderr.write(`[hook-kit] details: ${msg}\n`);
         }
         cached = null;
       }

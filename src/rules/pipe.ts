@@ -3,14 +3,14 @@
 // See docs/SPEC.md § Rule Builders for semantics.
 
 import type { BinaryCmd, Stmt } from "@questi0nm4rk/shell-ast";
-import { resolveFlags, walk } from "@questi0nm4rk/shell-ast";
-import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
+import { walk } from "@questi0nm4rk/shell-ast";
 import {
   context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
+import { resolveUnwrappedOrFallback } from "../engine/helpers.js";
 
 export function pipe(from: readonly string[], into: readonly string[]): PipeRuleBuilder {
   return new PipeRuleBuilder(from, into);
@@ -65,16 +65,11 @@ class PipeRuleBuilder {
 function stmtToCmdName(stmt: Stmt): string | null {
   const cmd = stmt.cmd;
   if (cmd === null || cmd.type !== "CallExpr") return null;
-  const u = unwrapCall(cmd);
-  if (u !== null) {
-    // shell-ast 0.2+ unwraps bash/sh/etc — for `curl … | bash -c '…'` the
-    // right-side arrives as { wrapper: "bash", cmd: null }. Prefer cmd for
-    // normal commands; fall back to wrapper for wrapper-only calls.
-    return u.cmd ?? u.wrapper;
-  }
-  // shell-ast 0.2.1 returns null from unwrapCall when a WRAPPERS-listed command
-  // (bash, sh, …) is called with no args, e.g. the bare `bash` on the right of
-  // `curl … | bash`. Fall back to resolveFlags so we still recognize it.
-  // Tracked upstream — remove fallback when shell-ast fixes the regression.
-  return resolveFlags(cmd)?.cmd ?? null;
+  // shell-ast 0.2+ unwraps bash/sh/etc — for `curl … | bash -c '…'` the
+  // right-side arrives as { wrapper: "bash", cmd: null }. Prefer cmd for
+  // normal commands; fall back to wrapper for wrapper-only calls. The
+  // resolveFlags fallback inside resolveUnwrappedOrFallback covers the
+  // shell-ast#7 regression where unwrapCall returns null for bare wrappers.
+  const u = resolveUnwrappedOrFallback(cmd);
+  return u !== null ? (u.cmd ?? u.wrapper) : null;
 }

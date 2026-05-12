@@ -8,18 +8,7 @@ import type { HookEvent, Rule } from "../../src/core/types.js";
 import { evaluateRule } from "../../src/engine/index.js";
 import { cmd } from "../../src/rules/command.js";
 import { custom } from "../../src/rules/custom.js";
-
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: {},
-  };
-}
+import { bashEvent } from "../_helpers.js";
 
 describe("evaluateRule() — single-rule test helper", () => {
   test("returns the rule's decision when it fires", async () => {
