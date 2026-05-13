@@ -4,9 +4,10 @@
 import type { CallExprNode } from "@questi0nm4rk/shell-ast";
 import { findCalls, isResolved, unwrapCall, wordToLit } from "@questi0nm4rk/shell-ast";
 import {
-  context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
+  note as noteDecision,
+  warning as warningDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 import { expandFlags, hasFlag } from "../engine/helpers.js";
@@ -57,12 +58,21 @@ class CommandRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  context(message: string, label?: string): Rule {
-    return this.buildRule(contextDecision(message, label));
-  }
-
   escalate(reason: string, label?: string): Rule {
     return this.buildRule(escalateDecision(reason, label));
+  }
+
+  /** Annotate matching invocations with a `[label] warning: <message>` line.
+   *  Non-blocking: the command still runs. Use for security-relevant context
+   *  the AI should see above its tool output. */
+  warning(message: string, label?: string): Rule {
+    return this.buildRule(warningDecision(message, label));
+  }
+
+  /** Same mechanics as `.warning()` but rendered as `[label] note: <message>`.
+   *  Use for informational context where "warning" would overstate severity. */
+  note(message: string, label?: string): Rule {
+    return this.buildRule(noteDecision(message, label));
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {

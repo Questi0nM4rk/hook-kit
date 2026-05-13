@@ -5,9 +5,10 @@
 import type { Stmt } from "@questi0nm4rk/shell-ast";
 import { effectOf, findAll, unwrapCall } from "@questi0nm4rk/shell-ast";
 import {
-  context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
+  note as noteDecision,
+  warning as warningDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 
@@ -25,12 +26,16 @@ class PipeRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  context(message: string, label?: string): Rule {
-    return this.buildRule(contextDecision(message, label));
-  }
-
   escalate(reason: string, label?: string): Rule {
     return this.buildRule(escalateDecision(reason, label));
+  }
+
+  warning(message: string, label?: string): Rule {
+    return this.buildRule(warningDecision(message, label));
+  }
+
+  note(message: string, label?: string): Rule {
+    return this.buildRule(noteDecision(message, label));
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {

@@ -1,22 +1,28 @@
-// Shell-wrapper entrypoint — the new default for v0.3.
+// Shell-wrapper entrypoint — the v0.3 default for compiled binaries.
 //
 // Substitutes for `bash -c "<cmd>"`: parses the command, runs the engine,
-// then either:
-//   - null / context  → execs the command verbatim (fully transparent)
-//   - deny            → stderr `<prefix> denied: <reason>`, exit 2
-//   - escalate        → stdout `<prefix> needs review: <reason>`, exit 1
+// then renders the EvaluationOutcome through the shell convention:
+//
+//   null / no rule         → silent, exec verbatim, exit = exec's exit
+//   warning / note only    → emit each annotation + `---` separator + exec
+//                            (annotations go to stdout, then the command's
+//                             own stdout follows below the separator)
+//   escalate (any kind)    → stdout `<prefix> needs review: <reason>`, plus
+//                            any accumulated annotations, exit 1, NO exec
+//                            (harness re-runs on user approval, or the
+//                             askpass broker handled it before reaching us)
+//   deny                   → stderr `<prefix> denied: <reason>`, exit 2,
+//                            NO exec, annotations DROPPED (deny is final)
 //
 // `<prefix>` is the user-supplied decision label when present (e.g.
-// `[my-plugin]`), or `[hook-kit]` when no label is set. The label leads
-// because it identifies which plugin/rule made the call — more meaningful
-// to a consumer than the framework name. (BUG-006 in docs/BUGS.md.)
+// `[my-plugin]`), or `[hook-kit]` when no label is set.
 //
-// Output convention is harness-agnostic: any caller (agent, human, CI)
-// reads the decision through normal shell I/O. No JSON, no harness wiring.
+// Output convention is harness-agnostic: any caller (agent, human, CI) reads
+// the decision through normal shell I/O. No JSON, no harness wiring.
 
-import { preloadWasm } from "@questi0nm4rk/shell-ast";
-import type { Decision, HookEvent, HookModule } from "../core/types.js";
-import { type EvaluateOptions, evaluate } from "../engine/index.js";
+import { preloadWasm, WasmLoadError, WasmRuntimeError } from "@questi0nm4rk/shell-ast";
+import type { Annotation, HookEvent, HookModule, Terminal } from "../core/types.js";
+import { type EvaluateOptions, evaluate, warnAstUnavailable } from "../engine/index.js";
 import { emitVerbose, isVerbose } from "../engine/trace.js";
 import { VERSION } from "../version.js";
 
@@ -30,9 +36,11 @@ Usage:
   hk --help                  Print this and exit.
 
 Output convention:
-  silent + exit 0    → command was approved (executed transparently)
-  stderr + non-zero  → denied
-  stdout + non-zero  → needs review (escalate)
+  silent + exit 0          → command was approved (executed transparently)
+  <annotations> + --- +    → warning/note(s) emitted, then command exec'd
+    command output            (the AI sees the labels above the separator)
+  stdout + exit 1          → needs review (escalate)
+  stderr + exit 2          → denied
 `;
 
 export interface RunShellOptions extends EvaluateOptions {
@@ -70,18 +78,17 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   };
 }
 
-function emitDecision(decision: Exclude<Decision, null | { kind: "context" }>): never {
-  // Label leads when present so the output identifies which plugin/rule made
-  // the call (more meaningful than `[hook-kit]` for log grepping). Falls back
-  // to `[hook-kit]` when no label was set on the decision.
-  const prefix = decision.label ?? "[hook-kit]";
-  if (decision.kind === "deny") {
-    process.stderr.write(`${prefix} denied: ${decision.reason}\n`);
-    process.exit(2);
-  }
-  // escalate — needs-review warning, non-zero exit, stdout
-  process.stdout.write(`${prefix} needs review: ${decision.reason}\n`);
-  process.exit(1);
+/** Render a terminal decision to its `<prefix> kind: <reason>` line. */
+function formatTerminal(t: Terminal): string {
+  const prefix = t.label ?? "[hook-kit]";
+  const verb = t.kind === "deny" ? "denied" : "needs review";
+  return `${prefix} ${verb}: ${t.reason}\n`;
+}
+
+/** Render an annotation to its `<prefix> warning|note: <message>` line. */
+function formatAnnotation(a: Annotation): string {
+  const prefix = a.label ?? "[hook-kit]";
+  return `${prefix} ${a.kind}: ${a.message}\n`;
 }
 
 async function execCommand(
@@ -100,7 +107,7 @@ async function execCommand(
 /**
  * The shell-wrapper entrypoint. Compiled binaries built with
  * `hook-kit build … --adapter shell` (the default) call this with their
- * modules. Reads `process.argv`, evaluates, emits the decision via the
+ * modules. Reads `process.argv`, evaluates, emits the outcome via the
  * stdout/stderr/exit-code convention, then execs on approval.
  */
 export async function runShell(
@@ -108,10 +115,14 @@ export async function runShell(
   opts: RunShellOptions = {},
 ): Promise<never> {
   // Warm shell-ast's WASM during startup so the first cmd/pipe/redirect rule
-  // doesn't pay cold-init in its hot path. Iron Law 4: a failure here is
-  // surfaced as a loud one-shot warning when the engine's first parse()
-  // catches it — don't gate startup on infra errors.
-  await preloadWasm().catch(() => {});
+  // doesn't pay cold-init in its hot path. On infra failure, route through
+  // the same one-shot warning as the engine's parse() catch site so non-Bash
+  // sessions (no eventual parse() call) still see the signal.
+  await preloadWasm().catch((err: unknown) => {
+    if (err instanceof WasmLoadError || err instanceof WasmRuntimeError) {
+      warnAstUnavailable(err);
+    }
+  });
 
   const args = parseArgs(process.argv.slice(2));
 
@@ -147,22 +158,44 @@ export async function runShell(
   const verbose = isVerbose();
   const startedAt = verbose ? performance.now() : 0;
 
-  const decision = await evaluate(event, modules, opts);
+  const outcome = await evaluate(event, modules, opts);
 
   if (verbose) {
     const durationMs = Math.round(performance.now() - startedAt);
-    emitVerbose(event, decision, modules.length, durationMs);
+    emitVerbose(event, outcome, modules.length, durationMs);
   }
 
-  if (decision === null || decision.kind === "context") {
-    // Approved (or just context — non-blocking) → exec verbatim, transparent.
-    if (args.mode === "bash-c" && args.command !== undefined) {
-      await execCommand({ mode: "bash-c", command: args.command });
-    } else if (args.mode === "argv" && args.argv !== undefined) {
-      await execCommand({ mode: "argv", argv: args.argv });
+  // deny — hard stop. Annotations dropped (per merge policy).
+  if (outcome.terminal?.kind === "deny") {
+    process.stderr.write(formatTerminal(outcome.terminal));
+    process.exit(2);
+  }
+
+  // escalate — emit reason + any annotations, exit 1, no exec. The harness
+  // (or askpass broker, if it already handled approval upstream) is responsible
+  // for re-running the command after approval.
+  if (outcome.terminal?.kind === "escalate") {
+    process.stdout.write(formatTerminal(outcome.terminal));
+    for (const ann of outcome.annotations) {
+      process.stdout.write(formatAnnotation(ann));
     }
-    process.exit(0);
+    process.exit(1);
   }
 
-  emitDecision(decision);
+  // No terminal. If any annotations fired, emit them above a `---` separator
+  // so the AI can distinguish the framework's annotation lines from the
+  // command's own output below. Then exec verbatim.
+  if (outcome.annotations.length > 0) {
+    for (const ann of outcome.annotations) {
+      process.stdout.write(formatAnnotation(ann));
+    }
+    process.stdout.write("---\n");
+  }
+
+  if (args.mode === "bash-c" && args.command !== undefined) {
+    await execCommand({ mode: "bash-c", command: args.command });
+  } else if (args.mode === "argv" && args.argv !== undefined) {
+    await execCommand({ mode: "argv", argv: args.argv });
+  }
+  process.exit(0);
 }
