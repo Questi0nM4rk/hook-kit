@@ -2,14 +2,15 @@
 // See docs/SPEC.md § Rule Builders for semantics
 
 import type { CallExprNode } from "@questi0nm4rk/shell-ast";
-import { findCalls, wordToLit } from "@questi0nm4rk/shell-ast";
+import { findCalls, isResolved, unwrapCall, wordToLit } from "@questi0nm4rk/shell-ast";
 import {
-  context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
+  note as noteDecision,
+  warning as warningDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
-import { expandFlags, hasFlag, resolveUnwrappedOrFallback } from "../engine/helpers.js";
+import { expandFlags, hasFlag, unwrappedName } from "../engine/helpers.js";
 
 export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
   return new CommandRuleBuilder(command, sub);
@@ -57,12 +58,21 @@ class CommandRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  context(message: string, label?: string): Rule {
-    return this.buildRule(contextDecision(message, label));
-  }
-
   escalate(reason: string, label?: string): Rule {
     return this.buildRule(escalateDecision(reason, label));
+  }
+
+  /** Annotate matching invocations with a `[label] warning: <message>` line.
+   *  Non-blocking: the command still runs. Use for security-relevant context
+   *  the AI should see above its tool output. */
+  warning(message: string, label?: string): Rule {
+    return this.buildRule(warningDecision(message, label));
+  }
+
+  /** Same mechanics as `.warning()` but rendered as `[label] note: <message>`.
+   *  Use for informational context where "warning" would overstate severity. */
+  note(message: string, label?: string): Rule {
+    return this.buildRule(noteDecision(message, label));
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {
@@ -82,14 +92,15 @@ class CommandRuleBuilder {
         if (ast === null) return null;
 
         for (const call of findCalls(ast)) {
-          const unwrapped = resolveUnwrappedOrFallback(call);
-          if (unwrapped === null) continue;
-          if (unwrapped.cmd !== cfg.command) continue;
+          const u = unwrapCall(call);
+          if (u === null) continue;
+          // See `unwrappedName` in engine/helpers.ts for the dispatch policy.
+          if (unwrappedName(u) !== cfg.command) continue;
 
           // Match subcommands by position
           let subOk = true;
           for (let i = 0; i < cfg.sub.length; i++) {
-            if (unwrapped.args[i] !== cfg.sub[i]) {
+            if (u.args[i] !== cfg.sub[i]) {
               subOk = false;
               break;
             }
@@ -97,17 +108,13 @@ class CommandRuleBuilder {
           if (!subOk) continue;
 
           // Flag predicates (alias-aware)
-          const expanded = expandFlags(unwrapped.flags);
+          const expanded = expandFlags(u.flags);
           if (!cfg.flags.every((f) => hasFlag(expanded, f))) continue;
           if (cfg.noFlags.some((f) => hasFlag(expanded, f))) continue;
 
           // Arg predicates
-          if (!cfg.argIncludeValues.every((v) => unwrapped.args.includes(v))) continue;
-          if (
-            !cfg.argMatchPatterns.every((p) =>
-              unwrapped.args.some((a) => typeof a === "string" && p.test(a)),
-            )
-          ) {
+          if (!cfg.argIncludeValues.every((v) => u.args.includes(v))) continue;
+          if (!cfg.argMatchPatterns.every((p) => u.args.some((a) => isResolved(a) && p.test(a)))) {
             continue;
           }
 

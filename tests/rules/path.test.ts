@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Decision, HookEvent, HookModule, Rule } from "../../src/core/types.js";
+import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
 import { path } from "../../src/rules/path.js";
 
@@ -23,8 +23,18 @@ async function run(
   toolName: string,
   toolInput: Record<string, unknown>,
   rule: Rule,
-): Promise<Decision> {
-  return evaluate(event(toolName, toolInput), [moduleWith(rule)]);
+): Promise<Terminal | null> {
+  const outcome = await evaluate(event(toolName, toolInput), [moduleWith(rule)]);
+  return outcome.terminal;
+}
+
+async function runAnnotations(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  rule: Rule,
+): Promise<readonly Annotation[]> {
+  const outcome = await evaluate(event(toolName, toolInput), [moduleWith(rule)]);
+  return outcome.annotations;
 }
 
 describe("path() — basic matching", () => {
@@ -167,19 +177,24 @@ describe("path() — NotebookEdit", () => {
   });
 });
 
-describe("path() — terminal forms", () => {
-  test("context() returns a context decision", async () => {
-    const d = await run("Write", { file_path: "/x" }, path(/x/).context("info"));
-    expect(d).toEqual({ kind: "context", message: "info" });
+describe("path() — terminal + annotation forms", () => {
+  test("warning() returns a warning annotation", async () => {
+    const anns = await runAnnotations("Write", { file_path: "/x" }, path(/x/).warning("danger"));
+    expect(anns).toEqual([{ kind: "warning", message: "danger" }]);
   });
 
-  test("escalate() returns an escalate decision", async () => {
-    const d = await run("Write", { file_path: "/x" }, path(/x/).escalate("ask"));
-    expect(d).toEqual({ kind: "escalate", reason: "ask" });
+  test("note() returns a note annotation", async () => {
+    const anns = await runAnnotations("Write", { file_path: "/x" }, path(/x/).note("info"));
+    expect(anns).toEqual([{ kind: "note", message: "info" }]);
   });
 
-  test("decision label is preserved", async () => {
-    const d = await run("Write", { file_path: "/x" }, path(/x/).deny("blocked", "[security]"));
-    expect(d).toEqual({ kind: "deny", reason: "blocked", label: "[security]" });
+  test("escalate() returns an escalate terminal", async () => {
+    const t = await run("Write", { file_path: "/x" }, path(/x/).escalate("ask"));
+    expect(t).toEqual({ kind: "escalate", reason: "ask" });
+  });
+
+  test("deny terminal label is preserved", async () => {
+    const t = await run("Write", { file_path: "/x" }, path(/x/).deny("blocked", "[security]"));
+    expect(t).toEqual({ kind: "deny", reason: "blocked", label: "[security]" });
   });
 });

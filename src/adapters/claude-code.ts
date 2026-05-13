@@ -2,7 +2,7 @@
 // See docs/SPEC.md § Protocol Adapters for the CC mapping table
 
 import { z } from "zod";
-import type { Decision, HookEvent } from "../core/types.js";
+import type { Annotation, EvaluationOutcome, HookEvent, Terminal } from "../core/types.js";
 import { callAskpass } from "../escalation/askpass.js";
 import { enrichGit, gitEnrichmentEnabled } from "../escalation/enrich-git.js";
 import { createAskRequest } from "../escalation/envelope.js";
@@ -27,52 +27,55 @@ export interface CcOutput {
   readonly exitCode: number;
 }
 
-/**
- * Pure mapping from a Decision to what the CC harness should observe.
- * Empty stdout/stderr + exit 0 = silent allow.
- *
- * `escalate` decisions are not yet wired to the askpass channel. Until the
- * escalation system lands, an `escalate` is treated as a `deny` with a
- * reason that mentions the missing infrastructure (Iron Law 3 exception:
- * escalate-with-no-responder denies, never silent-allows).
- */
-/**
- * Synchronous mapping for non-escalate decisions. Use `resolveCcOutput` for
- * the full path including escalation; `decideCcOutput` is kept as a pure
- * function so non-escalate tests can assert directly on the output without
- * touching the askpass channel.
- *
- * For an `escalate` decision this returns the same deny shape as before —
- * use `resolveCcOutput` (async) to actually drive the askpass channel.
- */
-export function decideCcOutput(decision: Decision, event: HookEvent): CcOutput {
-  if (decision === null) return { stdout: "", stderr: "", exitCode: 0 };
+const EMPTY: CcOutput = { stdout: "", stderr: "", exitCode: 0 };
 
-  if (decision.kind === "context") {
-    const message = withLabel(decision.message, decision.label);
-    return {
-      stdout: JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: event.eventName,
-          additionalContext: message,
-        },
-      }),
-      stderr: "",
-      exitCode: 0,
-    };
+/** Render a single annotation to its `[label] warning|note: <message>` line. */
+function formatAnnotation(a: Annotation): string {
+  const prefix = a.label ?? "[hook-kit]";
+  return `${prefix} ${a.kind}: ${a.message}`;
+}
+
+/** Join multiple annotations into one block, one line each. */
+function joinAnnotations(annotations: readonly Annotation[]): string {
+  return annotations.map(formatAnnotation).join("\n");
+}
+
+function withLabel(message: string, label?: string): string {
+  return label !== undefined ? `${label} ${message}` : message;
+}
+
+/**
+ * Sync mapping from outcome → CcOutput for the non-escalate paths.
+ *
+ * - terminal=deny     → CC permissionDecision: "block" (Pre) or stderr+exit2
+ * - terminal=null +   → CC additionalContext carrying the joined annotation
+ *   annotations          block (no permission change, harness lets it run)
+ * - terminal=escalate → caller must use `resolveCcOutput` (async, routes via
+ *                       askpass). This sync path returns a deny-shaped error
+ *                       so misuse is loud.
+ */
+export function decideCcOutput(outcome: EvaluationOutcome, event: HookEvent): CcOutput {
+  const { terminal, annotations } = outcome;
+
+  if (terminal?.kind === "deny") {
+    return denyOutput(withLabel(terminal.reason, terminal.label), event.eventName);
   }
 
-  if (decision.kind === "deny") {
-    return denyOutput(withLabel(decision.reason, decision.label), event.eventName);
+  if (terminal?.kind === "escalate") {
+    // Sync path: deny with a hint to use the async resolver. Production code
+    // (claudeCodeAdapter.writeOutput) ALWAYS goes through resolveCcOutput.
+    const reason = withLabel(
+      `[hook-kit] escalate decision reached the sync path; use resolveCcOutput. Original: ${terminal.reason}`,
+      terminal.label,
+    );
+    return denyOutput(reason, event.eventName);
   }
 
-  // Sync path for escalate: deny with a "use resolveCcOutput" hint. Production
-  // code should always go through resolveCcOutput, which routes via askpass.
-  const reason = withLabel(
-    `[hook-kit] escalate decision reached the sync path; use resolveCcOutput. Original: ${decision.reason}`,
-    decision.label,
-  );
-  return denyOutput(reason, event.eventName);
+  if (annotations.length > 0) {
+    return annotationsOutput(annotations, event.eventName);
+  }
+
+  return EMPTY;
 }
 
 export interface ResolveCcOutputOptions {
@@ -83,34 +86,45 @@ export interface ResolveCcOutputOptions {
 }
 
 /**
- * Full async mapping. Routes escalate decisions through the askpass channel
- * and translates the response back into a CcOutput. Non-escalate decisions
+ * Full async mapping. Routes escalate outcomes through the askpass channel
+ * and translates the response back into a CcOutput. Non-escalate outcomes
  * delegate to decideCcOutput synchronously.
  *
  * harness-ask responses produce CC's native `permissionDecision: "ask"` for
  * PreToolUse, letting CC's UI block indefinitely. For PostToolUse and other
  * events that don't accept "ask", harness-ask degrades to a context message
  * carrying the original reason (per the spec's Escalation table).
+ *
+ * When annotations accompany the terminal, they bundle into the JSON output:
+ *   - deny      → annotations DROPPED (deny is final, command does not run)
+ *   - escalate  → annotations included as additionalContext so the user
+ *                 reviewing the ask sees them; also included in the askpass
+ *                 envelope for broker-mode reviewers.
+ *   - null      → annotations alone → additionalContext, exit 0
  */
 export async function resolveCcOutput(
-  decision: Decision,
+  outcome: EvaluationOutcome,
   event: HookEvent,
   opts: ResolveCcOutputOptions = {},
 ): Promise<CcOutput> {
-  if (decision === null || decision.kind !== "escalate") {
-    return decideCcOutput(decision, event);
+  if (outcome.terminal?.kind !== "escalate") {
+    return decideCcOutput(outcome, event);
   }
 
   const git = gitEnrichmentEnabled() ? await enrichGit(event.cwd) : undefined;
+  const escalate = outcome.terminal;
+  const annotationsBlock =
+    outcome.annotations.length > 0 ? joinAnnotations(outcome.annotations) : undefined;
   const request = createAskRequest({
     sessionId: event.sessionId,
     toolName: event.toolName,
     toolInput: event.toolInput,
-    reason: decision.reason,
+    reason: escalate.reason,
     harness: HARNESS,
     cwd: event.cwd,
     transcriptPath: event.transcriptPath,
-    ...(decision.label !== undefined ? { label: decision.label } : {}),
+    ...(escalate.label !== undefined ? { label: escalate.label } : {}),
+    ...(annotationsBlock !== undefined ? { annotations: annotationsBlock } : {}),
     ...(git !== undefined ? { git } : {}),
   });
   const askOpts: { askpassPath?: string; timeoutMs?: number } = {};
@@ -119,26 +133,35 @@ export async function resolveCcOutput(
   const response = await callAskpass({ request, ...askOpts });
 
   if (response.decision === "allow") {
-    return { stdout: "", stderr: "", exitCode: 0 };
+    // Approved by broker — silent allow, with annotations surfaced to CC
+    // so the agent can still see them above its tool output.
+    if (annotationsBlock !== undefined) {
+      return annotationsOutput(outcome.annotations, event.eventName);
+    }
+    return EMPTY;
   }
 
   if (response.decision === "harness-ask") {
-    return harnessAskOutput(decision, event);
+    return harnessAskOutput(escalate, outcome.annotations, event);
   }
 
   // deny — propagate the askpass's reason if it offered one, else fall back.
   const reason = withLabel(
-    response.reason ?? `[hook-kit] denied: ${decision.reason}`,
-    decision.label,
+    response.reason ?? `[hook-kit] denied: ${escalate.reason}`,
+    escalate.label,
   );
   return denyOutput(reason, event.eventName);
 }
 
 function harnessAskOutput(
-  decision: Extract<Decision, { kind: "escalate" }>,
+  escalate: Extract<Terminal, { kind: "escalate" }>,
+  annotations: readonly Annotation[],
   event: HookEvent,
 ): CcOutput {
-  const message = withLabel(decision.reason, decision.label);
+  const reasonLine = withLabel(escalate.reason, escalate.label);
+  const message =
+    annotations.length > 0 ? `${reasonLine}\n${joinAnnotations(annotations)}` : reasonLine;
+
   if (event.eventName === "PreToolUse") {
     return {
       stdout: JSON.stringify({
@@ -165,6 +188,19 @@ function harnessAskOutput(
   };
 }
 
+function annotationsOutput(annotations: readonly Annotation[], eventName: string): CcOutput {
+  return {
+    stdout: JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: eventName,
+        additionalContext: joinAnnotations(annotations),
+      },
+    }),
+    stderr: "",
+    exitCode: 0,
+  };
+}
+
 function denyOutput(reason: string, eventName: string): CcOutput {
   if (eventName === "PreToolUse") {
     return {
@@ -181,10 +217,6 @@ function denyOutput(reason: string, eventName: string): CcOutput {
   }
   // PostToolUse, SessionStart, Stop, etc. — stderr + exit 2 is the only hard-deny path
   return { stdout: "", stderr: `${reason}\n`, exitCode: 2 };
-}
-
-function withLabel(message: string, label?: string): string {
-  return label !== undefined ? `${label} ${message}` : message;
 }
 
 /**
@@ -231,8 +263,8 @@ export const claudeCodeAdapter: ProtocolAdapter = {
     const raw = await readAllStdin();
     return parseHookInput(raw);
   },
-  async writeOutput(decision: Decision, event: HookEvent): Promise<void> {
-    const out = await resolveCcOutput(decision, event);
+  async writeOutput(outcome: EvaluationOutcome, event: HookEvent): Promise<void> {
+    const out = await resolveCcOutput(outcome, event);
     if (out.stdout !== "") process.stdout.write(out.stdout);
     if (out.stderr !== "") process.stderr.write(out.stderr);
     process.exit(out.exitCode);

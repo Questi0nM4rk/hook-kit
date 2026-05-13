@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { context, deny } from "../../src/core/decision.js";
-import type { Decision, HookEvent, HookModule, Rule } from "../../src/core/types.js";
+import { deny, warning } from "../../src/core/decision.js";
+import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
 import { content } from "../../src/rules/content.js";
 
@@ -49,11 +49,25 @@ async function runOnFile(
   filePath: string,
   rule: Rule,
   evt: "Pre" | "Post" = "Post",
-): Promise<Decision> {
+): Promise<Terminal | null> {
   const event =
     evt === "Post" ? postToolUseEvent(toolName, filePath) : preToolUseEvent(toolName, filePath);
   const events = evt === "Post" ? ["PostToolUse"] : ["PreToolUse"];
-  return evaluate(event, [moduleWith(rule, events)]);
+  const outcome = await evaluate(event, [moduleWith(rule, events)]);
+  return outcome.terminal;
+}
+
+async function runOnFileAnnotations(
+  toolName: string,
+  filePath: string,
+  rule: Rule,
+  evt: "Pre" | "Post" = "Post",
+): Promise<readonly Annotation[]> {
+  const event =
+    evt === "Post" ? postToolUseEvent(toolName, filePath) : preToolUseEvent(toolName, filePath);
+  const events = evt === "Post" ? ["PostToolUse"] : ["PreToolUse"];
+  const outcome = await evaluate(event, [moduleWith(rule, events)]);
+  return outcome.annotations;
 }
 
 describe("content() — basic", () => {
@@ -83,14 +97,14 @@ describe("content() — basic", () => {
     expect(d).toEqual({ kind: "deny", reason: "missing header" });
   });
 
-  test("returns whatever the validator returns (context)", async () => {
+  test("returns whatever the validator returns (warning annotation)", async () => {
     const file = join(workDir, "x.md");
     writeFileSync(file, "# header\nshort", "utf8");
     const rule = content().validate((_p, body) =>
-      body.length < 100 ? context("could be longer") : null,
+      body.length < 100 ? warning("could be longer") : null,
     );
-    const d = await runOnFile("Write", file, rule);
-    expect(d).toEqual({ kind: "context", message: "could be longer" });
+    const anns = await runOnFileAnnotations("Write", file, rule);
+    expect(anns).toEqual([{ kind: "warning", message: "could be longer" }]);
   });
 
   test("returns null when validator returns null", async () => {
@@ -173,9 +187,10 @@ describe("content() — event filtering", () => {
       toolInput: { command: "ls" },
       raw: {},
     };
-    const d = await evaluate(event, [moduleWith(rule)]);
+    const outcome = await evaluate(event, [moduleWith(rule)]);
     expect(called).toBe(false);
-    expect(d).toBeNull();
+    expect(outcome.terminal).toBeNull();
+    expect(outcome.annotations).toEqual([]);
   });
 });
 

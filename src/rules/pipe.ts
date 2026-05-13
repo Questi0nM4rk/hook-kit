@@ -1,16 +1,17 @@
-// pipe() builder — detects `from | into` patterns via shell-AST BinaryCmd walks.
+// pipe() builder — detects `from | into` patterns via shell-AST BinaryCmd nodes.
 // Catches things `cmd()` cannot, e.g. `curl example.com | bash`.
 // See docs/SPEC.md § Rule Builders for semantics.
 
-import type { BinaryCmd, Stmt } from "@questi0nm4rk/shell-ast";
-import { walk } from "@questi0nm4rk/shell-ast";
+import type { Stmt } from "@questi0nm4rk/shell-ast";
+import { effectOf, findAll, unwrapCall } from "@questi0nm4rk/shell-ast";
 import {
-  context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
+  note as noteDecision,
+  warning as warningDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
-import { resolveUnwrappedOrFallback } from "../engine/helpers.js";
+import { unwrappedName } from "../engine/helpers.js";
 
 export function pipe(from: readonly string[], into: readonly string[]): PipeRuleBuilder {
   return new PipeRuleBuilder(from, into);
@@ -26,12 +27,16 @@ class PipeRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  context(message: string, label?: string): Rule {
-    return this.buildRule(contextDecision(message, label));
-  }
-
   escalate(reason: string, label?: string): Rule {
     return this.buildRule(escalateDecision(reason, label));
+  }
+
+  warning(message: string, label?: string): Rule {
+    return this.buildRule(warningDecision(message, label));
+  }
+
+  note(message: string, label?: string): Rule {
+    return this.buildRule(noteDecision(message, label));
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {
@@ -43,20 +48,14 @@ class PipeRuleBuilder {
         const ast = await ctx.getBashAst();
         if (ast === null) return null;
 
-        let match: NonNullable<Decision> | null = null;
-        walk(ast, {
-          BinaryCmd(node: BinaryCmd) {
-            if (match !== null) return;
-            if (node.op !== "|" && node.op !== "|&") return;
-            const left = stmtToCmdName(node.x);
-            const right = stmtToCmdName(node.y);
-            if (left === null || right === null) return;
-            if (fromSet.has(left) && intoSet.has(right)) {
-              match = decision;
-            }
-          },
-        });
-        return match;
+        for (const node of findAll(ast, "BinaryCmd")) {
+          if (effectOf(node) !== "pipe") continue;
+          const left = stmtToCmdName(node.x);
+          const right = stmtToCmdName(node.y);
+          if (left === null || right === null) continue;
+          if (fromSet.has(left) && intoSet.has(right)) return decision;
+        }
+        return null;
       },
     };
   }
@@ -65,11 +64,11 @@ class PipeRuleBuilder {
 function stmtToCmdName(stmt: Stmt): string | null {
   const cmd = stmt.cmd;
   if (cmd === null || cmd.type !== "CallExpr") return null;
-  // shell-ast 0.2+ unwraps bash/sh/etc — for `curl … | bash -c '…'` the
-  // right-side arrives as { wrapper: "bash", cmd: null }. Prefer cmd for
-  // normal commands; fall back to wrapper for wrapper-only calls. The
-  // resolveFlags fallback inside resolveUnwrappedOrFallback covers the
-  // shell-ast#7 regression where unwrapCall returns null for bare wrappers.
-  const u = resolveUnwrappedOrFallback(cmd);
-  return u !== null ? (u.cmd ?? u.wrapper) : null;
+  const u = unwrapCall(cmd);
+  if (u === null) return null;
+  // Shares the policy in `unwrappedName` (engine/helpers.ts) — same dispatch
+  // as command.ts so a sudo-wrapped pipe target matches on u.cmd ("bash" in
+  // `curl | sudo bash`) and a wrapped-script target matches on u.wrapper
+  // ("bash" in `curl | bash -c '…'`).
+  return unwrappedName(u);
 }

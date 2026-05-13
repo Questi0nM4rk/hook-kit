@@ -4,13 +4,22 @@
 // so testing the trace module covers both call sites.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import type { Decision, HookEvent } from "../../src/core/types.js";
+import type { Annotation, EvaluationOutcome, HookEvent, Terminal } from "../../src/core/types.js";
 import { emitVerbose, isVerbose, traceLine } from "../../src/engine/trace.js";
 import { bashEvent, captureStderr, withEnv } from "../_helpers.js";
 
 function makeEvent(partial: Partial<HookEvent> = {}): HookEvent {
   return { ...bashEvent("rm foo"), ...partial };
 }
+
+function outcome(
+  terminal: Terminal | null,
+  annotations: readonly Annotation[] = [],
+): EvaluationOutcome {
+  return { terminal, annotations };
+}
+
+const SILENT: EvaluationOutcome = outcome(null);
 
 describe("engine/trace — isVerbose()", () => {
   test("returns true for HOOK_KIT_VERBOSE=1", () => {
@@ -31,34 +40,45 @@ describe("engine/trace — isVerbose()", () => {
 });
 
 describe("engine/trace — traceLine() formatting", () => {
-  test("formats a null decision", () => {
-    const line = traceLine(makeEvent(), null, 3, 17);
+  test("formats a silent outcome (no terminal, no annotations)", () => {
+    const line = traceLine(makeEvent(), SILENT, 3, 17);
     expect(line).toBe(
       "[hook-kit] event=PreToolUse tool=Bash session=s1 modules=3 → null time=17ms\n",
     );
   });
 
-  test("formats a deny decision with label and reason", () => {
-    const decision: Decision = { kind: "deny", reason: "blocked", label: "[my-rule]" };
-    const line = traceLine(makeEvent(), decision, 2, 5);
+  test("formats a deny outcome with label and reason", () => {
+    const out = outcome({ kind: "deny", reason: "blocked", label: "[my-rule]" });
+    const line = traceLine(makeEvent(), out, 2, 5);
     expect(line).toBe(
       '[hook-kit] event=PreToolUse tool=Bash session=s1 modules=2 → deny label=[my-rule] reason="blocked" time=5ms\n',
     );
   });
 
-  test("formats an escalate decision without a label", () => {
-    const decision: Decision = { kind: "escalate", reason: "needs review" };
-    const line = traceLine(makeEvent(), decision, 1, 8);
+  test("formats an escalate outcome without a label", () => {
+    const out = outcome({ kind: "escalate", reason: "needs review" });
+    const line = traceLine(makeEvent(), out, 1, 8);
     expect(line).toBe(
       '[hook-kit] event=PreToolUse tool=Bash session=s1 modules=1 → escalate reason="needs review" time=8ms\n',
     );
   });
 
-  test("formats a context decision (uses message, not reason)", () => {
-    const decision: Decision = { kind: "context", message: "fyi" };
-    const line = traceLine(makeEvent(), decision, 1, 1);
+  test("formats an annotation-only outcome (no terminal)", () => {
+    const out = outcome(null, [{ kind: "warning", message: "fyi" }]);
+    const line = traceLine(makeEvent(), out, 1, 1);
     expect(line).toBe(
-      '[hook-kit] event=PreToolUse tool=Bash session=s1 modules=1 → context reason="fyi" time=1ms\n',
+      "[hook-kit] event=PreToolUse tool=Bash session=s1 modules=1 → annotate annotations=1 time=1ms\n",
+    );
+  });
+
+  test("annotations count is appended when present alongside a terminal", () => {
+    const out = outcome({ kind: "escalate", reason: "ask" }, [
+      { kind: "warning", message: "a" },
+      { kind: "note", message: "b" },
+    ]);
+    const line = traceLine(makeEvent(), out, 1, 2);
+    expect(line).toBe(
+      '[hook-kit] event=PreToolUse tool=Bash session=s1 modules=1 → escalate reason="ask" annotations=2 time=2ms\n',
     );
   });
 });
@@ -74,7 +94,7 @@ describe("engine/trace — emitVerbose()", () => {
 
   test("writes a trace line to stderr when HOOK_KIT_VERBOSE=1", () => {
     withEnv("HOOK_KIT_VERBOSE", "1", () => {
-      emitVerbose(makeEvent(), null, 1, 4);
+      emitVerbose(makeEvent(), SILENT, 1, 4);
     });
     expect(captured.output()).toContain("[hook-kit] event=PreToolUse");
     expect(captured.output()).toContain("→ null time=4ms");
@@ -82,7 +102,7 @@ describe("engine/trace — emitVerbose()", () => {
 
   test("is a no-op when HOOK_KIT_VERBOSE is unset", () => {
     withEnv("HOOK_KIT_VERBOSE", undefined, () => {
-      emitVerbose(makeEvent(), { kind: "deny", reason: "x" }, 1, 1);
+      emitVerbose(makeEvent(), outcome({ kind: "deny", reason: "x" }), 1, 1);
     });
     expect(captured.output()).toBe("");
   });

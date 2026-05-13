@@ -5,14 +5,36 @@
 
 import type { ShellFile } from "@questi0nm4rk/shell-ast";
 
-// === Decisions (blacklist semantics) ===
+// === Decisions ===
+//
+// A Rule.evaluate() returns at most ONE Decision: a terminal (deny|escalate),
+// an annotation (warning|note), or null (no opinion). The engine merges per-
+// rule decisions into an EvaluationOutcome (terminal + annotations[]) which
+// the wrapper/adapter then renders to the harness convention.
+//
+// Merge policy (see SPEC.md § Engine):
+//   - deny short-circuits: terminate immediately, annotations DROPPED.
+//   - escalate keeps the run going so annotations accumulate; the first
+//     escalate wins terminal, later escalates are dropped.
+//   - warning/note always stack; multiple annotations are emitted in order.
 
-/** Non-null = action to take. null = silent pass-through (didn't block). */
-export type Decision =
+export type Annotation =
+  | { readonly kind: "warning"; readonly message: string; readonly label?: string }
+  | { readonly kind: "note"; readonly message: string; readonly label?: string };
+
+export type Terminal =
   | { readonly kind: "deny"; readonly reason: string; readonly label?: string }
-  | { readonly kind: "context"; readonly message: string; readonly label?: string }
-  | { readonly kind: "escalate"; readonly reason: string; readonly label?: string }
-  | null;
+  | { readonly kind: "escalate"; readonly reason: string; readonly label?: string };
+
+/** What a single rule returns. `null` = no opinion (don't fire). */
+export type Decision = Terminal | Annotation | null;
+
+/** What the engine returns: a chosen terminal (or none) plus every annotation
+ *  that fired across all rules. */
+export interface EvaluationOutcome {
+  readonly terminal: Terminal | null;
+  readonly annotations: readonly Annotation[];
+}
 
 // === Events ===
 

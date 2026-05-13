@@ -1,14 +1,8 @@
-// Engine helpers — flag expansion, redirect/pipe detection
-// See docs/SPEC.md § Engine
-
-// ─── Flag aliases ─────────────────────────────────────────────────────────────
+// Engine helpers — flag expansion utilities.
 //
-// Each group lists all equivalent forms of the same flag. The bidirectional
-// alias map is computed from these groups.
-//
-// `-n` is intentionally excluded: it means `--no-verify` for `git commit`,
-// `--dry-run` for `git push`, and `--no-checkout` for `git clone`. Commands
-// that need `-n` matching should use explicit rules with subcommand scoping.
+// Inline-shell extraction lives in shell-ast 0.3+ via the discriminated
+// `UnwrappedCall` (kind: "wrapped-script") and is consumed in engine/index.ts.
+// Wrapper-vs-command dispatch likewise switches on `u.kind` at the rule sites.
 
 const FLAG_GROUPS: readonly (readonly string[])[] = [
   ["-r", "--recursive", "-R"],
@@ -16,7 +10,10 @@ const FLAG_GROUPS: readonly (readonly string[])[] = [
   ["-d", "--delete"],
 ];
 
-/** Bidirectional alias map derived from FLAG_GROUPS. */
+// `-n` is intentionally excluded: it means `--no-verify` for `git commit`,
+// `--dry-run` for `git push`, and `--no-checkout` for `git clone`. Commands
+// that need `-n` matching should use explicit rules with subcommand scoping.
+
 const FLAG_ALIASES: ReadonlyMap<string, readonly string[]> = (() => {
   const map = new Map<string, string[]>();
   for (const group of FLAG_GROUPS) {
@@ -83,100 +80,24 @@ export function hasFlag(expanded: readonly string[], wanted: string): boolean {
   return expanded.some((f) => f === wanted || f.startsWith(`${wanted}=`));
 }
 
-// ─── Inline-shell extraction ─────────────────────────────────────────────────
-//
-// Detects `bash -c "…"`, `sh -c "…"`, `eval "…"`, `exec "…"` patterns and
-// returns the embedded script source so the engine can recurse into it.
-// Without this, hiding a banned command inside `bash -c` bypasses every rule.
+// ─── UnwrappedCall name dispatch (shared by command.ts + pipe.ts) ───────────
 
-import type { CallExprNode, Word } from "@questi0nm4rk/shell-ast";
-import { resolveFlags, wordToLit } from "@questi0nm4rk/shell-ast";
-import type { UnwrappedCall } from "@questi0nm4rk/shell-ast/semantic";
-import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
+import type { UnwrappedCall } from "@questi0nm4rk/shell-ast";
 
 /**
- * Resolve a CallExpr to an UnwrappedCall with a fallback for shell-ast 0.2.1's
- * regression (Questi0nM4rk/shell-ast#7) — `unwrapCall` returns null when a
- * WRAPPERS-listed command (bash, sh, …) is invoked with no inner command
- * (`bash`, `bash --version`, the right side of `curl … | bash`). The
- * fallback recovers via `resolveFlags` so cmd() and pipe() rules can still
- * match the underlying command. Remove the fallback when upstream lands.
+ * Project an `UnwrappedCall` onto the single "name that matters" for rule
+ * matching. The policy is intentional and shared between `cmd()` and `pipe()`:
+ *
+ * - `plain`          → `u.cmd`     (no wrapper, just a command name)
+ * - `wrapped`        → `u.cmd`     (sudo-aware: cmd("rm") fires on `sudo rm /`)
+ * - `wrapped-script` → `u.wrapper` (cmd("bash") fires on `bash -c '…'`; the
+ *                                   inner script is handled by engine recursion)
+ * - `wrapped-opaque` → `u.wrapper` (escalator catch: cmd("sudo") fires on
+ *                                   `sudo $X` where the inner is dynamic)
+ *
+ * Both call sites used to inline this ternary; extracting it makes the
+ * policy editable in ONE place if shell-ast adds a new `kind`.
  */
-export function resolveUnwrappedOrFallback(call: CallExprNode): UnwrappedCall | null {
-  const u = unwrapCall(call);
-  if (u !== null) return u;
-  const r = resolveFlags(call);
-  if (r === null) return null;
-  return { wrapper: null, cmd: r.cmd, flags: r.flags, args: r.args, raw: r.raw };
-}
-
-/** Commands whose first/-c argument re-enters a shell parser. */
-export const INLINE_SHELL_CMDS: ReadonlySet<string> = new Set([
-  "bash",
-  "sh",
-  "dash",
-  "zsh",
-  "ksh",
-  "eval",
-  "exec",
-]);
-
-/** Resolve a Word to a plain string. Handles Lit + SglQuoted + DblQuoted-with-
- *  literal-content parts; returns null for anything requiring shell expansion
- *  (e.g. $vars, command subst, parameter expansion). */
-function wordToScript(word: Word): string | null {
-  const chunks: string[] = [];
-  for (const part of word.parts) {
-    if (part.type === "Lit" || part.type === "SglQuoted") {
-      chunks.push(part.value);
-    } else if (part.type === "DblQuoted") {
-      // Recurse into double-quoted parts; same literal-only constraint applies.
-      // Allows nested forms like `bash -c "rm -rf /"` to resolve.
-      let inner = "";
-      let pure = true;
-      for (const inside of part.parts) {
-        if (inside.type === "Lit" || inside.type === "SglQuoted") {
-          inner += inside.value;
-        } else {
-          pure = false;
-          break;
-        }
-      }
-      if (!pure) return null;
-      chunks.push(inner);
-    } else {
-      return null;
-    }
-  }
-  return chunks.length > 0 ? chunks.join("") : null;
-}
-
-/** Extract the inline script source from `bash -c '…'` / `eval '…'` / `exec '…'`.
- *  Returns null if the call isn't recognized, or the script word can't be
- *  resolved to a plain literal. */
-export function extractInlineScript(unwrapped: UnwrappedCall): string | null {
-  if (unwrapped.flags.includes("-c")) {
-    let seenDashC = false;
-    for (const word of unwrapped.raw.args) {
-      const lit = wordToLit(word);
-      if (lit === "-c") {
-        seenDashC = true;
-        continue;
-      }
-      if (seenDashC) return wordToScript(word);
-    }
-    return null;
-  }
-  if (unwrapped.cmd === "eval") {
-    // POSIX eval concatenates all args with single spaces and re-parses.
-    const parts = unwrapped.raw.args.slice(1).map(wordToScript);
-    if (parts.length === 0 || parts.some((p) => p === null)) return null;
-    return parts.filter((p): p is string => p !== null).join(" ");
-  }
-  if (unwrapped.cmd === "exec") {
-    // exec replaces the process; inspect first arg only — no shell re-parse.
-    const firstArg = unwrapped.raw.args[1];
-    return firstArg !== undefined ? wordToScript(firstArg) : null;
-  }
-  return null;
+export function unwrappedName(u: UnwrappedCall): string {
+  return u.kind === "plain" || u.kind === "wrapped" ? u.cmd : u.wrapper;
 }

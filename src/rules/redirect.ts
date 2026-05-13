@@ -3,16 +3,14 @@
 // (which only sees Edit/Write/NotebookEdit tool events, not Bash redirects).
 // See docs/SPEC.md § Rule Builders.
 
-import type { Stmt } from "@questi0nm4rk/shell-ast";
-import { walk, wordToLit } from "@questi0nm4rk/shell-ast";
+import { findRedirects, wordToLit } from "@questi0nm4rk/shell-ast";
 import {
-  context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
+  note as noteDecision,
+  warning as warningDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
-
-const WRITE_OPS = new Set([">", ">>", ">|", "&>", "&>>"]);
 
 /** Match write-redirects (cmd > path, cmd >> path, etc.) whose target matches
  *  `pathPattern`. Pass `undefined` to match any write-redirect target. */
@@ -27,12 +25,16 @@ class RedirectRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  context(message: string, label?: string): Rule {
-    return this.buildRule(contextDecision(message, label));
-  }
-
   escalate(reason: string, label?: string): Rule {
     return this.buildRule(escalateDecision(reason, label));
+  }
+
+  warning(message: string, label?: string): Rule {
+    return this.buildRule(warningDecision(message, label));
+  }
+
+  note(message: string, label?: string): Rule {
+    return this.buildRule(noteDecision(message, label));
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {
@@ -43,25 +45,12 @@ class RedirectRuleBuilder {
         const ast = await ctx.getBashAst();
         if (ast === null) return null;
 
-        let match: NonNullable<Decision> | null = null;
-        walk(ast, {
-          Stmt(node: Stmt) {
-            if (match !== null) return;
-            for (const redir of node.redirs) {
-              if (!WRITE_OPS.has(redir.op)) continue;
-              if (pattern === undefined) {
-                match = decision;
-                return;
-              }
-              const target = wordToLit(redir.word);
-              if (target !== null && pattern.test(target)) {
-                match = decision;
-                return;
-              }
-            }
-          },
-        });
-        return match;
+        for (const redir of findRedirects(ast, { ops: "write" })) {
+          if (pattern === undefined) return decision;
+          const target = wordToLit(redir.word);
+          if (target !== null && pattern.test(target)) return decision;
+        }
+        return null;
       },
     };
   }
