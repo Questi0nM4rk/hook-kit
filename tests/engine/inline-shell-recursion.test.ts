@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
-import { evaluate } from "../../src/engine/index.js";
+import { __setMaxRecurseDepthForTests, evaluate } from "../../src/engine/index.js";
 import { cmd } from "../../src/rules/command.js";
 
 function bashEvent(command: string): HookEvent {
@@ -77,17 +77,20 @@ describe("inline-shell recursion", () => {
 
   test("hitting MAX_RECURSE_DEPTH escalates with an inspection-depth reason", async () => {
     // Practical nesting beyond ~3 levels requires extreme quoting gymnastics
-    // that exercise the parser, not the depth limit. Drive directly via the
-    // internal _depth opt so we test the limit branch in isolation.
-    const outcome = await evaluate(
-      bashEvent("bash -c 'rm -rf /'"),
-      [moduleWith(cmd("rm").deny("never matches"))],
-      { _depth: 5 },
-    );
-    expect(outcome.terminal?.kind).toBe("escalate");
-    expect(outcome.terminal?.kind === "escalate" && outcome.terminal.reason).toContain(
-      "inspection depth",
-    );
+    // that exercise the parser, not the depth limit. Drop the cap to 0 so
+    // the very first recursion attempt trips the limit branch in isolation.
+    __setMaxRecurseDepthForTests(0);
+    try {
+      const outcome = await evaluate(bashEvent("bash -c 'rm -rf /'"), [
+        moduleWith(cmd("rm").deny("never matches")),
+      ]);
+      expect(outcome.terminal?.kind).toBe("escalate");
+      expect(outcome.terminal?.kind === "escalate" && outcome.terminal.reason).toContain(
+        "inspection depth",
+      );
+    } finally {
+      __setMaxRecurseDepthForTests(5);
+    }
   });
 
   test("rule from outer command still fires when no inner recursion needed", async () => {

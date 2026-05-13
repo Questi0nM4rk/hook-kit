@@ -27,11 +27,24 @@ export interface EvaluateOptions {
    *  can't hide inside an inline shell. Default true. Disable for tests where
    *  recursion changes the asserted outcome. */
   readonly recurseInlineShells?: boolean;
-  /** @internal Recursion depth — set by evaluate() when it self-calls. */
-  readonly _depth?: number;
 }
 
-const MAX_RECURSE_DEPTH = 5;
+/** Internal evaluator state — never reachable from the public `evaluate()`
+ *  signature, so a consumer can't pre-set `_depth` to skip the depth-limit
+ *  check. Recursive self-calls go through `evaluateInternal` with an explicit
+ *  depth arg instead of threading it through options. */
+interface InternalState {
+  readonly depth: number;
+}
+
+let MAX_RECURSE_DEPTH = 5;
+
+/** @internal Lower the recursion depth cap so tests can hit the limit
+ *  without nesting 5 layers of shell quoting gymnastics. Restore with the
+ *  default `5` after each affected test. */
+export function __setMaxRecurseDepthForTests(d: number): void {
+  MAX_RECURSE_DEPTH = d;
+}
 
 /**
  * Test helper: evaluate a single rule against an event without hand-building
@@ -102,6 +115,15 @@ export async function evaluate(
   modules: readonly HookModule[],
   opts: EvaluateOptions = {},
 ): Promise<EvaluationOutcome> {
+  return evaluateInternal(event, modules, opts, { depth: 0 });
+}
+
+async function evaluateInternal(
+  event: HookEvent,
+  modules: readonly HookModule[],
+  opts: EvaluateOptions,
+  internal: InternalState,
+): Promise<EvaluationOutcome> {
   const annotations: Annotation[] = [];
   let terminal: Terminal | null = null;
 
@@ -147,8 +169,7 @@ export async function evaluate(
   // inner source as u.script; we feed that back through evaluate() as a
   // synthetic event so the inner script gets the full rule pass.
   if ((opts.recurseInlineShells ?? true) && event.toolName === "Bash") {
-    const depth = opts._depth ?? 0;
-    if (depth >= MAX_RECURSE_DEPTH) {
+    if (internal.depth >= MAX_RECURSE_DEPTH) {
       await state.flush();
       // Conservative: refuse to silently allow content exceeding inspection depth.
       return {
@@ -176,7 +197,9 @@ export async function evaluate(
           ...event,
           toolInput: { ...event.toolInput, command: u.script },
         };
-        const inner = await evaluate(synthetic, modules, { ...opts, _depth: depth + 1, state });
+        const inner = await evaluateInternal(synthetic, modules, opts, {
+          depth: internal.depth + 1,
+        });
         if (inner.terminal?.kind === "deny") {
           await state.flush();
           return { terminal: inner.terminal, annotations: [] };
