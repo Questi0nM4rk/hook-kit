@@ -144,6 +144,20 @@ function renderDetail(req: AskRequest, w: number, now: number): string[] {
       `${fg.gray}│${fg.reset} ${fg.dim}${label}${fg.reset} ${truncate(value, valueBudget)}`,
     );
   }
+
+  // Annotations carry their own per-line `[label] warning|note: msg` format,
+  // so render one row per line with the label only on the first entry. Keeps
+  // the human reviewer in sync with the context the AI would have seen.
+  if (req.annotations !== undefined && req.annotations !== "") {
+    const annLines = req.annotations.split("\n").filter((l) => l !== "");
+    annLines.forEach((line, idx) => {
+      const label = (idx === 0 ? "annotations:" : "").padEnd(labelWidth);
+      lines.push(
+        `${fg.gray}│${fg.reset} ${fg.dim}${label}${fg.reset} ${truncate(line, valueBudget)}`,
+      );
+    });
+  }
+
   lines.push(`${fg.gray}└${"─".repeat(Math.max(0, w - 1))}${fg.reset}`);
   return lines;
 }
