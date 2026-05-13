@@ -14,6 +14,7 @@
 // Output convention is harness-agnostic: any caller (agent, human, CI)
 // reads the decision through normal shell I/O. No JSON, no harness wiring.
 
+import { preloadWasm } from "@questi0nm4rk/shell-ast";
 import type { Decision, HookEvent, HookModule } from "../core/types.js";
 import { type EvaluateOptions, evaluate } from "../engine/index.js";
 import { emitVerbose, isVerbose } from "../engine/trace.js";
@@ -106,6 +107,12 @@ export async function runShell(
   modules: readonly HookModule[],
   opts: RunShellOptions = {},
 ): Promise<never> {
+  // Warm shell-ast's WASM during startup so the first cmd/pipe/redirect rule
+  // doesn't pay cold-init in its hot path. Iron Law 4: a failure here is
+  // surfaced as a loud one-shot warning when the engine's first parse()
+  // catches it — don't gate startup on infra errors.
+  await preloadWasm().catch(() => {});
+
   const args = parseArgs(process.argv.slice(2));
 
   if (args.mode === "help") {

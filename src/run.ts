@@ -1,6 +1,7 @@
 // run() — orchestrates read → evaluate → write through a ProtocolAdapter.
 // See docs/SPEC.md § Protocol Adapters.
 
+import { preloadWasm } from "@questi0nm4rk/shell-ast";
 import type { ProtocolAdapter } from "./adapters/types.js";
 import type { Decision, HookEvent, HookModule } from "./core/types.js";
 import { type EvaluateOptions, evaluate } from "./engine/index.js";
@@ -22,6 +23,12 @@ export async function run(
   adapter: ProtocolAdapter,
   opts: RunOptions = {},
 ): Promise<void> {
+  // Warm shell-ast's WASM during startup so the first cmd/pipe/redirect rule
+  // doesn't pay cold-init in its hot path. Iron Law 4: a failure here is
+  // surfaced as a loud one-shot warning when the engine's first parse()
+  // catches it — don't gate startup on infra errors.
+  await preloadWasm().catch(() => {});
+
   let event: HookEvent;
   try {
     event = await adapter.readInput();

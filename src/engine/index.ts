@@ -1,8 +1,15 @@
 // evaluate() — core evaluation loop
 // See docs/SPEC.md § Engine for the full contract
 
-import { findCalls, parse, type ShellFile } from "@questi0nm4rk/shell-ast";
-import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
+import {
+  findCalls,
+  ParseSyntaxError,
+  parse,
+  type ShellFile,
+  unwrapCall,
+  WasmLoadError,
+  WasmRuntimeError,
+} from "@questi0nm4rk/shell-ast";
 import { escalate as escalateDecision } from "../core/decision.js";
 import type {
   Decision,
@@ -12,7 +19,6 @@ import type {
   Rule,
   StateStore,
 } from "../core/types.js";
-import { extractInlineScript, INLINE_SHELL_CMDS } from "./helpers.js";
 
 export interface EvaluateOptions {
   readonly state?: StateStore;
@@ -141,18 +147,15 @@ export async function evaluate(
     const ast = await ctx.getBashAst();
     if (ast !== null) {
       for (const call of findCalls(ast)) {
-        const unwrapped = unwrapCall(call);
-        if (unwrapped === null) continue;
-        // shell-ast 0.2+ treats bash/sh/etc as WRAPPERS, so `bash -c '…'` arrives with
-        // wrapper="bash" and cmd=null (the inner script is opaque). Prefer wrapper for
-        // the inline-shell check; fall back to cmd for legacy/non-wrapped forms (eval, exec).
-        const shellName = unwrapped.wrapper ?? unwrapped.cmd;
-        if (shellName === null || !INLINE_SHELL_CMDS.has(shellName)) continue;
-        const inline = extractInlineScript(unwrapped);
-        if (inline === null) continue;
+        // shell-ast 0.3+ surfaces `bash -c "…"`, `eval "…"`, `ksh -c "…"`, etc.
+        // as kind="wrapped-script" with the inner source already extracted as
+        // `u.script`. Other kinds (plain, wrapped, wrapped-opaque) are handled
+        // by the normal rule pass — no recursion needed.
+        const u = unwrapCall(call);
+        if (u?.kind !== "wrapped-script") continue;
         const synthetic: HookEvent = {
           ...event,
-          toolInput: { ...event.toolInput, command: inline },
+          toolInput: { ...event.toolInput, command: u.script },
         };
         const inner = await evaluate(synthetic, modules, { ...opts, _depth: depth + 1, state });
         if (inner !== null) {
@@ -206,7 +209,17 @@ function buildEvalContext(
       try {
         cached = await parse(command);
       } catch (err) {
-        if (!astErrorLogged) {
+        // Distinguish infra failure (WASM didn't load — every AST-aware rule
+        // is now disabled across the process) from per-input parse failure
+        // (this one user command was malformed — other commands still parse).
+        // The former is a coverage-loss incident that warrants a loud one-shot
+        // warning; the latter is normal and silent (Iron Law 4).
+        if (!astErrorLogged && (err instanceof WasmLoadError || err instanceof WasmRuntimeError)) {
+          astErrorLogged = true;
+          process.stderr.write(
+            `[hook-kit] shell-ast WASM unavailable — command/pipe/redirect rules disabled for this process\n[hook-kit] details: ${err.message}\n`,
+          );
+        } else if (!astErrorLogged && !(err instanceof ParseSyntaxError)) {
           astErrorLogged = true;
           const msg = err instanceof Error ? err.message : String(err);
           process.stderr.write(
