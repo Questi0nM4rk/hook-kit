@@ -128,7 +128,7 @@ async function buildCommand(argv: readonly string[]): Promise<number> {
       entrypoint,
       out,
       adapter,
-      ...(target !== undefined ? { target } : {}),
+      ...optional("target", target),
     });
     writeErr(`hook-kit: compiled ${result.binPath}\n`);
 

@@ -461,8 +461,9 @@ export default [
 ```
 
 **Async-init entrypoint** — when the modules depend on async work (e.g.
-loading a config file at startup), default-export an async function instead
-of an array. The build wrapper calls it on startup and awaits the result:
+loading a config file at startup), default-export an async function that
+returns the modules array. The build wrapper calls it on startup and awaits
+the result:
 
 ```typescript
 // src/hooks.ts

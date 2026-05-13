@@ -45,7 +45,7 @@ also produces no output for this case (see BUG-005).
 A one-line stderr warning, emitted **once per process** on first WASM-load
 failure, regardless of `HOOK_KIT_VERBOSE`:
 
-```
+```console
 [hook-kit] shell-ast WASM failed to load — command/pipe/redirect rules disabled
 [hook-kit] details: <error message>
 ```
@@ -100,7 +100,7 @@ breaks our cross-compiled binaries until we mirror the change.
 One of:
 
 1. **Add `--target` to `hook-kit build`**, passing through to `bun build`:
-   ```
+   ```bash
    hook-kit build src/hooks.ts --out dist/hk --target=bun-linux-arm64
    ```
    Accept the same target strings bun accepts (`bun-linux-x64`,
@@ -132,7 +132,7 @@ When `src/hooks.ts` (the entrypoint passed to `hook-kit build`) uses
 top-level await, the resulting `bun build --compile --bytecode` invocation
 fails with a parser error pointing at the line *after* the await:
 
-```
+```text
 src/hooks.ts:7:28
 error: "await" can only be used inside an "async" function
   ...buildAllModules(await loadHookConfig()),
@@ -243,7 +243,7 @@ Both are cheap. Option 1 saves more typing per test.
 
 ### Symptom
 
-```
+```console
 $ HOOK_KIT_VERBOSE=1 ~/.local/bin/ai-guardrails-hk -c "git push --force origin main" 2>&1
 Everything up-to-date
 exit=0
@@ -290,7 +290,7 @@ Option 1 makes verbose a real diagnostic tool, not a partial one.
 
 ### Symptom
 
-```
+```console
 $ ai-guardrails-hk -c "git push --force origin main"
 [hook-kit] needs review: [ai-guardrails] git push --force
 ```
@@ -304,13 +304,13 @@ appears as the next token. Two prefix-shaped tokens stacked.
 Drop the `[hook-kit]` prefix when the decision carries a label, OR move the
 hook-kit marker after the label:
 
-```
+```console
 [ai-guardrails] needs review: git push --force
 ```
 
 vs current:
 
-```
+```console
 [hook-kit] needs review: [ai-guardrails] git push --force
 ```
 
