@@ -1,6 +1,6 @@
 {
   "name": "@questi0nm4rk/hook-kit",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Shell-wrapper hook binaries — agent-agnostic command gating via shell-AST. Decisions surface through stdout/stderr/exit-code; works for any caller (agent, human, CI).",
   "keywords": [
@@ -80,7 +80,7 @@
     "build:types": "tsc -p tsconfig.build.json",
     "build": "bun run build:types",
     "build:bin": "bun build src/build/cli.ts --compile --bytecode --outfile dist/hook-kit",
-    "prepublishOnly": "bun run build && bun test"
+    "prepublishOnly": "bun run build && bun run test"
   },
   "dependencies": {
     "@questi0nm4rk/shell-ast": "^0.3.0",
