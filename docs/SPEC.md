@@ -22,8 +22,8 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 2. **Parse once, evaluate many.** shell-AST WASM init is expensive (~200ms first call). The AST is parsed once per invocation and reused across all command/pipe/redirect rules.
 3. **Recurse into inline shells.** `bash -c "…"` / `sh -c "…"` / `eval "…"` / `exec "…"` are re-evaluated against the same modules. Without this, every rule has a 1-line bypass.
 4. **Fail open on infrastructure errors.** State-store disk full, JSON parse error, rule throws — caught, treated as silent. Hook-kit never blocks a user because of its own bugs. Exception: `escalate` with no responder and no harness UI to fall back to denies with a reason.
-5. **Blacklist semantics.** There is no `allow` decision. A hook either blocks (deny) / asks (escalate) / annotates (context) — or stays silent. Silent = nothing was wrong.
-6. **Output convention is the wire format.** stdout for warnings (escalate), stderr for errors (deny), silent for null/context, exit code carries success/failure. No caller needs a JSON parser to consume a decision.
+5. **Blacklist semantics.** There is no `allow` decision. A hook either blocks (deny) / asks (escalate) / annotates (warning, note) — or stays silent. Silent = nothing was wrong.
+6. **Output convention is the wire format.** stdout for needs-review (escalate) and annotations (warning, note), stderr for errors (deny), exit code carries success/failure. No caller needs a JSON parser to consume an outcome.
 7. **Each plugin compiles its own binary.** Plugin isolation. One plugin can iterate without affecting the others. ~50 MB per binary; sub-50 ms cold start.
 8. **Escalation is async, tree-shaped, out-of-band.** Escalation requests publish to per-session ask channels and propagate up a `parent_session_id` tree. Any registered listener (TTY, parent agent, bridge) can answer through the same `askpass` contract; listeners that don't want to decide forward up via `escalate-up`. When the chain exhausts at the root, `harness-ask` delegates to whatever native UI the harness has (or, with `HOOK_KIT_ASKPASS` unset, falls through to harness-ask immediately — no broker infra needed for simple "ask the user" hooks).
 
@@ -38,7 +38,7 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 │   ├── version.ts                # VERSION (sourced from package.json at compile time)
 │   ├── core/
 │   │   ├── types.ts              # Decision, HookEvent, HookModule, Rule, EvalContext
-│   │   ├── decision.ts           # deny(), context(), escalate()
+│   │   ├── decision.ts           # deny(), escalate(), warning(), note()
 │   │   ├── event.ts              # toToolEvent() — typed view of HookEvent
 │   │   └── module.ts             # createModule() factory
 │   ├── rules/
@@ -80,11 +80,22 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 ### Core Types
 
 ```typescript
-type Decision =
-  | null                                                                 // silent
+// What a single Rule.evaluate() returns.
+type Terminal =
   | { kind: "deny";     reason: string;  label?: string }                // hard block
-  | { kind: "context";  message: string; label?: string }                // info, doesn't block
   | { kind: "escalate"; reason: string;  label?: string };               // ask up the tree
+
+type Annotation =
+  | { kind: "warning";  message: string; label?: string }                // non-blocking, distinct
+  | { kind: "note";     message: string; label?: string };               // non-blocking, distinct
+
+type Decision = Terminal | Annotation | null;                            // null = silent
+
+// What the engine returns after merging per-rule decisions across all modules.
+interface EvaluationOutcome {
+  terminal:    Terminal | null;
+  annotations: readonly Annotation[];
+}
 
 interface HookEvent {
   eventName: string;       // "PreToolUse" | "PostToolUse" | …
@@ -126,7 +137,10 @@ Semantics:
 - `.argMatches(/regex/)` — at least one resolved arg matches the pattern. Quoted strings (`"…"`/`'…'`) become `<dynamic>` and never match literal patterns. Use this for unquoted patterns like `event=COMMENT` in `--field event=COMMENT`.
 - `.argIncludes("literal")` — exact-string membership in resolved args.
 - `.withDdash()` — require the POSIX `--` end-of-options separator. Disambiguates destructive forms like `git checkout -- file` from `git checkout file`.
-- `.deny(reason, label?)` / `.context(msg, label?)` / `.escalate(reason, label?)` — terminal; returns a `Rule`.
+- `.deny(reason, label?)` — terminal; blocks the command, returns a `Rule`.
+- `.escalate(reason, label?)` — terminal; routes to askpass / harness UI, returns a `Rule`.
+- `.warning(message, label?)` — annotation; non-blocking, surfaces as `[label] warning: <message>` above a `---` separator before the command runs.
+- `.note(message, label?)` — annotation; same mechanics as warning, rendered as `[label] note: <message>`. Distinct from warning so the AI can tell severity apart visually.
 
 ```typescript
 // pipe(from, into) — `cmd1 | cmd2` detection via shell-AST BinaryCmd walk
@@ -155,7 +169,7 @@ Defaults to both. `.onWrite()` matches `Write`/`Edit`/`NotebookEdit`. `.onRead()
 // content() — PostToolUse body inspection from disk
 content().matchPath(/design\/.*\.md$/).validate((filePath, body) => {
   const missing = REQUIRED_SECTIONS.filter((s) => !s.test(body));
-  if (missing.length > 0) return context(`Missing sections: ${missing.join(", ")}`);
+  if (missing.length > 0) return warning(`Missing sections: ${missing.join(", ")}`);
   return null;
 });
 ```
@@ -168,7 +182,7 @@ stateful("repetition", (event, state) => {
   const hash = sha256(event.toolName + JSON.stringify(event.toolInput));
   const count = (state.get(hash) as number ?? 0) + 1;
   state.set(hash, count);
-  if (count > 3) return context(`This command has run ${count}× — break the loop`);
+  if (count > 3) return warning(`This command has run ${count}× — break the loop`);
   return null;
 });
 
@@ -185,8 +199,8 @@ custom("session-summary", async (event) => {
 async function evaluate(
   event: HookEvent,
   modules: readonly HookModule[],
-  opts?: { state?: StateStore; shortCircuit?: boolean; recurseInlineShells?: boolean },
-): Promise<Decision>;
+  opts?: { state?: StateStore; recurseInlineShells?: boolean },
+): Promise<EvaluationOutcome>;
 ```
 
 Flow:
@@ -194,11 +208,13 @@ Flow:
 1. Filter modules by `events` (must include `event.eventName`).
 2. Filter modules by `matchers` (if present, at least one matches `event.toolName`; `|` is OR within a string).
 3. For each remaining module, evaluate rules sequentially in array order. State mutations within a rule are visible to the next rule.
-4. **Short-circuit (default true):** first `deny` or `escalate` wins immediately, skips the rest.
-5. **Context accumulation:** all `context` messages collected, joined with `\n\n`.
-6. **Inline-shell recursion (default on):** after the main pass, if no terminal decision and the event is Bash, the engine walks the AST for `bash -c "…"` / `sh -c …` / `eval …` / `exec …` calls, extracts the inner script, and re-evaluates the modules against it. Depth-limited to 5; exceeding the limit returns an `escalate` ("inspection depth"). Set `recurseInlineShells: false` to disable for tests where recursion changes the asserted outcome.
-7. State is flushed after evaluation (even on short-circuit).
-8. If no rule returned a non-null decision → `null`.
+4. **Merge policy** (deterministic — no `shortCircuit` knob):
+   - `deny` → terminate immediately. `outcome.terminal = deny`, `annotations = []` (DROPPED). The command will not run, so annotations about it are noise.
+   - `escalate` → record as terminal candidate but KEEP evaluating so annotations can still accumulate. First escalate wins; later escalates dropped.
+   - `warning` / `note` → always append to `outcome.annotations` in encounter order.
+5. **Inline-shell recursion (default on):** after the main pass, if no `deny` and the event is Bash, the engine walks the AST for `bash -c "…"` / `sh -c …` / `eval …` / `ksh -c …` etc. (shell-ast `kind: "wrapped-script"`) and re-evaluates the modules against the inner script. Depth-limited to 5; exceeding the limit returns an `escalate` ("inspection depth"). Inner annotations bubble up into the outer outcome; inner `deny` short-circuits the whole evaluation. Set `recurseInlineShells: false` to disable for tests where recursion changes the asserted outcome.
+6. State is flushed after evaluation (including on short-circuit).
+7. If no rule returned a non-null decision → `{ terminal: null, annotations: [] }`.
 
 shell-AST caching: `parse()` is called once per invocation for Bash events; all command/pipe/redirect rules share the AST.
 
@@ -227,15 +243,27 @@ hk --help
 
 | Engine outcome | exit | stream | content |
 |---|---|---|---|
-| `null` (no rule fired) | 0 | — | (silent, then exec the command verbatim, pass-through stdout/stderr/exit) |
-| `context` (info, non-blocking) | 0 | — | (silent — context messages are dropped in shell-wrapper mode; use cc-tools or library mode for context output) |
-| `escalate` (warning, needs review) | non-zero (1) | **stdout** | `<prefix> needs review: <reason>` |
-| `deny` (error, hard block) | non-zero (2) | **stderr** | `<prefix> denied: <reason>` |
+| no terminal, no annotations | 0 | — | (silent, then exec the command verbatim, pass-through stdout/stderr/exit) |
+| no terminal, annotations only | exec's exit | **stdout** | one `<prefix> warning: <msg>` or `<prefix> note: <msg>` line per annotation, then `---` separator on its own line, then exec's stdout flows below |
+| `escalate` (needs review) | non-zero (1) | **stdout** | `<prefix> needs review: <reason>` + one line per accumulated annotation; command does NOT run (harness re-runs on approval) |
+| `deny` (hard block) | non-zero (2) | **stderr** | `<prefix> denied: <reason>` — annotations DROPPED |
 
 `<prefix>` is the user-supplied decision label when set (e.g. `[my-plugin]`),
 or `[hook-kit]` when no label is provided. The label leads because it
 identifies which plugin/rule made the call — more meaningful for log
 grepping than the framework name.
+
+**About the `---` separator:** chosen because it's the standard YAML
+frontmatter / markdown horizontal-rule marker, so AI consumers parsing
+the stream are already familiar with it. There is a known fidelity edge
+case: if the wrapped command's own stdout *also* contains `---` on its
+own line (rare in practice for tooling output; common in `git diff` or
+markdown content), a downstream parser must use the *first* `---` after
+the leading annotation block as the boundary. Annotation lines all
+match `^\[[^\]]+\] (warning|note): `, so a parser can disambiguate by
+scanning until the first non-annotation line and treating the next
+`---` as the separator. Future versions may switch to an ASCII
+record-separator (``) if collisions become real.
 
 The synthesized HookEvent always has `toolName: "Bash"` and `eventName: "PreToolUse"`. Path/content rules don't fire here — they're inert without a tool channel that surfaces non-shell events. Use `redirect()` for shell-side write protection; use the cc-tools adapter alongside if you need full Edit/Write/Read coverage.
 
@@ -253,12 +281,12 @@ run(modules, claudeCodeAdapter);
 
 The adapter reads CC's hook JSON from stdin and writes CC's hook JSON to stdout. Wire via `hooks.json` matchers (`Edit|Write|NotebookEdit|Read`) so the `hk` shell wrapper handles Bash and the cc-tools adapter handles the tool-call channel.
 
-| Decision | PreToolUse | PostToolUse / SessionStart / Stop |
-|----------|-----------|-----------------------------------|
-| `null` | exit 0, silent | exit 0, silent |
-| `deny` | `{hookSpecificOutput:{permissionDecision:"block",permissionDecisionReason}}` | stderr + exit 2 |
-| `context` | `{hookSpecificOutput:{additionalContext}}` | `{hookSpecificOutput:{additionalContext}}` |
-| `escalate` | Resolved via askpass → maps to allow (silent) / deny / harness-ask (CC native ask) | Resolved via askpass → silent / deny / context |
+| Outcome | PreToolUse | PostToolUse / SessionStart / Stop |
+|---------|-----------|-----------------------------------|
+| no terminal, no annotations | exit 0, silent | exit 0, silent |
+| no terminal, annotations only | `{hookSpecificOutput:{additionalContext}}` — annotations joined newline-separated, each prefixed `[label] warning\|note: <msg>` | same |
+| `deny` (annotations dropped) | `{hookSpecificOutput:{permissionDecision:"block",permissionDecisionReason}}` | stderr + exit 2 |
+| `escalate` (annotations bundled) | Resolved via askpass → allow (annotations surfaced as `additionalContext`) / deny / harness-ask (annotations bundled into `permissionDecisionReason`) | Resolved via askpass → silent / deny / `additionalContext` |
 
 Anyone can author additional adapter bins (`hk-cursor-tools`, `hk-opencode-tools`, …) by importing the engine + writing ~50 LOC of stdin/stdout glue. The shell wrapper remains the primary gate; adapters extend coverage to harness-specific channels.
 
@@ -557,7 +585,7 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
 | Surface | Test approach |
 |---------|--------------|
 | Builders | Unit per builder × edge cases (flag matching, regex, empty args, unknown commands → silent, ddash, pipe, redirect) |
-| Engine | Short-circuit, context accumulation, module filtering, ordering, error handling, inline-shell recursion, depth limit |
+| Engine | Deny short-circuit, escalate-with-annotations bundling, annotation stacking, module filtering, ordering, error handling, inline-shell recursion, depth limit |
 | Wrapper | Output convention (silent-on-null, stderr+exit-2 on deny, stdout+exit-1 on escalate), exec passthrough, exit-code passthrough, --version, --help |
 | Adapters | CC JSON shape per decision per event; empty/malformed stdin |
 | State stores | get/set/has/delete/flush, missing file, disk full, corruption |
@@ -584,7 +612,7 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
 
 - Don't put domain knowledge in tool binaries. Tools enforce, knowledge belongs elsewhere.
 - Don't add rules that depend on which other plugins are active. Tool rules are unconditional.
-- Don't output `allow` decisions. Silent exit = allowed. Only `deny`/`context`/`escalate` produce output.
+- Don't output `allow` decisions. Silent exit = allowed. Only `deny` / `escalate` / `warning` / `note` produce output.
 - Don't catch errors and deny. Catch errors and stay silent (fail open) — except for `escalate` infrastructure failures, which deny explicitly.
 - Don't assume `path()` rules fire under the shell wrapper. They don't — the wrapper synthesizes a Bash event. Use `redirect()` for shell-side write protection or build a cc-tools companion binary.
 - Don't put multiple tools in one binary. One binary per tool keeps release cycles independent.
