@@ -4,13 +4,13 @@
 
 import type { BinaryCmd, Stmt } from "@questi0nm4rk/shell-ast";
 import { walk } from "@questi0nm4rk/shell-ast";
-import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
 import {
   context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
+import { resolveUnwrappedOrFallback } from "../engine/helpers.js";
 
 export function pipe(from: readonly string[], into: readonly string[]): PipeRuleBuilder {
   return new PipeRuleBuilder(from, into);
@@ -65,5 +65,11 @@ class PipeRuleBuilder {
 function stmtToCmdName(stmt: Stmt): string | null {
   const cmd = stmt.cmd;
   if (cmd === null || cmd.type !== "CallExpr") return null;
-  return unwrapCall(cmd)?.cmd ?? null;
+  // shell-ast 0.2+ unwraps bash/sh/etc — for `curl … | bash -c '…'` the
+  // right-side arrives as { wrapper: "bash", cmd: null }. Prefer cmd for
+  // normal commands; fall back to wrapper for wrapper-only calls. The
+  // resolveFlags fallback inside resolveUnwrappedOrFallback covers the
+  // shell-ast#7 regression where unwrapCall returns null for bare wrappers.
+  const u = resolveUnwrappedOrFallback(cmd);
+  return u !== null ? (u.cmd ?? u.wrapper) : null;
 }

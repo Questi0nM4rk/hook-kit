@@ -229,8 +229,13 @@ hk --help
 |---|---|---|---|
 | `null` (no rule fired) | 0 | — | (silent, then exec the command verbatim, pass-through stdout/stderr/exit) |
 | `context` (info, non-blocking) | 0 | — | (silent — context messages are dropped in shell-wrapper mode; use cc-tools or library mode for context output) |
-| `escalate` (warning, needs review) | non-zero (1) | **stdout** | `[hook-kit] needs review: <reason>` |
-| `deny` (error, hard block) | non-zero (2) | **stderr** | `[hook-kit] denied: <reason>` |
+| `escalate` (warning, needs review) | non-zero (1) | **stdout** | `<prefix> needs review: <reason>` |
+| `deny` (error, hard block) | non-zero (2) | **stderr** | `<prefix> denied: <reason>` |
+
+`<prefix>` is the user-supplied decision label when set (e.g. `[my-plugin]`),
+or `[hook-kit]` when no label is provided. The label leads because it
+identifies which plugin/rule made the call — more meaningful for log
+grepping than the framework name.
 
 The synthesized HookEvent always has `toolName: "Bash"` and `eventName: "PreToolUse"`. Path/content rules don't fire here — they're inert without a tool channel that surfaces non-shell events. Use `redirect()` for shell-side write protection; use the cc-tools adapter alongside if you need full Edit/Write/Read coverage.
 
@@ -388,6 +393,7 @@ The envelope JSON Schema is shaped to match Model Context Protocol elicitation r
 ```
 hook-kit build <entrypoint> --out <path>
                             [--adapter shell|cc-tools]   (default: shell)
+                            [--target <bun-target>]      (e.g. bun-linux-arm64; default: host)
                             [--hooks-json <path>] [--binary-command <s>]
                             [--hook-timeout <seconds>]
 
@@ -403,7 +409,7 @@ hook-kit list [--children-of <id>] [--json]
 `build`:
 
 1. Generates a thin entrypoint wrapping the user's modules + adapter mode.
-2. Runs `bun build <entrypoint> --compile --bytecode --outfile <out>`.
+2. Runs `bun build <entrypoint> --compile --bytecode --outfile <out>`. With `--target <bun-target>` passed, the value forwards verbatim to `bun build --target=<bun-target>` for cross-compilation (e.g. `bun-linux-x64`, `bun-linux-arm64`, `bun-darwin-x64`, `bun-darwin-arm64`). bun's own error surfaces if the value is unrecognized.
 3. Generates `hooks.json` from module metadata (events, matchers) when `--hooks-json <path>` is set. Only meaningful for `--adapter cc-tools` (the shell wrapper isn't wired through CC's hook system). **`--hook-timeout <seconds>` is required** in this mode — no default.
 
 Adapter modes:
@@ -453,6 +459,24 @@ export default [
   ),
 ];
 ```
+
+**Async-init entrypoint** — when the modules depend on async work (e.g.
+loading a config file at startup), default-export an async function that
+returns the modules array. The build wrapper calls it on startup and awaits
+the result:
+
+```typescript
+// src/hooks.ts
+export default async () => {
+  const config = await loadHookConfig();
+  return buildModules(config);
+};
+```
+
+Top-level `await` directly in `hooks.ts` is not supported — `bun build
+--compile --bytecode` rejects TLA in any module reachable from the
+entrypoint. Wrap the async work in an exported function and the generated
+wrapper handles the rest.
 
 ```bash
 $ hk -c "git push --force origin main"
@@ -590,3 +614,23 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
 | No default `--hook-timeout` (required when `--hooks-json` set) | Sensible default like 65s or 3600s | Either default has a wrong tail. Forcing the plugin author to pick makes the trade-off explicit at build time. |
 | Filesystem spool inside the broker | Socket-only or HTTP | Inspectable, crash-safe, atomic via `rename(2)`, no daemon strictly required. |
 | Askpass as the public escalation contract | A dedicated socket protocol | Decades of prior art (sudo, ssh, git, gpg). Any binary can be a responder. |
+
+## Considered Future Additions
+
+Things explored but deliberately deferred. Logged so we don't re-litigate.
+
+### Direct-ask tool (sibling project)
+
+**Idea:** A CLI an agent invokes via its Bash tool to ask the user a discrete question with named options, e.g. `ask "Use vitest or bun:test?" --option vitest:... --option bun-test:...`. Stdout returns the chosen option, exit code encodes accept/deny/timeout. Reuses the same broker spool + TUI listeners that hook escalations already use; question envelopes vs. approval envelopes differ only in `kind`.
+
+**Why not now:** hook-kit's purpose is hooking — intercepting tool calls the agent already made. A direct-ask tool serves the inverse flow (agent volunteers a question) and shouldn't share a binary with the wrapper. The broker substrate is reusable, but a CLI surface for it doesn't belong inside the `hk` bin.
+
+**When to revisit:** when a concrete consumer needs it. Build as a separate project; copy the askpass envelope protocol over rather than depend on hook-kit as a library — the protocol is the contract, the code is incidental. Per-rule `timeoutMs` on `escalate()` belongs in the same revisit window if/when it shows up.
+
+### `hk exec` wrapper for non-bash-timeout harnesses
+
+**Idea:** A second wrapper shape — `hk exec -- <cmd>` — distinct from the default `hk -c "<cmd>"`. Aimed at harnesses where the agent's bash tool timeout isn't configurable from the rule side. Hook-kit spawns the command, evaluates rules, enforces its own ask timeout end-to-end. Opt-in.
+
+**Why not now:** CC has per-hook `timeout` in `hooks.json`, and adapter-level `timeoutMs` on `resolveCcOutput`/`callAskpass` already covers library and shell-wrapper consumers. No known harness today actually needs hook-kit to own the budget. New argv shape + exit-code mapping is non-trivial for a hypothetical user.
+
+**When to revisit:** when a real harness ships that swallows hook timeouts silently or caps them below ~110s without override. Add `hk exec` as a sibling binary, not a subcommand of `hk` — keep the default wrapper as a pure `bash -c` substitute.

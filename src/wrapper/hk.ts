@@ -3,14 +3,20 @@
 // Substitutes for `bash -c "<cmd>"`: parses the command, runs the engine,
 // then either:
 //   - null / context  → execs the command verbatim (fully transparent)
-//   - deny            → stderr `[hook-kit] denied: …`, exit 2
-//   - escalate        → stdout `[hook-kit] needs review: …`, exit 1
+//   - deny            → stderr `<prefix> denied: <reason>`, exit 2
+//   - escalate        → stdout `<prefix> needs review: <reason>`, exit 1
+//
+// `<prefix>` is the user-supplied decision label when present (e.g.
+// `[my-plugin]`), or `[hook-kit]` when no label is set. The label leads
+// because it identifies which plugin/rule made the call — more meaningful
+// to a consumer than the framework name. (BUG-006 in docs/BUGS.md.)
 //
 // Output convention is harness-agnostic: any caller (agent, human, CI)
 // reads the decision through normal shell I/O. No JSON, no harness wiring.
 
 import type { Decision, HookEvent, HookModule } from "../core/types.js";
 import { type EvaluateOptions, evaluate } from "../engine/index.js";
+import { emitVerbose, isVerbose } from "../engine/trace.js";
 import { VERSION } from "../version.js";
 
 const USAGE = `\
@@ -63,17 +69,17 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   };
 }
 
-function withLabel(message: string, label: string | undefined): string {
-  return label !== undefined ? `${label} ${message}` : message;
-}
-
 function emitDecision(decision: Exclude<Decision, null | { kind: "context" }>): never {
+  // Label leads when present so the output identifies which plugin/rule made
+  // the call (more meaningful than `[hook-kit]` for log grepping). Falls back
+  // to `[hook-kit]` when no label was set on the decision.
+  const prefix = decision.label ?? "[hook-kit]";
   if (decision.kind === "deny") {
-    process.stderr.write(`[hook-kit] denied: ${withLabel(decision.reason, decision.label)}\n`);
+    process.stderr.write(`${prefix} denied: ${decision.reason}\n`);
     process.exit(2);
   }
   // escalate — needs-review warning, non-zero exit, stdout
-  process.stdout.write(`[hook-kit] needs review: ${withLabel(decision.reason, decision.label)}\n`);
+  process.stdout.write(`${prefix} needs review: ${decision.reason}\n`);
   process.exit(1);
 }
 
@@ -131,7 +137,15 @@ export async function runShell(
     raw: {},
   };
 
+  const verbose = isVerbose();
+  const startedAt = verbose ? performance.now() : 0;
+
   const decision = await evaluate(event, modules, opts);
+
+  if (verbose) {
+    const durationMs = Math.round(performance.now() - startedAt);
+    emitVerbose(event, decision, modules.length, durationMs);
+  }
 
   if (decision === null || decision.kind === "context") {
     // Approved (or just context — non-blocking) → exec verbatim, transparent.

@@ -20,7 +20,7 @@ export type {
   ToolEvent,
 } from "./core/types.js";
 // Engine
-export { type EvaluateOptions, evaluate } from "./engine/index.js";
+export { type EvaluateOptions, evaluate, evaluateRule } from "./engine/index.js";
 // Rule builders
 export { cmd } from "./rules/command.js";
 export { content } from "./rules/content.js";

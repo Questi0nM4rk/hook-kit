@@ -201,15 +201,15 @@ describe("cmd() — argIncludes / argMatches", () => {
   });
 });
 
-describe("cmd() — quoted strings become <dynamic>", () => {
-  test("argMatches does not match content of a quoted body argument", async () => {
+describe("cmd() — quoted argument resolution", () => {
+  test("argMatches matches content of a simple quoted body argument (shell-ast 0.2+ resolves it as literal)", async () => {
     const d = await runCmd(
       'gh pr comment --body "this is secret"',
       cmd("gh", "pr", "comment")
         .argMatches(/secret/)
         .deny("found secret"),
     );
-    expect(d).toBeNull();
+    expect(d).toEqual({ kind: "deny", reason: "found secret" });
   });
 });
 

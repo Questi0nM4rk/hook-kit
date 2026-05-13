@@ -47,8 +47,10 @@ src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 |---|---|---|---|
 | `null` (no rule fired) | 0 | — | silent, then exec the command verbatim |
 | `context` | 0 | — | silent (use cc-tools or library mode for context output) |
-| `escalate` | 1 | stdout | `[hook-kit] needs review: <reason>` |
-| `deny` | 2 | stderr | `[hook-kit] denied: <reason>` |
+| `escalate` | 1 | stdout | `<prefix> needs review: <reason>` |
+| `deny` | 2 | stderr | `<prefix> denied: <reason>` |
+
+`<prefix>` = decision label (e.g. `[my-plugin]`) when set, `[hook-kit]` otherwise.
 
 ## Dependencies & Conventions
 
