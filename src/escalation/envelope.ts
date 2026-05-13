@@ -35,6 +35,11 @@ const AskRequestSchema = z.object({
   toolInput: z.record(z.unknown()),
   reason: z.string(),
   label: z.string().optional(),
+  /** Pre-rendered annotation block (each line `[label] warning|note: <msg>`),
+   *  bundled from any warning/note decisions that fired alongside the
+   *  escalate. Surfaced in broker/UI prompts so the human reviewer sees the
+   *  full context the rules emitted. Empty/absent when no annotations fired. */
+  annotations: z.string().optional(),
   // Origin context from the HookEvent.
   cwd: z.string(),
   transcriptPath: z.string(),
@@ -66,6 +71,11 @@ export interface CreateAskOptions {
   readonly toolInput: Readonly<Record<string, unknown>>;
   readonly reason: string;
   readonly label?: string;
+  /** Pre-rendered annotation block to bundle with the ask (each annotation
+   *  on its own line, format `[label] warning|note: <msg>`). Adapters that
+   *  receive an EvaluationOutcome with both terminal=escalate and
+   *  annotations.length>0 should pass `joinAnnotations(annotations)`. */
+  readonly annotations?: string;
   /** Defaults to `{ name: "unknown" }` — adapters should always pass their own. */
   readonly harness?: Harness;
   /** Defaults to `process.cwd()`. Adapters should pass `event.cwd`. */
@@ -116,6 +126,7 @@ export function createAskRequest(opts: CreateAskOptions): AskRequest {
     ...base,
     ...(opts.parentSessionId !== undefined ? { parentSessionId: opts.parentSessionId } : {}),
     ...(opts.label !== undefined ? { label: opts.label } : {}),
+    ...(opts.annotations !== undefined ? { annotations: opts.annotations } : {}),
     ...(opts.git !== undefined ? { git: opts.git } : {}),
   };
 }

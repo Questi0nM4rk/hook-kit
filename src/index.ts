@@ -5,18 +5,21 @@
 export { type RawAdapter, type RawAdapterState, rawAdapter } from "./adapters/raw.js";
 export type { ProtocolAdapter } from "./adapters/types.js";
 // Decision constructors
-export { context, deny, escalate } from "./core/decision.js";
+export { deny, escalate, note, warning } from "./core/decision.js";
 // Event helpers
 export { toToolEvent } from "./core/event.js";
 // Module factory
 export { createModule } from "./core/module.js";
 // Core types
 export type {
+  Annotation,
   Decision,
   EvalContext,
+  EvaluationOutcome,
   HookEvent,
   HookModule,
   Rule,
+  Terminal,
   ToolEvent,
 } from "./core/types.js";
 // Engine

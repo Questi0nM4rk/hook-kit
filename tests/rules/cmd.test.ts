@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Decision, HookEvent, HookModule, Rule } from "../../src/core/types.js";
+import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
 import { cmd } from "../../src/rules/command.js";
 
@@ -31,8 +31,14 @@ function moduleWith(rule: Rule): HookModule {
   return { id: "m", name: "test", events: ["PreToolUse"], rules: [rule] };
 }
 
-async function runCmd(command: string, rule: Rule): Promise<Decision> {
-  return evaluate(bashEvent(command), [moduleWith(rule)]);
+async function runCmd(command: string, rule: Rule): Promise<Terminal | null> {
+  const outcome = await evaluate(bashEvent(command), [moduleWith(rule)]);
+  return outcome.terminal;
+}
+
+async function runCmdAnnotations(command: string, rule: Rule): Promise<readonly Annotation[]> {
+  const outcome = await evaluate(bashEvent(command), [moduleWith(rule)]);
+  return outcome.annotations;
 }
 
 describe("cmd() — basic matching", () => {
@@ -47,8 +53,9 @@ describe("cmd() — basic matching", () => {
   });
 
   test("does not run on non-Bash events", async () => {
-    const d = await evaluate(nonBashEvent(), [moduleWith(cmd("rm").deny("blocked"))]);
-    expect(d).toBeNull();
+    const outcome = await evaluate(nonBashEvent(), [moduleWith(cmd("rm").deny("blocked"))]);
+    expect(outcome.terminal).toBeNull();
+    expect(outcome.annotations).toEqual([]);
   });
 
   test("does not match on empty Bash command", async () => {
@@ -264,19 +271,29 @@ describe("cmd() — withDdash", () => {
   });
 });
 
-describe("cmd() — terminal forms", () => {
-  test("context() returns a context decision", async () => {
-    const d = await runCmd("rm foo", cmd("rm").context("informational"));
-    expect(d).toEqual({ kind: "context", message: "informational" });
+describe("cmd() — terminal + annotation forms", () => {
+  test("warning() returns a warning annotation (no terminal)", async () => {
+    const anns = await runCmdAnnotations("rm foo", cmd("rm").warning("danger"));
+    expect(anns).toEqual([{ kind: "warning", message: "danger" }]);
   });
 
-  test("escalate() returns an escalate decision", async () => {
-    const d = await runCmd("rm foo", cmd("rm").escalate("ask"));
-    expect(d).toEqual({ kind: "escalate", reason: "ask" });
+  test("note() returns a note annotation (no terminal)", async () => {
+    const anns = await runCmdAnnotations("rm foo", cmd("rm").note("informational"));
+    expect(anns).toEqual([{ kind: "note", message: "informational" }]);
   });
 
-  test("decision label is preserved", async () => {
-    const d = await runCmd("rm foo", cmd("rm").deny("blocked", "[security]"));
-    expect(d).toEqual({ kind: "deny", reason: "blocked", label: "[security]" });
+  test("warning preserves label", async () => {
+    const anns = await runCmdAnnotations("rm foo", cmd("rm").warning("danger", "[security]"));
+    expect(anns).toEqual([{ kind: "warning", message: "danger", label: "[security]" }]);
+  });
+
+  test("escalate() returns an escalate terminal", async () => {
+    const t = await runCmd("rm foo", cmd("rm").escalate("ask"));
+    expect(t).toEqual({ kind: "escalate", reason: "ask" });
+  });
+
+  test("deny terminal label is preserved", async () => {
+    const t = await runCmd("rm foo", cmd("rm").deny("blocked", "[security]"));
+    expect(t).toEqual({ kind: "deny", reason: "blocked", label: "[security]" });
   });
 });

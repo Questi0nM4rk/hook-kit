@@ -43,14 +43,14 @@ src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 
 ## Output Convention (the contract for shell-wrapper mode)
 
-| Decision | Exit | Stream | Content |
+| Outcome | Exit | Stream | Content |
 |---|---|---|---|
-| `null` (no rule fired) | 0 | — | silent, then exec the command verbatim |
-| `context` | 0 | — | silent (use cc-tools or library mode for context output) |
-| `escalate` | 1 | stdout | `<prefix> needs review: <reason>` |
-| `deny` | 2 | stderr | `<prefix> denied: <reason>` |
+| no terminal, no annotations | 0 | — | silent, then exec the command verbatim |
+| no terminal, annotations only | exec's exit | stdout | `<prefix> warning: <msg>` / `<prefix> note: <msg>` per annotation, then `---` separator, then exec output below |
+| `escalate` (annotations bundled) | 1 | stdout | `<prefix> needs review: <reason>` + each accumulated annotation line |
+| `deny` (annotations DROPPED) | 2 | stderr | `<prefix> denied: <reason>` |
 
-`<prefix>` = decision label (e.g. `[my-plugin]`) when set, `[hook-kit]` otherwise.
+`<prefix>` = decision label (e.g. `[my-plugin]`) when set, `[hook-kit]` otherwise. Merge policy: deny short-circuits + drops annotations, escalate keeps collecting annotations (first escalate wins terminal), warning/note always accumulate.
 
 ## Dependencies & Conventions
 
@@ -65,7 +65,21 @@ src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 
 ## Testing
 
-`tests/build/example-ai-guardrails.test.ts` is the canonical end-to-end smoke — compiles the `examples/ai-guardrails/` plugin into `dist/hk` and exercises rule firings against the real binary. Add similar coverage when introducing new rule kinds or wrapper behaviors.
+The npm `test` script runs two `bun test` invocations:
+
+```bash
+bun test tests/ && bun test tests-isolated/
+```
+
+- `tests/` — the regular suite. ~385 unit + integration tests.
+- `tests-isolated/` — tests that need `mock.module()` for module-level mocks. Bun's `mock.module()` is process-sticky across files (oven-sh/bun#14516) and would poison sibling tests in the regular suite. The split keeps each isolated test file its own `bun test` process. **Don't add `mock.module()` to anything under `tests/` — put it under `tests-isolated/` instead.**
+
+Canonical end-to-end tests under `tests/build/`:
+- `example-ai-guardrails.test.ts` — compiles `examples/ai-guardrails/` into `dist/hk` and exercises rule firings against the real binary.
+- `adversarial.test.ts` — 50+ adversarial inputs against the compiled binary (alias expansion, sudo unwrap, inline-shell recursion, redirects, edge cases).
+- `warning-annotation.test.ts` — annotation rendering contract: `[label] warning: <msg>` lines + `---` separator + exec output.
+
+Add similar coverage when introducing new rule kinds or wrapper behaviors.
 
 ## Examples
 

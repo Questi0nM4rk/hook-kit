@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { Decision, HookEvent, HookModule, Rule } from "../../src/core/types.js";
+import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
 import { redirect } from "../../src/rules/redirect.js";
 
@@ -19,8 +19,9 @@ function moduleWith(rule: Rule): HookModule {
   return { id: "m", name: "test", events: ["PreToolUse"], rules: [rule] };
 }
 
-async function run(command: string, rule: Rule): Promise<Decision> {
-  return evaluate(bashEvent(command), [moduleWith(rule)]);
+async function run(command: string, rule: Rule): Promise<Terminal | null> {
+  const outcome = await evaluate(bashEvent(command), [moduleWith(rule)]);
+  return outcome.terminal;
 }
 
 describe("redirect()", () => {

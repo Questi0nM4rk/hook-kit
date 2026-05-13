@@ -25,7 +25,7 @@ describe("run() — adapter round-trip", () => {
       ]),
     ];
     await run(modules, adapter);
-    expect(state.decision).toEqual({ kind: "deny", reason: "no force pushes" });
+    expect(state.outcome.terminal).toEqual({ kind: "deny", reason: "no force pushes" });
   });
 
   test("returns null decision when no rule matches", async () => {
@@ -36,7 +36,7 @@ describe("run() — adapter round-trip", () => {
       ]),
     ];
     await run(modules, adapter);
-    expect(state.decision).toBeNull();
+    expect(state.outcome.terminal).toBeNull();
   });
 
   test("delegates readInput failure to handleError (fail-open)", async () => {
@@ -78,7 +78,7 @@ describe("run() — adapter round-trip", () => {
       ),
     ];
     await run(modules, adapter);
-    expect(state.decision).toEqual({ kind: "deny", reason: "edit the generator" });
+    expect(state.outcome.terminal).toEqual({ kind: "deny", reason: "edit the generator" });
   });
 });
 

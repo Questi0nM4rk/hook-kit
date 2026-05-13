@@ -2,9 +2,10 @@
 // See docs/SPEC.md § Rule Builders
 
 import {
-  context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
+  note as noteDecision,
+  warning as warningDecision,
 } from "../core/decision.js";
 import type { Decision, HookEvent, Rule } from "../core/types.js";
 
@@ -35,12 +36,16 @@ class PathRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  context(message: string, label?: string): Rule {
-    return this.buildRule(contextDecision(message, label));
-  }
-
   escalate(reason: string, label?: string): Rule {
     return this.buildRule(escalateDecision(reason, label));
+  }
+
+  warning(message: string, label?: string): Rule {
+    return this.buildRule(warningDecision(message, label));
+  }
+
+  note(message: string, label?: string): Rule {
+    return this.buildRule(noteDecision(message, label));
   }
 
   private buildRule(decision: NonNullable<Decision>): Rule {

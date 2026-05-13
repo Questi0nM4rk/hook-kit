@@ -77,15 +77,15 @@ The contract every caller can rely on:
 
 | Engine outcome | exit | stream | content |
 |---|---|---|---|
-| `null` (no rule fired) | 0 | — | (silent, then exec the command verbatim — caller sees its own output) |
-| `context` (info, non-blocking) | 0 | — | (silent in shell-wrapper mode; use cc-tools adapter or library mode for context output) |
-| `escalate` (warning, needs review) | 1 | **stdout** | `<prefix> needs review: <reason>` |
-| `deny` (error, hard block) | 2 | **stderr** | `<prefix> denied: <reason>` |
+| no terminal, no annotations | 0 | — | (silent, then exec the command verbatim — caller sees its own output) |
+| no terminal, annotations only | exec's exit | **stdout** | one `<prefix> warning: <msg>` or `<prefix> note: <msg>` per annotation, `---` separator on its own line, exec's stdout below |
+| `escalate` (needs review) | 1 | **stdout** | `<prefix> needs review: <reason>` + any accumulated annotations; command does NOT run |
+| `deny` (hard block) | 2 | **stderr** | `<prefix> denied: <reason>` — annotations DROPPED |
 
 `<prefix>` is the user-supplied decision label when set (e.g. `[my-plugin]`),
 or `[hook-kit]` when no label is provided.
 
-Approved commands run transparently. Denied commands never run. Escalated commands never run, but the warning goes to stdout (so a tail-the-output agent sees it without losing access to stderr for actual errors).
+Approved commands run transparently. Denied commands never run. Escalated commands never run, but the warning goes to stdout (so a tail-the-output agent sees it without losing access to stderr for actual errors). Annotations (warning/note) are non-blocking — the command runs and its output flows below the `---` separator.
 
 ---
 
@@ -167,14 +167,17 @@ Inline-shell recursion is on by default — `bash -c 'rm -rf /'` triggers the sa
 
 ### Decisions (blacklist semantics)
 
-A rule returns one of four values. There is no `allow` — silent = nothing was wrong.
+A rule returns one of five values. There is no `allow` — silent = nothing was wrong.
 
 | Decision | Effect |
 |----------|--------|
 | `null` | Silent pass-through |
-| `deny(reason, label?)` | Hard block; stderr + exit 2 |
-| `context(message, label?)` | Inject info (silent in shell-wrapper mode; surfaces via cc-tools or library) |
-| `escalate(reason, label?)` | Ask up the parent tree, or surface a needs-review warning |
+| `deny(reason, label?)` | Hard block; stderr + exit 2. Annotations from other rules are DROPPED. |
+| `escalate(reason, label?)` | Ask up the parent tree, or surface a needs-review warning. Bundles any accumulated annotations. |
+| `warning(message, label?)` | Non-blocking annotation; `[label] warning: <msg>` line above a `---` separator before the command runs. |
+| `note(message, label?)` | Non-blocking annotation; same mechanics as warning, rendered as `[label] note: <msg>`. Distinct so AI consumers can tell severity apart. |
+
+The engine merges per-rule decisions into an `EvaluationOutcome { terminal, annotations }` — `deny` short-circuits dropping annotations, `escalate` bundles them, warning/note stack in encounter order.
 
 ### Iron Laws
 
@@ -184,7 +187,7 @@ The eight invariants the framework enforces. The full version lives in [`docs/SP
 2. **Parse once, evaluate many** — one shell-AST per invocation, shared across all command/pipe/redirect rules.
 3. **Recurse into inline shells** — `bash -c "…"`, `eval`, `exec` re-evaluate against the same modules. Default-on; depth-limited to 5.
 4. **Fail open on infra errors** (with one exception: `escalate` infra failure denies, never silent-allows).
-5. **Blacklist semantics** — only `deny`, `context`, `escalate`, or `null`.
+5. **Blacklist semantics** — only `deny` / `escalate` / `warning` / `note` / `null`.
 6. **Output convention is the wire format** — stdout/stderr/exit-code, no JSON for the caller to parse.
 7. **Each plugin compiles its own binary** — plugin isolation; one plugin's iteration doesn't disturb the others.
 8. **Escalation is async, tree-shaped, out-of-band** — see below.
@@ -255,7 +258,7 @@ content()
   .matchPath(/design\/.*\.md$/)
   .validate((filePath, body) => {
     const missing = REQUIRED_SECTIONS.filter((s) => !s.test(body));
-    if (missing.length > 0) return context(`Missing: ${missing.join(", ")}`);
+    if (missing.length > 0) return warning(`Missing: ${missing.join(", ")}`);
     return null;
   });
 ```
@@ -269,7 +272,7 @@ stateful("repetition", (event, state) => {
   const key = `cmd:${(event.toolInput.command as string) ?? ""}`;
   const count = ((state.get(key) as number) ?? 0) + 1;
   state.set(key, count);
-  if (count > 3) return context(`Repeated ${count}× — break the loop?`);
+  if (count > 3) return warning(`Repeated ${count}× — break the loop?`);
   return null;
 });
 ```
@@ -537,7 +540,7 @@ The design assumes the following. If any of them changes, revisit the noted area
 - **Assumes:** shell-AST can parse Bash / POSIX / mksh dialects with sufficient fidelity for rule matching. **If** a target shell (fish, nushell, PowerShell) becomes a primary integration → shell-ast may not cover it; either contribute parsing or use a different parser layer. Rules built on AST traversal would need to be reconfirmed.
 - **Assumes:** Cold start ~50ms is fast enough for the wrapper to sit in front of every command. **If** a profile shows the wrapper adds noticeable latency to interactive use → drop the bytecode build (`bun build --compile` without `--bytecode`) or split the engine into a long-running daemon spoken to over a socket. Output convention stays the same.
 - **Assumes:** `HOOK_KIT_ASKPASS` unset → harness-ask is acceptable as the default. **If** a deployment context demands hard-deny on missing infra (e.g. CI where there's no human to answer) → set `HOOK_KIT_ASKPASS=/bin/false` explicitly. This is a deployment-time decision, not a code change.
-- **Assumes:** Escalation is rare (the broker tree is invoked only on `escalate` decisions, not on every command). **If** a plugin starts using `escalate` for the common path → either revisit the rule (most "ask" use cases should be `deny` with a clear remediation, or `context` with informational messaging) or expect operational complexity from broker setup.
+- **Assumes:** Escalation is rare (the broker tree is invoked only on `escalate` decisions, not on every command). **If** a plugin starts using `escalate` for the common path → either revisit the rule (most "ask" use cases should be `deny` with a clear remediation, or `warning` / `note` with informational messaging) or expect operational complexity from broker setup.
 - **Assumes:** Per-plugin compiled binaries are acceptable disk footprint (~50 MB each). **If** disk pressure becomes an issue (e.g. many plugins on a small system) → drop bytecode (smaller binary, slower start) or move to a shared runtime model.
 - **Assumes:** The output convention `stderr+exit-2` for deny / `stdout+exit-1` for escalate is unambiguous downstream. **If** a caller can't distinguish those (e.g. captures only one stream, or treats any non-zero as fatal) → it'll lose the deny/escalate distinction. Document the contract explicitly in any wrapper docs the caller might use.
 - **Assumes:** Iron Laws hold without weakening. **If** any future feature would require fail-closed behavior on a non-escalate path (e.g. mandatory whitelist mode) → that's a new mode, not an extension of the current one. Spec it as a separate decision kind, not by reweighing the existing fail-open semantics.
