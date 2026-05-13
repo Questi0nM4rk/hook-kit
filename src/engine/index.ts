@@ -4,7 +4,14 @@
 import { findCalls, parse, type ShellFile } from "@questi0nm4rk/shell-ast";
 import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
 import { escalate as escalateDecision } from "../core/decision.js";
-import type { Decision, EvalContext, HookEvent, HookModule, StateStore } from "../core/types.js";
+import type {
+  Decision,
+  EvalContext,
+  HookEvent,
+  HookModule,
+  Rule,
+  StateStore,
+} from "../core/types.js";
 import { extractInlineScript, INLINE_SHELL_CMDS } from "./helpers.js";
 
 export interface EvaluateOptions {
@@ -19,6 +26,47 @@ export interface EvaluateOptions {
 }
 
 const MAX_RECURSE_DEPTH = 5;
+
+/**
+ * Test helper: evaluate a single rule against an event without hand-building
+ * an EvalContext. Wraps the rule in a synthetic single-rule module whose
+ * `events` matches the event and whose `matchers` is empty (so the matcher
+ * check is skipped — the rule's own logic decides whether to fire). Returns
+ * the engine's decision, with full inline-shell-recursion / state semantics
+ * intact.
+ *
+ * Use in unit tests so test authors don't have to call `evaluate(event,
+ * [createModule(…, [rule])])` boilerplate for every rule assertion. For
+ * production hook entrypoints, keep using `createModule` + `evaluate` /
+ * `run` / `runShell` — those carry the real module config (events list,
+ * matchers, id) that drives per-event filtering.
+ */
+export async function evaluateRule(
+  event: HookEvent,
+  rule: Rule,
+  opts: EvaluateOptions = {},
+): Promise<Decision> {
+  const mod: HookModule = {
+    id: "__test-rule",
+    name: "__test-rule",
+    events: [event.eventName],
+    rules: [rule],
+    enabled: true,
+  };
+  return evaluate(event, [mod], opts);
+}
+
+// shell-ast WASM-load (or any parse) failures are caught by getBashAst()
+// per Iron Law 4 ("fail open on infra errors"). That keeps a framework bug
+// from blocking the user, but it also silently disables every shell-AST
+// rule with no signal — invisible loss of coverage. Emit a one-shot stderr
+// warning on the first failure so operators can investigate.
+let astErrorLogged = false;
+
+/** @internal Reset hook used by tests to verify the once-per-process warning. */
+export function __resetAstErrorLoggedForTests(): void {
+  astErrorLogged = false;
+}
 
 /**
  * Evaluate all matching modules/rules against a hook event.
@@ -95,7 +143,11 @@ export async function evaluate(
       for (const call of findCalls(ast)) {
         const unwrapped = unwrapCall(call);
         if (unwrapped === null) continue;
-        if (!INLINE_SHELL_CMDS.has(unwrapped.cmd)) continue;
+        // shell-ast 0.2+ treats bash/sh/etc as WRAPPERS, so `bash -c '…'` arrives with
+        // wrapper="bash" and cmd=null (the inner script is opaque). Prefer wrapper for
+        // the inline-shell check; fall back to cmd for legacy/non-wrapped forms (eval, exec).
+        const shellName = unwrapped.wrapper ?? unwrapped.cmd;
+        if (shellName === null || !INLINE_SHELL_CMDS.has(shellName)) continue;
         const inline = extractInlineScript(unwrapped);
         if (inline === null) continue;
         const synthetic: HookEvent = {
@@ -153,7 +205,14 @@ function buildEvalContext(
       }
       try {
         cached = await parse(command);
-      } catch {
+      } catch (err) {
+        if (!astErrorLogged) {
+          astErrorLogged = true;
+          const msg = err instanceof Error ? err.message : String(err);
+          process.stderr.write(
+            `[hook-kit] shell-ast parse failed — command/pipe/redirect rules disabled for failed inputs\n[hook-kit] details: ${msg}\n`,
+          );
+        }
         cached = null;
       }
       return cached;

@@ -145,4 +145,90 @@ describe("hook-kit build — end to end", () => {
     },
     BUILD_TIMEOUT_MS,
   );
+
+  test(
+    "user entrypoint can be an async function (BUG-003 — supports async init)",
+    async () => {
+      const { dir, entry, cleanup } = stagePlugin();
+      // Overwrite the staged entry with one whose default export is an
+      // async function. Pre-fix, hook-kit only accepted a static
+      // `export default [...]` array, forcing users to refactor any async
+      // init (e.g. reading a config file) into a sync helper. Post-fix the
+      // generated wrapper calls the function if it's callable and awaits
+      // the result, so async init works without TLA in user code.
+      writeFileSync(
+        entry,
+        `
+import { cmd, createModule } from "@questi0nm4rk/hook-kit";
+
+// Async init — the supported shape. (TLA in the entrypoint itself is
+// still forbidden by bun --compile, so the async work lives inside this
+// exported function.)
+export default async () => {
+  const blockedCmd = await Promise.resolve("rm");
+  return [
+    createModule(
+      { id: "tla-fixture", name: "tla", events: ["PreToolUse"], matchers: ["Bash"] },
+      [cmd(blockedCmd).withFlag("-r").withFlag("-f").deny("[tla-fixture] no rm -rf")],
+    ),
+  ];
+};
+`,
+        "utf8",
+      );
+      const out = join(dir, "dist", "hooks-tla");
+      mkdirSync(join(dir, "dist"), { recursive: true });
+      try {
+        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
+        const proc = Bun.spawn([out], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+        proc.stdin.write(
+          JSON.stringify({
+            session_id: "s1",
+            transcript_path: "/tmp/t.jsonl",
+            cwd: "/tmp",
+            hook_event_name: "PreToolUse",
+            tool_name: "Bash",
+            tool_input: { command: "rm -rf /tmp/x" },
+          }),
+        );
+        proc.stdin.end();
+        const [stdout, exitCode] = await Promise.all([
+          new Response(proc.stdout).text(),
+          proc.exited,
+        ]);
+        expect(exitCode).toBe(0);
+        const parsed = JSON.parse(stdout);
+        expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
+        expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("[tla-fixture]");
+      } finally {
+        cleanup();
+      }
+    },
+    BUILD_TIMEOUT_MS,
+  );
+
+  test(
+    "--target option produces a host-runnable binary (BUG-002 cross-compile wiring)",
+    async () => {
+      const { dir, entry, cleanup } = stagePlugin();
+      const out = join(dir, "dist", "hooks-host");
+      mkdirSync(join(dir, "dist"), { recursive: true });
+      try {
+        // Build with target=bun-linux-x64 (the host) so the produced binary
+        // is runnable in CI. The contract under test is that --target is
+        // forwarded to bun build and the build succeeds.
+        const result = await runBuild({
+          entrypoint: entry,
+          out,
+          adapter: "cc-tools",
+          target: "bun-linux-x64",
+        });
+        expect(result.binPath).toBe(out);
+        expect(existsSync(out)).toBe(true);
+      } finally {
+        cleanup();
+      }
+    },
+    BUILD_TIMEOUT_MS,
+  );
 });

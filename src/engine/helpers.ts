@@ -89,9 +89,26 @@ export function hasFlag(expanded: readonly string[], wanted: string): boolean {
 // returns the embedded script source so the engine can recurse into it.
 // Without this, hiding a banned command inside `bash -c` bypasses every rule.
 
-import type { Word } from "@questi0nm4rk/shell-ast";
-import { wordToLit } from "@questi0nm4rk/shell-ast";
+import type { CallExprNode, Word } from "@questi0nm4rk/shell-ast";
+import { resolveFlags, wordToLit } from "@questi0nm4rk/shell-ast";
 import type { UnwrappedCall } from "@questi0nm4rk/shell-ast/semantic";
+import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
+
+/**
+ * Resolve a CallExpr to an UnwrappedCall with a fallback for shell-ast 0.2.1's
+ * regression (Questi0nM4rk/shell-ast#7) — `unwrapCall` returns null when a
+ * WRAPPERS-listed command (bash, sh, …) is invoked with no inner command
+ * (`bash`, `bash --version`, the right side of `curl … | bash`). The
+ * fallback recovers via `resolveFlags` so cmd() and pipe() rules can still
+ * match the underlying command. Remove the fallback when upstream lands.
+ */
+export function resolveUnwrappedOrFallback(call: CallExprNode): UnwrappedCall | null {
+  const u = unwrapCall(call);
+  if (u !== null) return u;
+  const r = resolveFlags(call);
+  if (r === null) return null;
+  return { wrapper: null, cmd: r.cmd, flags: r.flags, args: r.args, raw: r.raw };
+}
 
 /** Commands whose first/-c argument re-enters a shell parser. */
 export const INLINE_SHELL_CMDS: ReadonlySet<string> = new Set([

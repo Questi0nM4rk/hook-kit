@@ -23,6 +23,7 @@ hook-kit — framework for building shell-wrapper hook binaries
 Build:
   hook-kit build <entrypoint> --out <path>
                               [--adapter shell|cc-tools]   (default: shell)
+                              [--target <bun-target>]      (e.g. bun-linux-arm64)
                               [--hooks-json <path>] [--binary-command <s>]
                               [--hook-timeout <seconds>]
 
@@ -120,9 +121,15 @@ async function buildCommand(argv: readonly string[]): Promise<number> {
     return 1;
   }
   const adapter = adapterArg as AdapterName;
+  const target = getArg(argv, "--target");
 
   try {
-    const result = await runBuild({ entrypoint, out, adapter });
+    const result = await runBuild({
+      entrypoint,
+      out,
+      adapter,
+      ...optional("target", target),
+    });
     writeErr(`hook-kit: compiled ${result.binPath}\n`);
 
     const hooksJsonPath = getArg(argv, "--hooks-json");
@@ -369,5 +376,11 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 if (import.meta.main) {
-  process.exit(await main(process.argv.slice(2)));
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (err) => {
+      writeErr(`hook-kit: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
+      process.exit(1);
+    },
+  );
 }

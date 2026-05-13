@@ -50,7 +50,7 @@ async function runHk(
 
 describe("examples/ai-guardrails — shell wrapper binary (hk)", () => {
   test(
-    "rm -rf escalates: stdout '[hook-kit] needs review' + non-zero exit",
+    "rm -rf escalates: stdout '[destructive-rm] needs review' + non-zero exit",
     async () => {
       const { dir, entry, cleanup } = stageExample();
       const out = join(dir, "dist", "hk");
@@ -59,8 +59,9 @@ describe("examples/ai-guardrails — shell wrapper binary (hk)", () => {
         await runBuild({ entrypoint: entry, out, adapter: "shell" });
         const r = await runHk(out, "rm -rf /tmp/x");
         expect(r.exit).toBe(1);
-        expect(r.stdout).toContain("[hook-kit] needs review");
-        expect(r.stdout).toContain("[destructive-rm]");
+        // BUG-006: label leads the prefix (no double `[hook-kit] [label]`).
+        expect(r.stdout).toContain("[destructive-rm] needs review");
+        expect(r.stdout).not.toContain("[hook-kit] needs review");
         expect(r.stderr).toBe("");
       } finally {
         cleanup();

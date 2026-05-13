@@ -6,7 +6,7 @@ import { generateEntrypoint, generateHooksJson } from "../../src/build/bundle.js
 const PLUGIN_ROOT_PATH = `${"$"}{CLAUDE_PLUGIN_ROOT}/dist/hooks`;
 
 describe("generateEntrypoint", () => {
-  test("imports the claude-code adapter and the user's modules", () => {
+  test("imports the claude-code adapter and dynamically loads the user's modules", () => {
     const src = generateEntrypoint({
       entrypoint: "/abs/path/to/user/hooks.ts",
       out: "/dist/hooks",
@@ -14,7 +14,8 @@ describe("generateEntrypoint", () => {
     });
     expect(src).toContain('from "@questi0nm4rk/hook-kit/adapters/claude-code"');
     expect(src).toContain("claudeCodeAdapter");
-    expect(src).toContain('import modules from "/abs/path/to/user/hooks.ts"');
+    // BUG-003: user module loaded via dynamic import so its TLA can be awaited.
+    expect(src).toContain('import("/abs/path/to/user/hooks.ts")');
     expect(src).toContain("run(modules, claudeCodeAdapter)");
   });
 
@@ -24,7 +25,28 @@ describe("generateEntrypoint", () => {
       out: "/dist/hooks",
       adapter: "cc-tools",
     });
-    expect(src).toContain('import modules from "/path/with spaces/and\\"quote.ts"');
+    expect(src).toContain('import("/path/with spaces/and\\"quote.ts")');
+  });
+
+  test("shell adapter calls runShell after the dynamic import resolves", () => {
+    const src = generateEntrypoint({
+      entrypoint: "/abs/hooks.ts",
+      out: "/dist/hk",
+      adapter: "shell",
+    });
+    expect(src).toContain('from "@questi0nm4rk/hook-kit/wrapper/hk"');
+    expect(src).toContain('import("/abs/hooks.ts")');
+    expect(src).toContain("runShell(modules);");
+  });
+
+  test("emits an error handler that fails closed on entrypoint load failure", () => {
+    const src = generateEntrypoint({
+      entrypoint: "/abs/hooks.ts",
+      out: "/dist/hk",
+      adapter: "shell",
+    });
+    expect(src).toContain("[hook-kit] failed to load entrypoint");
+    expect(src).toContain("process.exit(1)");
   });
 });
 

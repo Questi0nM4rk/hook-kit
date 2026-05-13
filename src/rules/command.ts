@@ -3,14 +3,13 @@
 
 import type { CallExprNode } from "@questi0nm4rk/shell-ast";
 import { findCalls, wordToLit } from "@questi0nm4rk/shell-ast";
-import { unwrapCall } from "@questi0nm4rk/shell-ast/semantic";
 import {
   context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
-import { expandFlags, hasFlag } from "../engine/helpers.js";
+import { expandFlags, hasFlag, resolveUnwrappedOrFallback } from "../engine/helpers.js";
 
 export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
   return new CommandRuleBuilder(command, sub);
@@ -83,7 +82,7 @@ class CommandRuleBuilder {
         if (ast === null) return null;
 
         for (const call of findCalls(ast)) {
-          const unwrapped = unwrapCall(call);
+          const unwrapped = resolveUnwrappedOrFallback(call);
           if (unwrapped === null) continue;
           if (unwrapped.cmd !== cfg.command) continue;
 
@@ -104,7 +103,11 @@ class CommandRuleBuilder {
 
           // Arg predicates
           if (!cfg.argIncludeValues.every((v) => unwrapped.args.includes(v))) continue;
-          if (!cfg.argMatchPatterns.every((p) => unwrapped.args.some((a) => p.test(a)))) {
+          if (
+            !cfg.argMatchPatterns.every((p) =>
+              unwrapped.args.some((a) => typeof a === "string" && p.test(a)),
+            )
+          ) {
             continue;
           }
 
