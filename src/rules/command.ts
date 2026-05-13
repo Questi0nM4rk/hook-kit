@@ -2,14 +2,14 @@
 // See docs/SPEC.md § Rule Builders for semantics
 
 import type { CallExprNode } from "@questi0nm4rk/shell-ast";
-import { findCalls, wordToLit } from "@questi0nm4rk/shell-ast";
+import { findCalls, isResolved, unwrapCall, wordToLit } from "@questi0nm4rk/shell-ast";
 import {
   context as contextDecision,
   deny as denyDecision,
   escalate as escalateDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
-import { expandFlags, hasFlag, resolveUnwrappedOrFallback } from "../engine/helpers.js";
+import { expandFlags, hasFlag } from "../engine/helpers.js";
 
 export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
   return new CommandRuleBuilder(command, sub);
@@ -82,14 +82,23 @@ class CommandRuleBuilder {
         if (ast === null) return null;
 
         for (const call of findCalls(ast)) {
-          const unwrapped = resolveUnwrappedOrFallback(call);
-          if (unwrapped === null) continue;
-          if (unwrapped.cmd !== cfg.command) continue;
+          const u = unwrapCall(call);
+          if (u === null) continue;
+
+          // Dispatch on the union — different shapes resolve to different
+          // "what name does this call represent" answers. Sudo-aware
+          // semantics (cmd("rm") fires on `sudo rm /`) live in the
+          // "wrapped" branch via u.cmd. Shell-runners (`bash -c '…'`) and
+          // opaque wrappers (`sudo $X`) report the wrapper, so a rule like
+          // cmd("bash") fires on `bash -c '…'` directly and the engine's
+          // inline-shell recursion handles the inner script separately.
+          const name = u.kind === "plain" || u.kind === "wrapped" ? u.cmd : u.wrapper;
+          if (name !== cfg.command) continue;
 
           // Match subcommands by position
           let subOk = true;
           for (let i = 0; i < cfg.sub.length; i++) {
-            if (unwrapped.args[i] !== cfg.sub[i]) {
+            if (u.args[i] !== cfg.sub[i]) {
               subOk = false;
               break;
             }
@@ -97,17 +106,13 @@ class CommandRuleBuilder {
           if (!subOk) continue;
 
           // Flag predicates (alias-aware)
-          const expanded = expandFlags(unwrapped.flags);
+          const expanded = expandFlags(u.flags);
           if (!cfg.flags.every((f) => hasFlag(expanded, f))) continue;
           if (cfg.noFlags.some((f) => hasFlag(expanded, f))) continue;
 
           // Arg predicates
-          if (!cfg.argIncludeValues.every((v) => unwrapped.args.includes(v))) continue;
-          if (
-            !cfg.argMatchPatterns.every((p) =>
-              unwrapped.args.some((a) => typeof a === "string" && p.test(a)),
-            )
-          ) {
+          if (!cfg.argIncludeValues.every((v) => u.args.includes(v))) continue;
+          if (!cfg.argMatchPatterns.every((p) => u.args.some((a) => isResolved(a) && p.test(a)))) {
             continue;
           }
 
