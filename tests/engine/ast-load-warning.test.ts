@@ -51,7 +51,8 @@ describe("engine — silent path for syntax / valid input (BUG-001)", () => {
   });
 
   test("rules still return null on parse failure (Iron Law 4 preserved)", async () => {
-    const decision = await evaluate(bashEvent("$("), [denyRm]);
-    expect(decision).toBeNull();
+    const outcome = await evaluate(bashEvent("$("), [denyRm]);
+    expect(outcome.terminal).toBeNull();
+    expect(outcome.annotations).toEqual([]);
   });
 });

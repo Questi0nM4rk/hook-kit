@@ -104,10 +104,12 @@ Then<RunPipelineWorld>(
   "the captured decision is a deny with reason {string}",
   (world: RunPipelineWorld, reasonArg: unknown) => {
     const reason = asString(reasonArg);
-    expect(world.state?.decision).toEqual({ kind: "deny", reason });
+    expect(world.state?.outcome.terminal).toEqual({ kind: "deny", reason });
+    expect(world.state?.outcome.annotations).toEqual([]);
   },
 );
 
 Then<RunPipelineWorld>("the captured decision is silent", (world: RunPipelineWorld) => {
-  expect(world.state?.decision).toBeNull();
+  expect(world.state?.outcome.terminal).toBeNull();
+  expect(world.state?.outcome.annotations).toEqual([]);
 });

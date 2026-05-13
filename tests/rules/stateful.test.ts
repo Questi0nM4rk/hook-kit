@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { context } from "../../src/core/decision.js";
-import type { HookEvent, HookModule } from "../../src/core/types.js";
+import { warning } from "../../src/core/decision.js";
+import type { Annotation, HookEvent, HookModule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
 import { stateful } from "../../src/rules/state.js";
 import { MemoryStore } from "../../src/state/memory-store.js";
@@ -42,7 +42,7 @@ function repetitionModule(threshold: number): HookModule {
         const count = ((state.get(key) as number) ?? 0) + 1;
         state.set(key, count);
         if (count > threshold) {
-          return context(`repeated ${count} times — break the loop`);
+          return warning(`repeated ${count} times — break the loop`);
         }
         return null;
       }),
@@ -50,22 +50,28 @@ function repetitionModule(threshold: number): HookModule {
   };
 }
 
+function annotationMessages(anns: readonly Annotation[]): string[] {
+  return anns.map((a) => a.message);
+}
+
 describe("stateful() — cross-invocation persistence with TmpdirStore", () => {
   test("count increments across separate evaluate() calls", async () => {
     const sessionId = "session-rep";
     const namespace = "test";
 
-    // First two invocations: silent.
+    // First two invocations: silent (no annotations).
     for (let i = 0; i < 3; i++) {
       const store = new TmpdirStore({ namespace, sessionId, root: workDir });
-      const d = await evaluate(bashEvent("ls -la"), [repetitionModule(2)], { state: store });
-      if (i < 2) expect(d).toBeNull();
+      const out = await evaluate(bashEvent("ls -la"), [repetitionModule(2)], { state: store });
+      if (i < 2) expect(out.annotations).toEqual([]);
     }
 
     // Fourth invocation: should fire because count = 4 > threshold 2.
     const store = new TmpdirStore({ namespace, sessionId, root: workDir });
-    const d = await evaluate(bashEvent("ls -la"), [repetitionModule(2)], { state: store });
-    expect(d).toEqual({ kind: "context", message: "repeated 4 times — break the loop" });
+    const out = await evaluate(bashEvent("ls -la"), [repetitionModule(2)], { state: store });
+    expect(out.annotations).toEqual([
+      { kind: "warning", message: "repeated 4 times — break the loop" },
+    ]);
   });
 
   test("sessions are isolated by sessionId", async () => {
@@ -77,8 +83,8 @@ describe("stateful() — cross-invocation persistence with TmpdirStore", () => {
     }
     // Session B: first call should still be silent.
     const storeB = new TmpdirStore({ namespace, sessionId: "b", root: workDir });
-    const d = await evaluate(bashEvent("ls"), [repetitionModule(1)], { state: storeB });
-    expect(d).toBeNull();
+    const out = await evaluate(bashEvent("ls"), [repetitionModule(1)], { state: storeB });
+    expect(out.annotations).toEqual([]);
   });
 });
 
@@ -88,21 +94,21 @@ describe("stateful() — MemoryStore fallback", () => {
     for (let i = 0; i < 3; i++) {
       await evaluate(bashEvent("rm foo"), [repetitionModule(1)], { state: store });
     }
-    const d = await evaluate(bashEvent("rm foo"), [repetitionModule(1)], { state: store });
-    expect(d).not.toBeNull();
-    expect((d as { message: string }).message).toContain("repeated 4 times");
+    const out = await evaluate(bashEvent("rm foo"), [repetitionModule(1)], { state: store });
+    expect(out.annotations.length).toBeGreaterThan(0);
+    expect(annotationMessages(out.annotations).join(" ")).toContain("repeated 4 times");
   });
 
   test("default (no state passed) is a noop — counts never persist", async () => {
-    const d1 = await evaluate(bashEvent("rm foo"), [repetitionModule(0)]);
-    const d2 = await evaluate(bashEvent("rm foo"), [repetitionModule(0)]);
+    const out1 = await evaluate(bashEvent("rm foo"), [repetitionModule(0)]);
+    const out2 = await evaluate(bashEvent("rm foo"), [repetitionModule(0)]);
     // threshold is 0 → count > 0 fires immediately on each call.
-    expect(d1).not.toBeNull();
-    expect(d2).not.toBeNull();
+    expect(out1.annotations.length).toBeGreaterThan(0);
+    expect(out2.annotations.length).toBeGreaterThan(0);
     // But the message says "repeated 1 times" both times, since state did
     // not persist.
-    expect((d1 as { message: string }).message).toContain("repeated 1 times");
-    expect((d2 as { message: string }).message).toContain("repeated 1 times");
+    expect(annotationMessages(out1.annotations).join(" ")).toContain("repeated 1 times");
+    expect(annotationMessages(out2.annotations).join(" ")).toContain("repeated 1 times");
   });
 });
 
