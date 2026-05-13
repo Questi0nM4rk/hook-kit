@@ -11,6 +11,7 @@ import {
   warning as warningDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
+import { unwrappedName } from "../engine/helpers.js";
 
 export function pipe(from: readonly string[], into: readonly string[]): PipeRuleBuilder {
   return new PipeRuleBuilder(from, into);
@@ -65,9 +66,9 @@ function stmtToCmdName(stmt: Stmt): string | null {
   if (cmd === null || cmd.type !== "CallExpr") return null;
   const u = unwrapCall(cmd);
   if (u === null) return null;
-  // Same dispatch policy as command.ts — `plain`/`wrapped` report the inner
-  // command name (so `curl … | sudo bash` matches on the "bash" side via
-  // u.cmd), `wrapped-script`/`wrapped-opaque` report the wrapper (so
-  // `curl … | bash -c '…'` matches on "bash" via u.wrapper).
-  return u.kind === "plain" || u.kind === "wrapped" ? u.cmd : u.wrapper;
+  // Shares the policy in `unwrappedName` (engine/helpers.ts) — same dispatch
+  // as command.ts so a sudo-wrapped pipe target matches on u.cmd ("bash" in
+  // `curl | sudo bash`) and a wrapped-script target matches on u.wrapper
+  // ("bash" in `curl | bash -c '…'`).
+  return unwrappedName(u);
 }

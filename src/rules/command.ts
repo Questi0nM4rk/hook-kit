@@ -10,7 +10,7 @@ import {
   warning as warningDecision,
 } from "../core/decision.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
-import { expandFlags, hasFlag } from "../engine/helpers.js";
+import { expandFlags, hasFlag, unwrappedName } from "../engine/helpers.js";
 
 export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
   return new CommandRuleBuilder(command, sub);
@@ -94,16 +94,8 @@ class CommandRuleBuilder {
         for (const call of findCalls(ast)) {
           const u = unwrapCall(call);
           if (u === null) continue;
-
-          // Dispatch on the union — different shapes resolve to different
-          // "what name does this call represent" answers. Sudo-aware
-          // semantics (cmd("rm") fires on `sudo rm /`) live in the
-          // "wrapped" branch via u.cmd. Shell-runners (`bash -c '…'`) and
-          // opaque wrappers (`sudo $X`) report the wrapper, so a rule like
-          // cmd("bash") fires on `bash -c '…'` directly and the engine's
-          // inline-shell recursion handles the inner script separately.
-          const name = u.kind === "plain" || u.kind === "wrapped" ? u.cmd : u.wrapper;
-          if (name !== cfg.command) continue;
+          // See `unwrappedName` in engine/helpers.ts for the dispatch policy.
+          if (unwrappedName(u) !== cfg.command) continue;
 
           // Match subcommands by position
           let subOk = true;

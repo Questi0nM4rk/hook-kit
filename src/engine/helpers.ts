@@ -79,3 +79,25 @@ export function expandFlags(flags: readonly string[]): string[] {
 export function hasFlag(expanded: readonly string[], wanted: string): boolean {
   return expanded.some((f) => f === wanted || f.startsWith(`${wanted}=`));
 }
+
+// ─── UnwrappedCall name dispatch (shared by command.ts + pipe.ts) ───────────
+
+import type { UnwrappedCall } from "@questi0nm4rk/shell-ast";
+
+/**
+ * Project an `UnwrappedCall` onto the single "name that matters" for rule
+ * matching. The policy is intentional and shared between `cmd()` and `pipe()`:
+ *
+ * - `plain`          → `u.cmd`     (no wrapper, just a command name)
+ * - `wrapped`        → `u.cmd`     (sudo-aware: cmd("rm") fires on `sudo rm /`)
+ * - `wrapped-script` → `u.wrapper` (cmd("bash") fires on `bash -c '…'`; the
+ *                                   inner script is handled by engine recursion)
+ * - `wrapped-opaque` → `u.wrapper` (escalator catch: cmd("sudo") fires on
+ *                                   `sudo $X` where the inner is dynamic)
+ *
+ * Both call sites used to inline this ternary; extracting it makes the
+ * policy editable in ONE place if shell-ast adds a new `kind`.
+ */
+export function unwrappedName(u: UnwrappedCall): string {
+  return u.kind === "plain" || u.kind === "wrapped" ? u.cmd : u.wrapper;
+}
