@@ -97,22 +97,26 @@ describe("callAskpass — infrastructure failures map to deny", () => {
 
 /** Tiny portable askpass: reads the envelope from stdin, extracts the id with
  *  a single grep+sed, and emits a response with the supplied decision +
- *  optional reason. Pure POSIX sh — no Bun/Node dependency at runtime. */
+ *  optional reason. Uses an unquoted heredoc so $ID expands but the response
+ *  body is otherwise literal — avoids POSIX printf's implementation-defined
+ *  handling of \" in single-quoted format strings (dash vs bash diverge).
+ *  Pure POSIX sh — no Bun/Node dependency at runtime. */
 function stageDecisionScript(
   workDir: string,
   name: string,
   decision: "allow" | "deny" | "harness-ask",
   reason?: string,
 ): string {
-  const reasonField = reason !== undefined ? `,\\"reason\\":\\"${reason}\\"` : "";
-  const body = [
-    "#!/bin/sh",
-    "REQ=$(cat)",
-    'ID=$(printf %s "$REQ" | grep -oE \'"id":"[^"]*"\' | head -1 | sed \'s/"id":"//; s/"$//\')',
-    `printf '{"id":"%s","decision":"${decision}"${reasonField},"decidedAt":"2026-01-01T00:00:00Z"}\\n' "$ID"`,
-  ].join("\n");
+  const reasonField = reason !== undefined ? `,"reason":"${reason}"` : "";
+  const body = `#!/bin/sh
+REQ=$(cat)
+ID=$(printf %s "$REQ" | grep -oE '"id":"[^"]*"' | head -1 | sed 's/"id":"//; s/"$//')
+cat <<EOF
+{"id":"$ID","decision":"${decision}"${reasonField},"decidedAt":"2026-01-01T00:00:00Z"}
+EOF
+`;
   const path = join(workDir, name);
-  writeFileSync(path, `${body}\n`, "utf8");
+  writeFileSync(path, body, "utf8");
   chmodSync(path, 0o755);
   return path;
 }

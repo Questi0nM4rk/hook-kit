@@ -46,15 +46,18 @@ function stageAskpass(
   decision: "allow" | "deny" | "harness-ask",
   reason?: string,
 ): string {
-  const reasonField = reason !== undefined ? `,\\"reason\\":\\"${reason}\\"` : "";
-  const body = [
-    "#!/bin/sh",
-    "REQ=$(cat)",
-    'ID=$(printf %s "$REQ" | grep -oE \'"id":"[^"]*"\' | head -1 | sed \'s/"id":"//; s/"$//\')',
-    `printf '{"id":"%s","decision":"${decision}"${reasonField},"decidedAt":"2026-01-01T00:00:00Z"}\\n' "$ID"`,
-  ].join("\n");
+  // Heredoc avoids POSIX printf's implementation-defined `\"` handling
+  // (dash on Ubuntu CI rejects what bash on developer laptops accepts).
+  const reasonField = reason !== undefined ? `,"reason":"${reason}"` : "";
+  const body = `#!/bin/sh
+REQ=$(cat)
+ID=$(printf %s "$REQ" | grep -oE '"id":"[^"]*"' | head -1 | sed 's/"id":"//; s/"$//')
+cat <<EOF
+{"id":"$ID","decision":"${decision}"${reasonField},"decidedAt":"2026-01-01T00:00:00Z"}
+EOF
+`;
   const path = join(workDir, "askpass.sh");
-  writeFileSync(path, `${body}\n`, "utf8");
+  writeFileSync(path, body, "utf8");
   chmodSync(path, 0o755);
   return path;
 }
