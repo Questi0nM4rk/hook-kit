@@ -3,7 +3,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emitErrorLine, JsonParseError } from "../core/errors.js";
+import { emitErrorLine, FileWriteError, JsonParseError } from "../core/errors.js";
 import { brokerPaths, ensureSession, type SessionMeta } from "./broker.js";
 import {
   type AskResponse,
@@ -113,14 +113,17 @@ function writeIfAbsent(path: string, data: string): void {
   try {
     writeFileSync(path, data, { flag: "wx", mode: 0o600 });
   } catch (err) {
-    if (
-      err === null ||
-      typeof err !== "object" ||
-      !("code" in err) ||
-      (err as { code?: unknown }).code !== "EEXIST"
-    ) {
-      throw err;
-    }
-    // Already exists — fine.
+    const code =
+      err !== null && typeof err === "object" && "code" in err
+        ? (err as { code?: unknown }).code
+        : undefined;
+    if (code === "EEXIST") return; // Already exists — first-writer-wins.
+    // Real I/O failure — forwarder cannot complete without this write. Emit
+    // a typed error for operator visibility (0-silent-fails) and re-throw
+    // wrapped so the top-level catch sees the class name, not a generic
+    // SystemError.
+    const wrapped = new FileWriteError(path, err);
+    emitErrorLine(wrapped);
+    throw wrapped;
   }
 }

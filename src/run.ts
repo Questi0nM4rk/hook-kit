@@ -14,7 +14,7 @@ export type RunOptions = EvaluateOptions;
  * The compiled-binary entry point. Reads input via the adapter, runs the
  * engine against the supplied modules, and hands the EvaluationOutcome to
  * the adapter. Any error in either step routes to `adapter.handleError`
- * (Iron Law 3 fail-open).
+ * (Iron Law 4 fail-open).
  *
  * When `HOOK_KIT_VERBOSE=1` is set, a single trace line is emitted to stderr
  * after evaluation: event, tool, session, module count, final outcome, time.

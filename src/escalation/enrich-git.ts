@@ -1,7 +1,7 @@
 // Git enrichment for ask envelopes — opt-in via HOOK_KIT_ENRICH_GIT=1 or
 // explicit invocation. Cheap shell-outs against `git -C <cwd>`. Failures
 // degrade per-field to undefined but always emit a typed error line to
-// stderr so the loss is visible (Iron Law 3: never break the hook over
+// stderr so the loss is visible (Iron Law 4: never break the hook over
 // enrichment, but never silent either).
 
 import { emitErrorLine, ProcessSpawnError } from "../core/errors.js";

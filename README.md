@@ -524,7 +524,7 @@ The engine is intentionally minimal — its only job is to map `(event, modules)
 
 ## Quality bar
 
-- **389 tests across 32 files** covering rule builders (incl. `pipe` / `redirect` / `withDdash`), the engine (incl. inline-shell recursion + depth limit), the shell wrapper output convention, the cc-tools adapter, both state stores, the entire escalation system (envelope schemas, askpass child-process invocation, broker spool atomicity, listener marker liveness, `NO PARENT ATTACHED` validator, escalate-up forwarding, the TUI render function), git enrichment, and real compile + execute end-to-end smokes for both binary modes.
+- **418 tests across 37 files** covering rule builders (incl. `pipe` / `redirect` / `withDdash`), the engine (incl. inline-shell recursion + depth limit), the shell wrapper output convention, the cc-tools adapter, both state stores, the entire escalation system (envelope schemas, askpass child-process invocation, broker spool atomicity, listener marker liveness, `NO PARENT ATTACHED` validator, escalate-up forwarding, the TUI render function), git enrichment, and real compile + execute end-to-end smokes for both binary modes.
 - **CI gate** (`.github/workflows/test.yml`) — `bun install --frozen-lockfile` + `biome check` + `bun test` on push to main and every PR. Red CI = no merge.
 - **`mock.module()` isolation** — Bun's process-sticky module mocks ([oven-sh/bun#14516](https://github.com/oven-sh/bun/issues/14516)) would poison sibling tests in the regular suite. The `tests-isolated/` directory runs as its own `bun test` process so each isolated test file is its own context.
 - **Compiled-binary smoke tests** baked in — `tests/build/example-ai-guardrails.test.ts` and `tests/build/adversarial.test.ts` build a real `dist/hk` and run 50+ adversarial inputs (alias expansion, sudo unwrap, inline-shell recursion, redirects, edge cases). A regression in the bundler or shell-ast WASM loading fails the build, not silently fails at user-deploy.
@@ -673,7 +673,7 @@ Prerequisites: Bun ≥ 1.2 (used as runtime, test runner, and binary compiler), 
 git clone https://github.com/Questi0nM4rk/hook-kit
 cd hook-kit
 bun install
-bun test                # 389 tests across 32 files
+bun test                # 418 tests across 37 files
 bun run typecheck       # tsc --noEmit
 bun run lint            # biome check
 bun run build           # emit dist/types
@@ -704,7 +704,7 @@ git push --follow-tags
 
 ## Status
 
-Pre-release (`0.x`). Current: **`0.4.0`**. The shell-wrapper API + output convention is intended to stabilize toward `1.0`. Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
+Pre-release (`0.x`). Current: **`0.5.0`**. The shell-wrapper API + output convention is intended to stabilize toward `1.0`. Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
 
 Published to npm as [`@questi0nm4rk/hook-kit`](https://www.npmjs.com/package/@questi0nm4rk/hook-kit).
 

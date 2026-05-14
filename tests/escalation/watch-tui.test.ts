@@ -57,6 +57,7 @@ describe("renderTui — list mode", () => {
     expect(sel).toContain("rm -rf");
     const firstLine = lines.find((l) => l.startsWith("  ") && l.includes("ls -la"));
     expect(firstLine).toBeDefined();
+    expect(firstLine).toContain("ls -la");
   });
 
   test("truncates long commands to fit terminal width", () => {

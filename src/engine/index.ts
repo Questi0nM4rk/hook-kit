@@ -221,7 +221,7 @@ async function evaluateInternal(
         // HookKitError thrown from a rule (e.g., FileReadError from content())
         // is surfaced as that specific class. Anything else means the rule
         // itself has a bug — wrap as RuleEvaluationError so the failure is
-        // attributed to the rule, not silently swallowed (Iron Law 3 stays:
+        // attributed to the rule, not silently swallowed (Iron Law 4 stays:
         // we don't block the user, but the error is visible).
         const err =
           cause instanceof HookKitError ? cause : new RuleEvaluationError(rule.kind, cause);
