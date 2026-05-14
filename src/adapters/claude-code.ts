@@ -284,7 +284,7 @@ export const claudeCodeAdapter: ProtocolAdapter = {
     process.exit(out.exitCode);
   },
   handleError(_error: unknown): void {
-    // Iron Law 3: never crash, never block.
+    // Iron Law 4: never crash, never block.
     process.exit(0);
   },
 };

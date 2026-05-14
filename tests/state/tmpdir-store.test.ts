@@ -103,7 +103,7 @@ describe("TmpdirStore — error surfacing (0.5 contract)", () => {
     // 0.5 contract: flush throws a typed FileWriteError. The engine catches it
     // and surfaces it as an `error` annotation in the EvaluationOutcome — the
     // hook never blocks the user, but the failure is visible. (Old 0.4
-    // behavior was silent-swallow per Iron Law 3; new behavior is typed-throw.)
+    // behavior was silent-swallow per Iron Law 4; new behavior is typed-throw.)
     const s = new TmpdirStore({
       namespace: "ns",
       sessionId: "unwritable",

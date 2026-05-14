@@ -260,7 +260,7 @@ Every internal failure path constructs a typed `HookKitError` subclass. The poli
 
 | Site class | Examples | Policy |
 |---|---|---|
-| Engine boundary | `rule.evaluate()` throws, `getBashAst()` parse failure, `state.flush()` failure | Fail-OPEN: append `error` annotation, preserve prior decision state. Iron Law 3 — never break the user's tool over a hook-infra glitch. |
+| Engine boundary | `rule.evaluate()` throws, `getBashAst()` parse failure, `state.flush()` failure | Fail-OPEN: append `error` annotation, preserve prior decision state. Iron Law 4 — never break the user's tool over a hook-infra glitch. |
 | Security boundary | Broker envelope (`parseAskRequest`), askpass response (`parseAskResponse`), askpass spawn | Fail-CLOSED: emit typed error to stderr **and** synthesize a `deny`. A malformed envelope from a trusted IPC channel is itself a security signal. |
 | Best-effort I/O | Audit log append, listener marker cleanup, git enrichment | Emit typed error to stderr, continue. The operation isn't load-bearing; visibility is the requirement. |
 

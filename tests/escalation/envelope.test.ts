@@ -19,7 +19,7 @@ describe("createAskRequest", () => {
     expect(req.toolInput).toEqual({ command: "rm -rf /tmp" });
     expect(req.reason).toBe("looks dangerous");
     expect(req.version).toBe(2);
-    expect(req.id.length).toBeGreaterThan(10);
+    expect(req.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     expect(typeof req.createdAt).toBe("string");
     expect(typeof req.expiresAt).toBe("string");
   });

@@ -27,7 +27,7 @@ export interface CallAskpassOptions {
  * this as `permissionDecision: "ask"`. This is not silent-allow — the harness
  * UI is itself a responder.
  *
- * Failure modes (these map to deny — Iron Law 3 exception, never silent-allow
+ * Failure modes (these map to deny — Iron Law 4 exception, never silent-allow
  * when infra was *expected* but broken):
  *   - askpass binary not executable / not found
  *   - askpass exits non-zero

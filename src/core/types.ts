@@ -98,7 +98,7 @@ export interface EvalContext {
    * Lazily parses the Bash command for the current event and caches it across
    * all rules within a single `evaluate()` invocation. Returns `null` for
    * non-Bash events, an empty/missing command, or an unparseable command
-   * (Iron Law 3: fail open on infra errors).
+   * (Iron Law 4: fail open on infra errors).
    */
   getBashAst(): Promise<ShellFile | null>;
 }
