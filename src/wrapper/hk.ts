@@ -7,22 +7,29 @@
 //   warning / note only    → emit each annotation + `---` separator + exec
 //                            (annotations go to stdout, then the command's
 //                             own stdout follows below the separator)
-//   escalate (any kind)    → stdout `<prefix> needs review: <reason>`, plus
-//                            any accumulated annotations, exit 1, NO exec
-//                            (harness re-runs on user approval, or the
-//                             askpass broker handled it before reaching us)
+//   ask                    → stdout `<prefix> needs review: <reason>`, plus
+//                            any accumulated warning/note annotations, exit 1,
+//                            NO exec (harness re-runs on user approval, or the
+//                            askpass broker handled it before reaching us)
 //   deny                   → stderr `<prefix> denied: <reason>`, exit 2,
-//                            NO exec, annotations DROPPED (deny is final)
+//                            NO exec, warning/note annotations DROPPED
+//
+// `error` annotations (engine-emitted on infra failures) ALWAYS go to stderr
+// regardless of terminal decision — they're hook-health output, never rule
+// output. They survive deny so a crashed rule alongside a deny still surfaces.
 //
 // `<prefix>` is the user-supplied decision label when present (e.g.
 // `[my-plugin]`), or `[hook-kit]` when no label is set.
-//
-// Output convention is harness-agnostic: any caller (agent, human, CI) reads
-// the decision through normal shell I/O. No JSON, no harness wiring.
 
 import { preloadWasm, WasmLoadError, WasmRuntimeError } from "@questi0nm4rk/shell-ast";
-import type { Annotation, HookEvent, HookModule, Terminal } from "../core/types.js";
-import { type EvaluateOptions, evaluate, warnAstUnavailable } from "../engine/index.js";
+import {
+  formatErrorAnnotation,
+  formatNonErrorAnnotation,
+  partitionAnnotations,
+} from "../core/annotations.js";
+import { formatErrorLine, ShellAstParseError } from "../core/errors.js";
+import type { HookEvent, HookModule, Terminal } from "../core/types.js";
+import { type EvaluateOptions, evaluate } from "../engine/index.js";
 import { emitVerbose, isVerbose } from "../engine/trace.js";
 import { VERSION } from "../version.js";
 
@@ -39,8 +46,10 @@ Output convention:
   silent + exit 0          → command was approved (executed transparently)
   <annotations> + --- +    → warning/note(s) emitted, then command exec'd
     command output            (the AI sees the labels above the separator)
-  stdout + exit 1          → needs review (escalate)
+  stdout + exit 1          → needs review (ask)
   stderr + exit 2          → denied
+  stderr 'error:' line     → hook-infra failure (always visible, never blocks
+                              an otherwise-allowed command)
 `;
 
 export interface RunShellOptions extends EvaluateOptions {
@@ -78,17 +87,10 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   };
 }
 
-/** Render a terminal decision to its `<prefix> kind: <reason>` line. */
 function formatTerminal(t: Terminal): string {
   const prefix = t.label ?? "[hook-kit]";
   const verb = t.kind === "deny" ? "denied" : "needs review";
   return `${prefix} ${verb}: ${t.reason}\n`;
-}
-
-/** Render an annotation to its `<prefix> warning|note: <message>` line. */
-function formatAnnotation(a: Annotation): string {
-  const prefix = a.label ?? "[hook-kit]";
-  return `${prefix} ${a.kind}: ${a.message}\n`;
 }
 
 async function execCommand(
@@ -115,12 +117,13 @@ export async function runShell(
   opts: RunShellOptions = {},
 ): Promise<never> {
   // Warm shell-ast's WASM during startup so the first cmd/pipe/redirect rule
-  // doesn't pay cold-init in its hot path. On infra failure, route through
-  // the same one-shot warning as the engine's parse() catch site so non-Bash
-  // sessions (no eventual parse() call) still see the signal.
+  // doesn't pay cold-init in its hot path. On infra failure, write a typed
+  // error line directly to stderr — there's no EvaluationOutcome to attach
+  // an annotation to yet, but the failure must remain visible.
   await preloadWasm().catch((err: unknown) => {
     if (err instanceof WasmLoadError || err instanceof WasmRuntimeError) {
-      warnAstUnavailable(err);
+      const wrapped = new ShellAstParseError("(preload)", err);
+      process.stderr.write(formatErrorLine(wrapped));
     }
   });
 
@@ -165,29 +168,38 @@ export async function runShell(
     emitVerbose(event, outcome, modules.length, durationMs);
   }
 
-  // deny — hard stop. Annotations dropped (per merge policy).
+  const { others, errors } = partitionAnnotations(outcome.annotations);
+
+  // Emit error annotations to stderr immediately — they accompany every
+  // outcome, regardless of terminal.
+  for (const err of errors) {
+    process.stderr.write(`${formatErrorAnnotation(err)}\n`);
+  }
+
+  // deny — hard stop. warning/note annotations are dropped (per merge policy);
+  // error annotations have already been written above.
   if (outcome.terminal?.kind === "deny") {
     process.stderr.write(formatTerminal(outcome.terminal));
     process.exit(2);
   }
 
-  // escalate — emit reason + any annotations, exit 1, no exec. The harness
-  // (or askpass broker, if it already handled approval upstream) is responsible
-  // for re-running the command after approval.
-  if (outcome.terminal?.kind === "escalate") {
+  // ask — emit reason + any warning/note annotations to stdout, exit 1,
+  // no exec. The harness (or askpass broker, if it already handled approval
+  // upstream) is responsible for re-running the command after approval.
+  if (outcome.terminal?.kind === "ask") {
     process.stdout.write(formatTerminal(outcome.terminal));
-    for (const ann of outcome.annotations) {
-      process.stdout.write(formatAnnotation(ann));
+    for (const ann of others) {
+      process.stdout.write(`${formatNonErrorAnnotation(ann)}\n`);
     }
     process.exit(1);
   }
 
-  // No terminal. If any annotations fired, emit them above a `---` separator
-  // so the AI can distinguish the framework's annotation lines from the
-  // command's own output below. Then exec verbatim.
-  if (outcome.annotations.length > 0) {
-    for (const ann of outcome.annotations) {
-      process.stdout.write(formatAnnotation(ann));
+  // No terminal. If any warning/note annotations fired, emit them above a
+  // `---` separator so the AI can distinguish the framework's annotation
+  // lines from the command's own output below. Then exec verbatim.
+  if (others.length > 0) {
+    for (const ann of others) {
+      process.stdout.write(`${formatNonErrorAnnotation(ann)}\n`);
     }
     process.stdout.write("---\n");
   }

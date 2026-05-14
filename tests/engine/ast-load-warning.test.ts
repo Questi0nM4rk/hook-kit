@@ -1,56 +1,54 @@
-// Tests for the non-mocked side of the warning contract: real parse() at
-// work, no module mocks. Mocked WasmLoadError path lives in
-// `ast-wasm-load-failure.test.ts` — split because Bun's mock.module() is
-// process-sticky and would pollute these expectations.
+// Tests for the non-mocked side of the AST-parse-error contract: real
+// parse() at work, no module mocks. Mocked WasmLoadError path lives in
+// `tests-isolated/engine/ast-wasm-load-failure.test.ts` — split because
+// Bun's mock.module() is process-sticky and would pollute these assertions.
 //
-// Contract since shell-ast 0.3 (BUG-001 in docs/BUGS.md):
-//   ParseSyntaxError → silent (per-input user typo; doesn't disable rules)
-//   Iron Law 4       → rules return null on any parse failure regardless
+// Contract since 0.5 (0-silent-fails):
+//   ParseSyntaxError       → silent (per-input user typo; bash will reject
+//                            it too, no need to emit an error annotation).
+//   WasmLoadError /        → ShellAstParseError annotation (per invocation,
+//   WasmRuntimeError         not once-per-process). See the isolated file.
 //
-// See `ast-wasm-load-failure.test.ts` for the WasmLoadError-emits-warning
-// half of the contract.
+// Iron Law 4 (rules contribute null on parse failure) still holds for both
+// classes — when AST is unavailable, AST-aware rules can't decide, but the
+// hook never blocks the user's tool.
+//
+// What used to live here was a once-per-process stderr-warning latch
+// (`__resetAstErrorLoggedForTests` / `warnAstUnavailable`). The 0.5 design
+// surfaces every failure through the EvaluationOutcome.annotations channel
+// instead, so the latch is gone and these tests assert on annotations.
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { createModule } from "../../src/core/module.js";
-import { __resetAstErrorLoggedForTests, evaluate } from "../../src/engine/index.js";
+import { evaluate } from "../../src/engine/index.js";
 import { cmd } from "../../src/rules/command.js";
-import { bashEvent, captureStderr } from "../_helpers.js";
+import { bashEvent } from "../_helpers.js";
 
 const denyRm = createModule({ id: "x", name: "test", events: ["PreToolUse"], matchers: ["Bash"] }, [
   cmd("rm").deny("blocked"),
 ]);
 
-describe("engine — silent path for syntax / valid input (BUG-001)", () => {
-  let captured: { restore: () => void; output: () => string };
-
-  beforeEach(() => {
-    __resetAstErrorLoggedForTests();
-    captured = captureStderr();
+describe("engine — ParseSyntaxError stays silent on real malformed input", () => {
+  test("syntax errors emit no annotations (per-input failure, not infra)", async () => {
+    // Real-world unparseable inputs — ParseSyntaxError is normal malformed
+    // user input. Bash will reject it too; we don't want to emit an error
+    // annotation for every typo. Only infrastructure-level failures (WASM
+    // load / runtime) get an annotation. See the isolated file for that.
+    for (const input of ["$(", "((((", "case x in"]) {
+      const outcome = await evaluate(bashEvent(input), [denyRm]);
+      expect(outcome.terminal).toBeNull();
+      expect(outcome.annotations).toEqual([]);
+    }
   });
 
-  afterEach(() => {
-    captured.restore();
+  test("valid input produces no error annotations", async () => {
+    for (const input of ["echo hello", "git status"]) {
+      const outcome = await evaluate(bashEvent(input), [denyRm]);
+      expect(outcome.annotations.filter((a) => a.kind === "error")).toEqual([]);
+    }
   });
 
-  test("syntax errors stay silent (per-input failure, not infra)", async () => {
-    // Real-world unparseable inputs — old hook-kit warned on these, the
-    // typed-error contract keeps them quiet so a single user typo doesn't
-    // masquerade as infra failure.
-    await evaluate(bashEvent("$("), [denyRm]);
-    await evaluate(bashEvent("(((("), [denyRm]);
-    await evaluate(bashEvent("case x in"), [denyRm]);
-
-    expect(captured.output()).toBe("");
-  });
-
-  test("warning does not fire on valid input", async () => {
-    await evaluate(bashEvent("echo hello"), [denyRm]);
-    await evaluate(bashEvent("git status"), [denyRm]);
-
-    expect(captured.output()).toBe("");
-  });
-
-  test("rules still return null on parse failure (Iron Law 4 preserved)", async () => {
+  test("rules contribute no terminal on parse failure (Iron Law 4 preserved)", async () => {
     const outcome = await evaluate(bashEvent("$("), [denyRm]);
     expect(outcome.terminal).toBeNull();
     expect(outcome.annotations).toEqual([]);

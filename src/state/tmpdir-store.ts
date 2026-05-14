@@ -4,6 +4,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { emitErrorLine, FileReadError, FileWriteError, JsonParseError } from "../core/errors.js";
 import type { StateStore } from "../core/types.js";
 
 export interface TmpdirStoreOptions {
@@ -17,9 +18,16 @@ export interface TmpdirStoreOptions {
 
 /**
  * Persists a JSON object at `<root>/hook-kit-<namespace>-<sessionId>.json`.
+ *
  * Loads eagerly on construction; flushes on demand. No locking — assumes
- * single-agent sequential hook invocations. Disk failures are silent
- * (Iron Law 3): state is lost but the hook never blocks.
+ * single-agent sequential hook invocations.
+ *
+ * Error surfacing (0-silent-fails policy):
+ *   - Constructor load failures emit a typed error line directly to stderr,
+ *     then start with an empty map. (Construction has no EvaluationOutcome
+ *     channel; we surface to stderr so the loss is still visible.)
+ *   - `flush()` throws `FileWriteError` on persistence failure. The engine
+ *     catches and emits an `error` annotation.
  */
 export class TmpdirStore implements StateStore {
   private readonly file: string;
@@ -48,24 +56,32 @@ export class TmpdirStore implements StateStore {
   }
 
   flush(): void {
+    const obj: Record<string, unknown> = {};
+    for (const [k, v] of this.data) obj[k] = v;
     try {
-      const obj: Record<string, unknown> = {};
-      for (const [k, v] of this.data) obj[k] = v;
       writeFileSync(this.file, JSON.stringify(obj), "utf8");
-    } catch {
-      // Iron Law 3: persistence failures are silent.
+    } catch (cause) {
+      throw new FileWriteError(this.file, cause);
     }
   }
 }
 
 function loadOrEmpty(file: string): Map<string, unknown> {
   if (!existsSync(file)) return new Map();
+  let raw: string;
   try {
-    const raw = readFileSync(file, "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
-    return new Map(Object.entries(parsed as Record<string, unknown>));
-  } catch {
+    raw = readFileSync(file, "utf8");
+  } catch (cause) {
+    emitErrorLine(new FileReadError(file, cause));
     return new Map();
   }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    emitErrorLine(new JsonParseError(file, cause));
+    return new Map();
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
+  return new Map(Object.entries(parsed as Record<string, unknown>));
 }

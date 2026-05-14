@@ -200,7 +200,7 @@ describe("decideCcOutput — annotations only (no terminal)", () => {
 describe("decideCcOutput — escalate sync path (use resolveCcOutput in production)", () => {
   test("escalate on the sync path denies with a 'use resolveCcOutput' hint", () => {
     const out = decideCcOutput(
-      outcome({ kind: "escalate", reason: "needs human" }),
+      outcome({ kind: "ask", reason: "needs human" }),
       event("PreToolUse"),
     );
     expect(out.exitCode).toBe(0);
@@ -215,7 +215,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
   test("askpass returns allow → silent (exit 0, no stdout) when no annotations", async () => {
     const askpass = stageAskpass("allow");
     const out = await resolveCcOutput(
-      outcome({ kind: "escalate", reason: "needs human" }),
+      outcome({ kind: "ask", reason: "needs human" }),
       event("PreToolUse"),
       { askpassPath: askpass },
     );
@@ -225,7 +225,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
   test("askpass returns allow → annotations surfaced as additionalContext", async () => {
     const askpass = stageAskpass("allow");
     const out = await resolveCcOutput(
-      outcome({ kind: "escalate", reason: "needs human" }, [
+      outcome({ kind: "ask", reason: "needs human" }, [
         { kind: "warning", message: "after approval", label: "[w]" },
       ]),
       event("PreToolUse"),
@@ -239,7 +239,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
   test("askpass returns deny on PreToolUse → CC block JSON", async () => {
     const askpass = stageAskpass("deny", "policy violation");
     const out = await resolveCcOutput(
-      outcome({ kind: "escalate", reason: "needs human" }),
+      outcome({ kind: "ask", reason: "needs human" }),
       event("PreToolUse"),
       { askpassPath: askpass },
     );
@@ -252,7 +252,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
   test("askpass returns deny on PostToolUse → stderr + exit 2", async () => {
     const askpass = stageAskpass("deny", "policy violation");
     const out = await resolveCcOutput(
-      outcome({ kind: "escalate", reason: "needs human" }),
+      outcome({ kind: "ask", reason: "needs human" }),
       event("PostToolUse"),
       { askpassPath: askpass },
     );
@@ -263,7 +263,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
   test("askpass returns harness-ask on PreToolUse → CC permissionDecision: ask", async () => {
     const askpass = stageAskpass("harness-ask");
     const out = await resolveCcOutput(
-      outcome({ kind: "escalate", reason: "review this" }),
+      outcome({ kind: "ask", reason: "review this" }),
       event("PreToolUse"),
       { askpassPath: askpass },
     );
@@ -276,7 +276,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
   test("harness-ask includes accumulated annotations in the reason text", async () => {
     const askpass = stageAskpass("harness-ask");
     const out = await resolveCcOutput(
-      outcome({ kind: "escalate", reason: "review this" }, [
+      outcome({ kind: "ask", reason: "review this" }, [
         { kind: "warning", message: "also danger", label: "[x]" },
         { kind: "note", message: "context info", label: "[y]" },
       ]),
@@ -294,7 +294,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
   test("askpass returns harness-ask on PostToolUse → degrades to additionalContext", async () => {
     const askpass = stageAskpass("harness-ask");
     const out = await resolveCcOutput(
-      outcome({ kind: "escalate", reason: "review this" }),
+      outcome({ kind: "ask", reason: "review this" }),
       event("PostToolUse"),
       { askpassPath: askpass },
     );
@@ -305,7 +305,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
 
   test("HOOK_KIT_ASKPASS unset → CC ask JSON (delegate to harness UI)", async () => {
     const out = await resolveCcOutput(
-      outcome({ kind: "escalate", reason: "needs human" }),
+      outcome({ kind: "ask", reason: "needs human" }),
       event("PreToolUse"),
       // Pass an empty path explicitly; do not let process.env leak in.
       { askpassPath: "" },

@@ -1,6 +1,7 @@
 // Askpass — spawn $HOOK_KIT_ASKPASS, write envelope to stdin, read decision
 // from stdout. See docs/SPEC.md § Escalation § Askpass Contract.
 
+import { EnvelopeValidationError, emitErrorLine, ProcessSpawnError } from "../core/errors.js";
 import type { AskRequest, AskResponse } from "./envelope.js";
 import { createAskResponse, parseAskResponse } from "./envelope.js";
 
@@ -53,11 +54,14 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
       stdout: "pipe",
       stderr: "pipe",
     });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
+  } catch (cause) {
+    // Fail-CLOSED at security boundary: typed error to stderr (always
+    // visible), deny synthesized so the caller doesn't silent-allow.
+    const wrapped = new ProcessSpawnError(askpass, cause);
+    emitErrorLine(wrapped);
     return denied(
       opts.request.id,
-      `[hook-kit] escalation infrastructure unavailable: cannot spawn askpass: ${msg}`,
+      `[hook-kit] escalation infrastructure unavailable: cannot spawn askpass: ${wrapped.message}`,
     );
   }
 
@@ -88,11 +92,16 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
   if (raceResult.kind === "timeout") {
     try {
       proc.kill("SIGKILL");
-    } catch {
-      // ignore — already dead
+    } catch (cause) {
+      // Process likely already dead — emit typed error for visibility.
+      emitErrorLine(new ProcessSpawnError(`SIGKILL ${askpass}`, cause));
     }
-    void stdoutStream.cancel().catch(() => {});
-    void stderrStream.cancel().catch(() => {});
+    void stdoutStream.cancel().catch((cause: unknown) => {
+      emitErrorLine(new ProcessSpawnError("askpass stdout cancel", cause));
+    });
+    void stderrStream.cancel().catch((cause: unknown) => {
+      emitErrorLine(new ProcessSpawnError("askpass stderr cancel", cause));
+    });
     const seconds = timeoutMs !== undefined ? Math.round(timeoutMs / 1000) : 0;
     return denied(
       opts.request.id,
@@ -121,9 +130,12 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
   let response: AskResponse;
   try {
     response = parseAskResponse(stdoutText.trim());
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return denied(opts.request.id, `[hook-kit] askpass response was malformed: ${msg}`);
+  } catch (cause) {
+    // Fail-CLOSED: malformed response from a security-boundary IPC channel.
+    // Typed error to stderr, deny synthesized.
+    const wrapped = new EnvelopeValidationError("askpass response", cause);
+    emitErrorLine(wrapped);
+    return denied(opts.request.id, `[hook-kit] askpass response was malformed: ${wrapped.message}`);
   }
 
   if (response.id !== opts.request.id) {

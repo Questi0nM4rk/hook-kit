@@ -32,16 +32,16 @@ Build:
                           \`bash -c "<cmd>"\`. Agent-agnostic. Outputs
                           decisions via stdout/stderr/exit-code (silent
                           exec on approved, stderr+exit 2 on deny,
-                          stdout+exit 1 on escalate).
+                          stdout+exit 1 on ask).
     cc-tools            — Claude Code tool-call adapter. Hooks Edit /
                           Write / NotebookEdit / Read events that bypass
                           the shell. Use alongside the shell wrapper.
 
   --hook-timeout is REQUIRED when --hooks-json is set (no default).
-  hook-kit doesn't enforce its own timeout on escalate; this CC-side
+  hook-kit doesn't enforce its own timeout on ask; this CC-side
   timeout is the ceiling. Pick deliberately:
-    short (e.g. 5)    — plugins without escalate rules
-    long (e.g. 3600)  — plugins where escalate may need a human
+    short (e.g. 5)    — plugins without ask rules
+    long (e.g. 3600)  — plugins where ask may need a human
 
 Escalation:
   hook-kit broker --askpass               Read an AskRequest from stdin and
@@ -164,8 +164,8 @@ async function writeHooksJson(
   if (timeoutStr === undefined) {
     writeErr(
       "hook-kit build: --hook-timeout <seconds> is required when --hooks-json is set.\n" +
-        "  Pick deliberately: short (e.g. 5) for hooks without escalate rules; long (e.g. 3600) when escalate may need a human in the loop.\n" +
-        "  hook-kit does not enforce its own timeout on escalate; CC's hook timeout is the only ceiling.\n",
+        "  Pick deliberately: short (e.g. 5) for hooks without ask rules; long (e.g. 3600) when ask may need a human in the loop.\n" +
+        "  hook-kit does not enforce its own timeout on ask; CC's hook timeout is the only ceiling.\n",
     );
     return 1;
   }

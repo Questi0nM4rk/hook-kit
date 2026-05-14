@@ -4,27 +4,47 @@
  */
 
 import type { ShellFile } from "@questi0nm4rk/shell-ast";
+import type { HookKitErrorCode } from "./errors.js";
 
 // === Decisions ===
 //
-// A Rule.evaluate() returns at most ONE Decision: a terminal (deny|escalate),
+// A Rule.evaluate() returns at most ONE Decision: a terminal (deny|ask),
 // an annotation (warning|note), or null (no opinion). The engine merges per-
 // rule decisions into an EvaluationOutcome (terminal + annotations[]) which
 // the wrapper/adapter then renders to the harness convention.
 //
+// `ask` is the rule-level verb for "this needs review before running". The
+// routing mechanism is named "escalation" (see src/escalation/) because that's
+// how an ask travels — up a session/spool tree to a subscriber. The DSL verb
+// and the mechanism name are deliberately separate: rules say `.ask(...)`,
+// infrastructure escalates.
+//
 // Merge policy (see SPEC.md § Engine):
-//   - deny short-circuits: terminate immediately, annotations DROPPED.
-//   - escalate keeps the run going so annotations accumulate; the first
-//     escalate wins terminal, later escalates are dropped.
+//   - deny short-circuits: terminate immediately, warning/note annotations
+//     DROPPED. `error` annotations (engine-emitted, never rule-emitted)
+//     ALWAYS survive — they describe hook-infra failures, not rule output,
+//     and must remain visible regardless of decision.
+//   - ask keeps the run going so annotations accumulate; the FIRST ask wins
+//     terminal, later asks are dropped.
 //   - warning/note always stack; multiple annotations are emitted in order.
+//
+// `error` annotations are produced by the engine ONLY (never returned by a
+// rule's evaluate()). They wrap a typed HookKitError caught at the engine
+// boundary — see src/core/errors.ts. The wrapper renders them to stderr.
 
 export type Annotation =
   | { readonly kind: "warning"; readonly message: string; readonly label?: string }
-  | { readonly kind: "note"; readonly message: string; readonly label?: string };
+  | { readonly kind: "note"; readonly message: string; readonly label?: string }
+  | {
+      readonly kind: "error";
+      readonly message: string;
+      readonly errorCode: HookKitErrorCode;
+      readonly label?: string;
+    };
 
 export type Terminal =
   | { readonly kind: "deny"; readonly reason: string; readonly label?: string }
-  | { readonly kind: "escalate"; readonly reason: string; readonly label?: string };
+  | { readonly kind: "ask"; readonly reason: string; readonly label?: string };
 
 /** What a single rule returns. `null` = no opinion (don't fire). */
 export type Decision = Terminal | Annotation | null;

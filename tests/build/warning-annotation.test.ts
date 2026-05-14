@@ -49,7 +49,7 @@ const lsNote = createModule(
 // We make ls ALSO warn on whoami so both fire in the whoami flow.
 const whoamiEscalate = createModule(
   { id: "whoami-esc", name: "whoami escalate", events: ["PreToolUse"], matchers: ["Bash"] },
-  [cmd("whoami").escalate("identity check", "[whoami-esc]")],
+  [cmd("whoami").ask("identity check", "[whoami-esc]")],
 );
 const whoamiWarning = createModule(
   { id: "whoami-warn", name: "whoami warn", events: ["PreToolUse"], matchers: ["Bash"] },

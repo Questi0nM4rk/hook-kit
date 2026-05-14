@@ -1,7 +1,10 @@
 // Git enrichment for ask envelopes — opt-in via HOOK_KIT_ENRICH_GIT=1 or
-// explicit invocation. Cheap shell-outs against `git -C <cwd>`. All failures
-// swallow to undefined (Iron Law 3: never break the hook over enrichment).
+// explicit invocation. Cheap shell-outs against `git -C <cwd>`. Failures
+// degrade per-field to undefined but always emit a typed error line to
+// stderr so the loss is visible (Iron Law 3: never break the hook over
+// enrichment, but never silent either).
 
+import { emitErrorLine, ProcessSpawnError } from "../core/errors.js";
 import type { GitInfo } from "./envelope.js";
 
 async function runGit(cwd: string, args: readonly string[]): Promise<string | undefined> {
@@ -13,7 +16,8 @@ async function runGit(cwd: string, args: readonly string[]): Promise<string | un
     const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
     if (exitCode !== 0) return undefined;
     return stdout.trim();
-  } catch {
+  } catch (cause) {
+    emitErrorLine(new ProcessSpawnError(`git ${args.join(" ")}`, cause));
     return undefined;
   }
 }

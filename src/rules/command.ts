@@ -4,8 +4,8 @@
 import type { CallExprNode } from "@questi0nm4rk/shell-ast";
 import { findCalls, isResolved, unwrapCall, wordToLit } from "@questi0nm4rk/shell-ast";
 import {
+  ask as askDecision,
   deny as denyDecision,
-  escalate as escalateDecision,
   note as noteDecision,
   warning as warningDecision,
 } from "../core/decision.js";
@@ -17,6 +17,8 @@ export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
 }
 
 class CommandRuleBuilder {
+  private anyOfFlags: string[][] = [];
+
   constructor(
     private readonly command: string,
     private readonly sub: readonly string[],
@@ -34,6 +36,35 @@ class CommandRuleBuilder {
 
   withoutFlag(...flags: string[]): this {
     this.noFlags = [...this.noFlags, ...flags];
+    return this;
+  }
+
+  /**
+   * Sugar over `withFlag` — reads as a requirement. With `value`, matches
+   * the parameterized form (`--method=GET` or `--method GET` once shell-ast
+   * normalizes); without `value`, identical to `withFlag(name)`.
+   *
+   *   cmd("gh", "api").requireFlag("--method", "GET").deny("read-only review API")
+   *   cmd("git").requireFlag("--no-edit").ask("...")
+   *
+   * Mental model: "the rule fires when this flag is present" (with optional
+   * value match). Polarity-matched to `requireOneOf` / `withoutFlag`.
+   */
+  requireFlag(name: string, value?: string): this {
+    const matcher = value === undefined ? name : `${name}=${value}`;
+    this.flags = [...this.flags, matcher];
+    return this;
+  }
+
+  /**
+   * Fire when AT LEAST ONE of the named flags is present (OR semantics).
+   * Complements `withFlag` (AND) and `withoutFlag` (NOT). Use when a single
+   * rule covers a family of equivalent flags, e.g.:
+   *
+   *   cmd("gh").requireOneOf("--repo", "--owner").deny("scoped commands require explicit repo/owner")
+   */
+  requireOneOf(...names: string[]): this {
+    this.anyOfFlags = [...this.anyOfFlags, names];
     return this;
   }
 
@@ -58,8 +89,12 @@ class CommandRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  escalate(reason: string, label?: string): Rule {
-    return this.buildRule(escalateDecision(reason, label));
+  /** Terminal: surface matching calls for review before they run. Asks
+   *  route through the escalation infrastructure (broker → spool tree →
+   *  listener / askpass) — see src/escalation/ for the mechanism. The
+   *  rule-level verb stays `.ask(...)`. */
+  ask(reason: string, label?: string): Rule {
+    return this.buildRule(askDecision(reason, label));
   }
 
   /** Annotate matching invocations with a `[label] warning: <message>` line.
@@ -81,6 +116,7 @@ class CommandRuleBuilder {
       sub: [...this.sub] as readonly string[],
       flags: [...this.flags] as readonly string[],
       noFlags: [...this.noFlags] as readonly string[],
+      anyOfFlags: this.anyOfFlags.map((g) => [...g]) as readonly (readonly string[])[],
       argMatchPatterns: [...this.argMatchPatterns] as readonly RegExp[],
       argIncludeValues: [...this.argIncludeValues] as readonly string[],
       requireDdash: this.requireDdash,
@@ -111,6 +147,7 @@ class CommandRuleBuilder {
           const expanded = expandFlags(u.flags);
           if (!cfg.flags.every((f) => hasFlag(expanded, f))) continue;
           if (cfg.noFlags.some((f) => hasFlag(expanded, f))) continue;
+          if (!cfg.anyOfFlags.every((group) => group.some((f) => hasFlag(expanded, f)))) continue;
 
           // Arg predicates
           if (!cfg.argIncludeValues.every((v) => u.args.includes(v))) continue;

@@ -128,10 +128,10 @@ describe("cmd() — kind=wrapped-opaque (escalator catch)", () => {
     // (`sudo $CMD_VAR`) — the wrapper-name rule still triggers escalation.
     const decision = await evaluateRule(
       bashEvent("sudo $DYNCMD /tmp/x"),
-      cmd("sudo").escalate("wrapped-opaque"),
+      cmd("sudo").ask("wrapped-opaque"),
       { recurseInlineShells: false },
     );
-    expect(decision?.kind === "escalate" && decision.reason).toBe("wrapped-opaque");
+    expect(decision?.kind === "ask" && decision.reason).toBe("wrapped-opaque");
   });
 
   test("cmd(wrapper) fires when bash -c carries a dynamic script", async () => {
@@ -140,10 +140,10 @@ describe("cmd() — kind=wrapped-opaque (escalator catch)", () => {
     // on the wrapper name to catch the dynamic-script escalation.
     const decision = await evaluateRule(
       bashEvent('bash -c "$SCRIPT"'),
-      cmd("bash").escalate("wrapped-opaque-bash"),
+      cmd("bash").ask("wrapped-opaque-bash"),
       { recurseInlineShells: false },
     );
-    expect(decision?.kind === "escalate" && decision.reason).toBe("wrapped-opaque-bash");
+    expect(decision?.kind === "ask" && decision.reason).toBe("wrapped-opaque-bash");
   });
 });
 

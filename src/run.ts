@@ -3,8 +3,9 @@
 
 import { preloadWasm, WasmLoadError, WasmRuntimeError } from "@questi0nm4rk/shell-ast";
 import type { ProtocolAdapter } from "./adapters/types.js";
+import { formatErrorLine, ShellAstParseError } from "./core/errors.js";
 import type { EvaluationOutcome, HookEvent, HookModule } from "./core/types.js";
-import { type EvaluateOptions, evaluate, warnAstUnavailable } from "./engine/index.js";
+import { type EvaluateOptions, evaluate } from "./engine/index.js";
 import { emitVerbose, isVerbose } from "./engine/trace.js";
 
 export type RunOptions = EvaluateOptions;
@@ -24,12 +25,13 @@ export async function run(
   opts: RunOptions = {},
 ): Promise<void> {
   // Warm shell-ast's WASM during startup so the first cmd/pipe/redirect rule
-  // doesn't pay cold-init in its hot path. On infra failure, route through
-  // the engine's one-shot WASM-unavailable warning so adapter sessions that
-  // never touch a Bash event (and thus never call parse()) still see signal.
+  // doesn't pay cold-init in its hot path. On infra failure, write a typed
+  // error line directly to stderr — there's no EvaluationOutcome to attach
+  // an annotation to yet, but the failure must remain visible.
   await preloadWasm().catch((err: unknown) => {
     if (err instanceof WasmLoadError || err instanceof WasmRuntimeError) {
-      warnAstUnavailable(err);
+      const wrapped = new ShellAstParseError("(preload)", err);
+      process.stderr.write(formatErrorLine(wrapped));
     }
   });
 

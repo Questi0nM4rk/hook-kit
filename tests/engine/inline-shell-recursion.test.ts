@@ -84,8 +84,8 @@ describe("inline-shell recursion", () => {
       const outcome = await evaluate(bashEvent("bash -c 'rm -rf /'"), [
         moduleWith(cmd("rm").deny("never matches")),
       ]);
-      expect(outcome.terminal?.kind).toBe("escalate");
-      expect(outcome.terminal?.kind === "escalate" && outcome.terminal.reason).toContain(
+      expect(outcome.terminal?.kind).toBe("ask");
+      expect(outcome.terminal?.kind === "ask" && outcome.terminal.reason).toContain(
         "inspection depth",
       );
     } finally {

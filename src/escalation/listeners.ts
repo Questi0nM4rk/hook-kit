@@ -4,6 +4,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { emitErrorLine, FileWriteError, JsonParseError } from "../core/errors.js";
 import { brokerPaths, type SessionMeta } from "./broker.js";
 
 export type ListenerMode = "subscribe" | "watch";
@@ -43,8 +44,8 @@ export function registerListener(
   return () => {
     try {
       rmSync(path, { force: true });
-    } catch {
-      // ignore — best effort
+    } catch (cause) {
+      emitErrorLine(new FileWriteError(path, cause));
     }
   };
 }
@@ -88,16 +89,18 @@ export function liveListeners(sessionId: string, opts: { root?: string } = {}): 
       } else {
         try {
           rmSync(path, { force: true });
-        } catch {
-          // ignore
+        } catch (cause) {
+          emitErrorLine(new FileWriteError(path, cause));
         }
       }
-    } catch {
-      // unreadable / malformed — try to remove
+    } catch (cause) {
+      // Unreadable / malformed marker — typed error to stderr, then try to
+      // remove the stale file so it doesn't reappear next scan.
+      emitErrorLine(new JsonParseError(path, cause));
       try {
         rmSync(path, { force: true });
-      } catch {
-        // ignore
+      } catch (rmCause) {
+        emitErrorLine(new FileWriteError(path, rmCause));
       }
     }
   }
@@ -126,7 +129,8 @@ function readParentId(sessionId: string, opts: { root?: string } = {}): string |
   try {
     const meta = JSON.parse(readFileSync(metaPath, "utf8")) as SessionMeta;
     return meta.parentSessionId;
-  } catch {
+  } catch (cause) {
+    emitErrorLine(new JsonParseError(metaPath, cause));
     return undefined;
   }
 }

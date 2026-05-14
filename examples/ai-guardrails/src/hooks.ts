@@ -17,7 +17,7 @@ const destructiveRm = createModule(
     cmd("rm")
       .withFlag("--recursive")
       .withFlag("--force")
-      .escalate("rm with --recursive and --force flags", "[destructive-rm]"),
+      .ask("rm with --recursive and --force flags", "[destructive-rm]"),
   ],
 );
 
@@ -27,7 +27,7 @@ const gitForcePush = createModule(
     cmd("git", "push")
       .withFlag("--force")
       .withoutFlag("--force-with-lease")
-      .escalate("git push --force (use --force-with-lease)", "[git-force-push]"),
+      .ask("git push --force (use --force-with-lease)", "[git-force-push]"),
   ],
 );
 
@@ -39,18 +39,18 @@ const gitDestructive = createModule(
     matchers: ["Bash"],
   },
   [
-    cmd("git", "reset").withFlag("--hard").escalate("git reset --hard", "[git-destructive]"),
+    cmd("git", "reset").withFlag("--hard").ask("git reset --hard", "[git-destructive]"),
     cmd("git", "checkout")
       .withDdash()
-      .escalate("git checkout -- (discard working tree)", "[git-destructive]"),
+      .ask("git checkout -- (discard working tree)", "[git-destructive]"),
     cmd("git", "restore")
       .withDdash()
-      .escalate("git restore -- (discard working tree)", "[git-destructive]"),
-    cmd("git", "clean").withFlag("--force").escalate("git clean --force", "[git-destructive]"),
+      .ask("git restore -- (discard working tree)", "[git-destructive]"),
+    cmd("git", "clean").withFlag("--force").ask("git clean --force", "[git-destructive]"),
     cmd("git", "branch")
       .withFlag("--delete")
       .withFlag("--force")
-      .escalate("git branch -D (force delete)", "[git-destructive]"),
+      .ask("git branch -D (force delete)", "[git-destructive]"),
   ],
 );
 
@@ -59,11 +59,11 @@ const gitBypassHooks = createModule(
   [
     cmd("git", "commit")
       .withFlag("--no-verify")
-      .escalate("git commit --no-verify (bypasses hooks)", "[git-bypass-hooks]"),
+      .ask("git commit --no-verify (bypasses hooks)", "[git-bypass-hooks]"),
     // -n is NOT aliased globally (means --dry-run for git push, --no-checkout for git clone).
     cmd("git", "commit")
       .withFlag("-n")
-      .escalate("git commit -n (bypasses hooks)", "[git-bypass-hooks]"),
+      .ask("git commit -n (bypasses hooks)", "[git-bypass-hooks]"),
   ],
 );
 
@@ -78,11 +78,11 @@ const chmodWorldWritable = createModule(
     cmd("chmod")
       .withFlag("--recursive")
       .argIncludes("777")
-      .escalate("chmod -R 777 (world-writable recursive)", "[chmod-world-writable]"),
+      .ask("chmod -R 777 (world-writable recursive)", "[chmod-world-writable]"),
     cmd("chmod")
       .withFlag("--recursive")
       .argIncludes("a+rwx")
-      .escalate("chmod -R a+rwx (world-writable recursive)", "[chmod-world-writable]"),
+      .ask("chmod -R a+rwx (world-writable recursive)", "[chmod-world-writable]"),
   ],
 );
 
@@ -97,7 +97,7 @@ const remoteCodeExec = createModule(
     matchers: ["Bash"],
   },
   [
-    pipe(PIPE_FETCHERS, PIPE_SHELLS).escalate(
+    pipe(PIPE_FETCHERS, PIPE_SHELLS).ask(
       "curl/wget piped into a shell (RCE risk)",
       "[remote-code-exec]",
     ),
@@ -114,26 +114,26 @@ const protectConfigs = createModule(
     matchers: ["Edit", "Write", "NotebookEdit"],
   },
   [
-    path(/\.(env|env\.\w+)$/).onWrite().escalate("writing to .env (secrets)", "[protect-configs]"),
-    path(/biome\.jsonc?$/).onWrite().escalate("writing to biome config", "[protect-configs]"),
+    path(/\.(env|env\.\w+)$/).onWrite().ask("writing to .env (secrets)", "[protect-configs]"),
+    path(/biome\.jsonc?$/).onWrite().ask("writing to biome config", "[protect-configs]"),
     path(/\.claude\/settings(\.local)?\.json$/)
       .onWrite()
-      .escalate("writing to Claude settings", "[protect-configs]"),
+      .ask("writing to Claude settings", "[protect-configs]"),
     path(/\.(github|gitlab)\/(workflows|ci)\//)
       .onWrite()
-      .escalate("writing to CI pipeline config", "[protect-configs]"),
-    path(/package\.json$/).onWrite().escalate("writing to package.json", "[protect-configs]"),
-    path(/Cargo\.toml$/).onWrite().escalate("writing to Cargo.toml", "[protect-configs]"),
-    path(/pyproject\.toml$/).onWrite().escalate("writing to pyproject.toml", "[protect-configs]"),
+      .ask("writing to CI pipeline config", "[protect-configs]"),
+    path(/package\.json$/).onWrite().ask("writing to package.json", "[protect-configs]"),
+    path(/Cargo\.toml$/).onWrite().ask("writing to Cargo.toml", "[protect-configs]"),
+    path(/pyproject\.toml$/).onWrite().ask("writing to pyproject.toml", "[protect-configs]"),
     path(/tsconfig(\.\w+)?\.json$/)
       .onWrite()
-      .escalate("writing to tsconfig", "[protect-configs]"),
+      .ask("writing to tsconfig", "[protect-configs]"),
     path(/(?:^|\/)\.gitignore$/)
       .onWrite()
-      .escalate("writing to .gitignore", "[protect-configs]"),
+      .ask("writing to .gitignore", "[protect-configs]"),
     path(/(?:^|\/)lefthook\.yml$/)
       .onWrite()
-      .escalate("writing to lefthook config", "[protect-configs]"),
+      .ask("writing to lefthook config", "[protect-configs]"),
   ],
 );
 
@@ -145,9 +145,9 @@ const protectReads = createModule(
     matchers: ["Read"],
   },
   [
-    path(/\.(env|env\.\w+)$/).onRead().escalate("reading .env (secrets)", "[protect-reads]"),
-    path(/\/\.ssh\//).onRead().escalate("reading SSH directory", "[protect-reads]"),
-    path(/\/\.gnupg\//).onRead().escalate("reading GPG directory", "[protect-reads]"),
+    path(/\.(env|env\.\w+)$/).onRead().ask("reading .env (secrets)", "[protect-reads]"),
+    path(/\/\.ssh\//).onRead().ask("reading SSH directory", "[protect-reads]"),
+    path(/\/\.gnupg\//).onRead().ask("reading GPG directory", "[protect-reads]"),
   ],
 );
 
@@ -161,12 +161,12 @@ const protectFromRedirects = createModule(
     matchers: ["Bash"],
   },
   [
-    redirect(/\.(env|env\.\w+)$/).escalate("redirect into .env", "[protect-from-redirects]"),
-    redirect(/\.claude\/settings(\.local)?\.json$/).escalate(
+    redirect(/\.(env|env\.\w+)$/).ask("redirect into .env", "[protect-from-redirects]"),
+    redirect(/\.claude\/settings(\.local)?\.json$/).ask(
       "redirect into Claude settings",
       "[protect-from-redirects]",
     ),
-    redirect(/(?:^|\/)\.gitignore$/).escalate(
+    redirect(/(?:^|\/)\.gitignore$/).ask(
       "redirect into .gitignore",
       "[protect-from-redirects]",
     ),

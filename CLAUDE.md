@@ -47,10 +47,10 @@ src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 |---|---|---|---|
 | no terminal, no annotations | 0 | — | silent, then exec the command verbatim |
 | no terminal, annotations only | exec's exit | stdout | `<prefix> warning: <msg>` / `<prefix> note: <msg>` per annotation, then `---` separator, then exec output below |
-| `escalate` (annotations bundled) | 1 | stdout | `<prefix> needs review: <reason>` + each accumulated annotation line |
+| `ask` (annotations bundled) | 1 | stdout | `<prefix> needs review: <reason>` + each accumulated annotation line |
 | `deny` (annotations DROPPED) | 2 | stderr | `<prefix> denied: <reason>` |
 
-`<prefix>` = decision label (e.g. `[my-plugin]`) when set, `[hook-kit]` otherwise. Merge policy: deny short-circuits + drops annotations, escalate keeps collecting annotations (first escalate wins terminal), warning/note always accumulate.
+`<prefix>` = decision label (e.g. `[my-plugin]`) when set, `[hook-kit]` otherwise. Merge policy: deny short-circuits + drops warning/note (error annotations always survive), ask keeps collecting annotations (first ask wins terminal), warning/note always accumulate.
 
 ## Dependencies & Conventions
 
@@ -60,7 +60,7 @@ src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 - `biome check --reporter=rdjson` — never `--reporter=json`.
 - Version: bump `package.json` only. `src/version.ts` reads from it via JSON import attribute at compile time; CLI / wrapper pick it up automatically.
 - Direct commits to main are blocked by lefthook in some downstream repos (e.g. ai-guardrails). hook-kit itself allows main commits — keep PRs / branches when working across both.
-- `escalate` semantics: `HOOK_KIT_ASKPASS` unset → falls through to harness-ask (CC ask JSON / shell-wrapper exit-1 stdout). Set + broken → deny. Set + working broker → routes through the spool tree.
+- `ask` semantics (DSL verb; routes through the escalation infrastructure): `HOOK_KIT_ASKPASS` unset → falls through to harness-ask (CC ask JSON / shell-wrapper exit-1 stdout). Set + broken → deny. Set + working broker → routes through the spool tree.
 - `recurseInlineShells` defaults on. `bash -c "rm -rf /"` triggers the same `cmd("rm")` rule as the bare command.
 
 ## Testing

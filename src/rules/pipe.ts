@@ -5,8 +5,8 @@
 import type { Stmt } from "@questi0nm4rk/shell-ast";
 import { effectOf, findAll, unwrapCall } from "@questi0nm4rk/shell-ast";
 import {
+  ask as askDecision,
   deny as denyDecision,
-  escalate as escalateDecision,
   note as noteDecision,
   warning as warningDecision,
 } from "../core/decision.js";
@@ -27,8 +27,8 @@ class PipeRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  escalate(reason: string, label?: string): Rule {
-    return this.buildRule(escalateDecision(reason, label));
+  ask(reason: string, label?: string): Rule {
+    return this.buildRule(askDecision(reason, label));
   }
 
   warning(message: string, label?: string): Rule {
