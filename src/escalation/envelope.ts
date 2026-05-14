@@ -32,7 +32,7 @@ const AskRequestSchema = z.object({
   harness: HarnessSchema,
   // The ask itself.
   toolName: z.string(),
-  toolInput: z.record(z.unknown()),
+  toolInput: z.record(z.string(), z.unknown()),
   reason: z.string(),
   label: z.string().optional(),
   /** Pre-rendered annotation block (each line `[label] warning|note: <msg>`),
