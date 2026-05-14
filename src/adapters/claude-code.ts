@@ -16,7 +16,7 @@ const HookInputSchema = z.object({
   cwd: z.string(),
   hook_event_name: z.string(),
   tool_name: z.string(),
-  tool_input: z.record(z.unknown()),
+  tool_input: z.record(z.string(), z.unknown()),
 });
 
 /** What the adapter would write/exit, separated from the side effects so
