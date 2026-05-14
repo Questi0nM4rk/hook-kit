@@ -8,7 +8,13 @@ import {
   type ShellFile,
   unwrapCall,
 } from "@questi0nm4rk/shell-ast";
-import { escalate as escalateDecision } from "../core/decision.js";
+import { ask as askDecision, errorAnnotation } from "../core/decision.js";
+import {
+  HookKitError,
+  RuleEvaluationError,
+  ShellAstParseError,
+  StateStoreError,
+} from "../core/errors.js";
 import type {
   Annotation,
   Decision,
@@ -51,8 +57,8 @@ export function __setMaxRecurseDepthForTests(d: number): void {
  * an EvalContext or module. Wraps the rule in a synthetic single-rule module
  * and returns the engine's chosen terminal decision (or null if only
  * annotations / no rule fired). Annotations are dropped — tests that care
- * about annotations should use `evaluate()` directly and assert on
- * `outcome.annotations`.
+ * about annotations should use `evaluate()` or `runModule()` directly and
+ * assert on `outcome.annotations`.
  */
 export async function evaluateRule(
   event: HookEvent,
@@ -70,43 +76,86 @@ export async function evaluateRule(
   return outcome.terminal;
 }
 
-// shell-ast WASM-load failures are caught by getBashAst() per Iron Law 4
-// ("fail open on infra errors"). That keeps a framework bug from blocking the
-// user, but it also silently disables every shell-AST rule with no signal —
-// invisible loss of coverage. Emit a one-shot stderr warning on the first
-// failure so operators can investigate.
-let astErrorLogged = false;
-
-/** @internal Reset hook used by tests to verify the once-per-process warning. */
-export function __resetAstErrorLoggedForTests(): void {
-  astErrorLogged = false;
+export interface RunModuleOptions extends EvaluateOptions {
+  /** Module(s) to evaluate. Pass a single HookModule for the common single-
+   *  module test case; pass an array for multi-module integration tests. */
+  readonly module: HookModule | readonly HookModule[];
+  /** Shortcut: builds a synthetic PreToolUse Bash event from this command.
+   *  Use `event` instead for non-Bash tools or non-PreToolUse events. If
+   *  both are given, `event` wins. */
+  readonly command?: string;
+  /** Full event override — use for non-Bash testing or event-specific behavior. */
+  readonly event?: HookEvent;
 }
 
-/** @internal Shared one-shot WASM-unavailable warning. Same latch used by the
- *  engine's parse() catch site and by the entrypoint preloadWasm() catch
- *  handlers so non-Bash sessions still get a signal when WASM is broken. */
-export function warnAstUnavailable(err: unknown): void {
-  if (astErrorLogged) return;
-  astErrorLogged = true;
-  const msg = err instanceof Error ? err.message : String(err);
-  process.stderr.write(
-    `[hook-kit] shell-ast WASM unavailable — command/pipe/redirect rules disabled for this process\n[hook-kit] details: ${msg}\n`,
-  );
+/**
+ * Test harness: evaluate a module (or modules) against a synthetic event and
+ * return the full EvaluationOutcome (terminal + annotations). The shortcut
+ * for writing tests without hand-building bash matrices or `bashEvent()`
+ * fixtures.
+ *
+ * Example:
+ *   const outcome = await runModule({
+ *     module: createModule({...}, [cmd("rm").withFlag("-rf").deny("blocked")]),
+ *     command: "rm -rf /tmp/x",
+ *   });
+ *   expect(outcome.terminal?.kind).toBe("deny");
+ *
+ * Both `command` (shortcut) and `event` (full override) are optional — if
+ * neither is given, the harness uses an empty Bash command event, which is
+ * useful for testing event-name / matcher logic without a real command.
+ */
+export async function runModule(opts: RunModuleOptions): Promise<EvaluationOutcome> {
+  const modules = Array.isArray(opts.module)
+    ? (opts.module as readonly HookModule[])
+    : [opts.module as HookModule];
+  const event = opts.event ?? defaultBashEvent(opts.command ?? "");
+  const evalOpts: EvaluateOptions = {
+    ...(opts.state !== undefined ? { state: opts.state } : {}),
+    ...(opts.recurseInlineShells !== undefined
+      ? { recurseInlineShells: opts.recurseInlineShells }
+      : {}),
+  };
+  return evaluate(event, modules, evalOpts);
+}
+
+/** Default synthetic event for the `command` shortcut — minimal PreToolUse
+ *  Bash shape so the engine has somewhere to start. Mirrors `bashEvent()`
+ *  in tests/_helpers.ts but lives in src/ so library consumers don't need
+ *  to depend on the tests/ helper. */
+function defaultBashEvent(command: string): HookEvent {
+  return {
+    eventName: "PreToolUse",
+    sessionId: "test",
+    cwd: "/tmp",
+    transcriptPath: "",
+    toolName: "Bash",
+    toolInput: { command },
+    raw: {},
+  };
 }
 
 /**
  * Evaluate all matching modules/rules against a hook event.
  *
- * Returns an EvaluationOutcome bundling the chosen terminal (deny|escalate,
- * or null) with every annotation (warning|note) that fired. Merge policy:
+ * Returns an EvaluationOutcome bundling the chosen terminal (deny|ask,
+ * or null) with every annotation (warning|note|error) that fired. Merge
+ * policy:
  *
- * - `deny` short-circuits: terminate immediately, annotations DROPPED
- *   (a deny means "the command must not run", and annotations are only
- *   useful when the command WILL run or the user is being asked).
- * - `escalate` keeps evaluation going so annotations accumulate, but the
- *   FIRST escalate wins terminal — later escalates are dropped.
+ * - `deny` short-circuits: terminate immediately. warning/note annotations
+ *   are DROPPED (a deny means "the command must not run", and rule-emitted
+ *   annotations are only useful when the command WILL run or the user is
+ *   being asked). `error` annotations ALWAYS survive — they describe hook-
+ *   infra failures, not rule output, and must remain visible.
+ * - `ask` keeps evaluation going so annotations accumulate, but the
+ *   FIRST ask wins terminal — later asks are dropped.
  * - `warning` / `note` always accumulate; multiple annotations are
  *   emitted in encounter order.
+ * - `error` annotations are produced by the engine (never returned by a
+ *   rule's evaluate()). Caught from: rule throws (HookKitError passed
+ *   through; non-HookKit wrapped as RuleEvaluationError), shell-ast parse
+ *   failures (ShellAstParseError, except ParseSyntaxError which is normal
+ *   malformed user input), and state.flush failures (StateStoreError).
  *
  * See docs/SPEC.md § Engine for the full contract.
  */
@@ -116,6 +165,11 @@ export async function evaluate(
   opts: EvaluateOptions = {},
 ): Promise<EvaluationOutcome> {
   return evaluateInternal(event, modules, opts, { depth: 0 });
+}
+
+/** Filter that keeps only `error` annotations — used when deny short-circuits. */
+function keepOnlyErrors(anns: readonly Annotation[]): Annotation[] {
+  return anns.filter((a) => a.kind === "error");
 }
 
 async function evaluateInternal(
@@ -128,7 +182,26 @@ async function evaluateInternal(
   let terminal: Terminal | null = null;
 
   const state = opts.state ?? noopState;
-  const ctx = buildEvalContext(event, state, modules);
+  const { ctx, drainErrors } = buildEvalContext(event, state, modules);
+
+  const flushState = async (): Promise<void> => {
+    try {
+      await state.flush();
+    } catch (cause) {
+      const err =
+        cause instanceof HookKitError ? cause : new StateStoreError("flush", undefined, cause);
+      annotations.push(errorAnnotation(err));
+    }
+  };
+
+  /** Drain any errors captured by the EvalContext (currently: shell-ast parse
+   *  failures from getBashAst). Called before every exit point so errors
+   *  surface regardless of when the loop ends. */
+  const drainContextErrors = (): void => {
+    for (const err of drainErrors()) {
+      annotations.push(errorAnnotation(err));
+    }
+  };
 
   for (const mod of modules) {
     if (mod.enabled === false) continue;
@@ -144,22 +217,31 @@ async function evaluateInternal(
       let decision: Decision;
       try {
         decision = await rule.evaluate(event, ctx);
-      } catch {
-        // Iron Law 3: fail open on infrastructure errors
+      } catch (cause) {
+        // HookKitError thrown from a rule (e.g., FileReadError from content())
+        // is surfaced as that specific class. Anything else means the rule
+        // itself has a bug — wrap as RuleEvaluationError so the failure is
+        // attributed to the rule, not silently swallowed (Iron Law 3 stays:
+        // we don't block the user, but the error is visible).
+        const err =
+          cause instanceof HookKitError ? cause : new RuleEvaluationError(rule.kind, cause);
+        annotations.push(errorAnnotation(err));
         continue;
       }
       if (decision === null) continue;
 
       if (decision.kind === "deny") {
-        await state.flush();
-        return { terminal: decision, annotations: [] };
+        drainContextErrors();
+        await flushState();
+        return { terminal: decision, annotations: keepOnlyErrors(annotations) };
       }
-      if (decision.kind === "escalate") {
+      if (decision.kind === "ask") {
         if (terminal === null) terminal = decision;
         continue;
       }
-      // warning / note
-      annotations.push(decision);
+      // warning / note / (rule-emitted error — type-allowed but engine never
+      // produces this; if a rule somehow emits one, accumulate like any other)
+      annotations.push(decision as Annotation);
     }
   }
 
@@ -170,27 +252,16 @@ async function evaluateInternal(
   // synthetic event so the inner script gets the full rule pass.
   if ((opts.recurseInlineShells ?? true) && event.toolName === "Bash") {
     if (internal.depth >= MAX_RECURSE_DEPTH) {
-      await state.flush();
-      // Conservative: refuse to silently allow content exceeding inspection depth.
+      drainContextErrors();
+      await flushState();
       return {
-        terminal: escalateDecision(
-          "[hook-kit] inline-shell nesting exceeded inspection depth — review",
-        ),
+        terminal: askDecision("[hook-kit] inline-shell nesting exceeded inspection depth — review"),
         annotations,
       };
     }
     const ast = await ctx.getBashAst();
     if (ast !== null) {
       for (const call of findCalls(ast)) {
-        // shell-ast 0.3+ surfaces `bash -c "…"`, `eval "…"`, `ksh -c "…"`,
-        // etc. as kind="wrapped-script" with the inner source as u.script.
-        // We feed that back through evaluate() as a synthetic event so the
-        // inner script gets the full rule pass — the recursive getBashAst
-        // does the inner parse() exactly once, same as if a user had typed
-        // the inner command directly. (Considered threading innerAst from
-        // `unwrapCallParsed` to skip the recursive parse, but the parse
-        // count is identical either way: shell-ast still parses the inner
-        // string once. The simpler form wins on KISS grounds.)
         const u = unwrapCall(call);
         if (u?.kind !== "wrapped-script") continue;
         const synthetic: HookEvent = {
@@ -201,10 +272,14 @@ async function evaluateInternal(
           depth: internal.depth + 1,
         });
         if (inner.terminal?.kind === "deny") {
-          await state.flush();
-          return { terminal: inner.terminal, annotations: [] };
+          drainContextErrors();
+          await flushState();
+          return {
+            terminal: inner.terminal,
+            annotations: keepOnlyErrors([...annotations, ...inner.annotations]),
+          };
         }
-        if (inner.terminal?.kind === "escalate" && terminal === null) {
+        if (inner.terminal?.kind === "ask" && terminal === null) {
           terminal = inner.terminal;
         }
         annotations.push(...inner.annotations);
@@ -212,7 +287,8 @@ async function evaluateInternal(
     }
   }
 
-  await state.flush();
+  drainContextErrors();
+  await flushState();
   return { terminal, annotations };
 }
 
@@ -220,43 +296,53 @@ async function evaluateInternal(
  * Per-invocation context. The Bash AST is parsed lazily on first request and
  * cached for the lifetime of the context, so all `cmd()` rules within a single
  * `evaluate()` call share one parse.
+ *
+ * Errors that occur during AST parsing are captured into a closure list and
+ * drained by the engine into the EvaluationOutcome.annotations as `error`
+ * annotations — never silently swallowed. The exception is `ParseSyntaxError`,
+ * which is normal malformed user input (the user typed garbage; bash will
+ * reject it). WASM-load / WASM-runtime failures are coverage-loss signals
+ * worth surfacing and are wrapped as `ShellAstParseError`.
  */
 function buildEvalContext(
   event: HookEvent,
   state: StateStore,
   modules: readonly HookModule[],
-): EvalContext {
+): { ctx: EvalContext; drainErrors: () => HookKitError[] } {
   let cached: ShellFile | null | undefined;
+  const errors: HookKitError[] = [];
   return {
-    state,
-    modules,
-    async getBashAst(): Promise<ShellFile | null> {
-      if (cached !== undefined) return cached;
-      if (event.toolName !== "Bash") {
-        cached = null;
-        return cached;
-      }
-      const cmdInput = event.toolInput.command;
-      const command = typeof cmdInput === "string" ? cmdInput : "";
-      if (command === "") {
-        cached = null;
-        return cached;
-      }
-      try {
-        cached = await parse(command);
-      } catch (err) {
-        // Per-input ParseSyntaxError is a normal malformed command — stay
-        // silent (Iron Law 4). Everything else (WasmLoadError, WasmRuntimeError,
-        // or an unknown class) means every AST-aware rule is disabled for at
-        // least this input and likely the whole process — emit the one-shot
-        // coverage-loss warning so operators can see it.
-        if (!(err instanceof ParseSyntaxError)) {
-          warnAstUnavailable(err);
+    ctx: {
+      state,
+      modules,
+      async getBashAst(): Promise<ShellFile | null> {
+        if (cached !== undefined) return cached;
+        if (event.toolName !== "Bash") {
+          cached = null;
+          return cached;
         }
-        cached = null;
-      }
-      return cached;
+        const cmdInput = event.toolInput.command;
+        const command = typeof cmdInput === "string" ? cmdInput : "";
+        if (command === "") {
+          cached = null;
+          return cached;
+        }
+        try {
+          cached = await parse(command);
+        } catch (cause) {
+          // ParseSyntaxError on user input is normal — bash will reject it
+          // too, and we don't want to spam an error annotation on every
+          // malformed line. WASM-load / WASM-runtime failures are coverage-
+          // loss signals we want surfaced.
+          if (!(cause instanceof ParseSyntaxError)) {
+            errors.push(new ShellAstParseError(command, cause));
+          }
+          cached = null;
+        }
+        return cached;
+      },
     },
+    drainErrors: () => errors.splice(0, errors.length),
   };
 }
 

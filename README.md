@@ -91,13 +91,13 @@ CI script `eval "$(curl … | bash)"` → pipe rule fires, exec never happens
 
 ## Highlights
 
-- **Five-decision blacklist semantics** — `null` (silent pass), `deny` (stderr + exit 2, annotations dropped), `escalate` (needs review, annotations bundled), `warning` / `note` (non-blocking annotations rendered above `---` separator before exec output). No `allow` — silent = nothing was wrong.
+- **Five-decision blacklist semantics** — `null` (silent pass), `deny` (stderr + exit 2, annotations dropped), `ask` (needs review, annotations bundled), `warning` / `note` (non-blocking annotations rendered above `---` separator before exec output). No `allow` — silent = nothing was wrong.
 - **Shell-AST-aware command matching** — `cmd("rm")` matches `sudo -u root rm /etc/passwd` via `unwrapCall`, recurses into `bash -c "rm …"` via inline-shell extraction, expands compound shorts (`-rf` ≡ `-r -f`), aliases canonicalized (`-r` ≡ `-R` ≡ `--recursive`), quoted-flag bypass closed.
 - **First-class `pipe()` and `redirect()` builders** — `BinaryCmd` and `Stmt` redirections need different traversal than `cmd()`. Canonical patterns (`curl … | bash`, `echo evil > /etc/passwd`) wouldn't otherwise be expressible without these.
-- **Tree-shaped escalation** — `escalate` rules publish to a per-session filesystem spool. A listener attached anywhere up the parent tree can `allow` / `deny` / `escalate-up`. Exhausting the chain terminates at the harness's native ask UI. Bundled `hook-kit watch` TUI, programmable via `hook-kit subscribe --json`.
+- **Tree-shaped escalation** — `ask` rules publish to a per-session filesystem spool. A listener attached anywhere up the parent tree can `allow` / `deny` / `escalate-up`. Exhausting the chain terminates at the harness's native ask UI. Bundled `hook-kit watch` TUI, programmable via `hook-kit subscribe --json`.
 - **State across invocations** — `stateful(id, fn)` rules persist via `TmpdirStore` (default) or any custom `StateStore` implementation. Useful for rate-limiting, sequence detection, session-level invariants.
 - **Adapter bins are ~50 LOC** — anyone can author `hk-cursor-tools`, `hk-opencode-tools`, etc. Same engine, same rule definitions, just a different `stdin → HookEvent → stdout` glue.
-- **Fail-open on infra errors** (Iron Law 4) — hook framework bugs must not block users. Security-critical rules belong in the harness's own deny list. The single exception: `escalate` with broken askpass infra denies (so misconfigured plugins surface immediately).
+- **Fail-open on infra errors** (Iron Law 4) — hook framework bugs must not block users. Security-critical rules belong in the harness's own deny list. The single exception: `ask` with broken askpass infra denies (so misconfigured plugins surface immediately).
 
 ---
 
@@ -109,10 +109,13 @@ The contract every caller can rely on:
 |---|---|---|---|
 | no terminal, no annotations | `0` | — | (silent, then exec the command verbatim — caller sees its own output) |
 | no terminal, annotations only | exec's exit | `stdout` | one `<prefix> warning: <msg>` or `<prefix> note: <msg>` per annotation, `---` separator on its own line, exec's stdout below |
-| `escalate` (needs review) | `1` | `stdout` | `<prefix> needs review: <reason>` + any accumulated annotations; command does **NOT** run |
-| `deny` (hard block) | `2` | `stderr` | `<prefix> denied: <reason>` — annotations DROPPED |
+| `ask` (needs review) | `1` | `stdout` | `<prefix> needs review: <reason>` + any accumulated warning/note annotations; command does **NOT** run |
+| `deny` (hard block) | `2` | `stderr` | `<prefix> denied: <reason>` — warning/note annotations DROPPED |
+| `error` annotation (any outcome) | unchanged | `stderr` | `<prefix> error: <ExceptionClass>: <message>` — engine-emitted on hook-infra failures (rule eval throw, shell-ast parse failure, state I/O). Always visible, never blocks an otherwise-allowed command, survives `deny` |
 
 `<prefix>` is the user-supplied decision label when set (e.g. `[my-plugin]`), or `[hook-kit]` when no label is provided.
+
+**0-silent-fails (0.5+):** every internal failure path constructs a typed `HookKitError` (`FileReadError`, `FileWriteError`, `JsonParseError`, `EnvelopeValidationError`, `ShellAstParseError`, `ProcessSpawnError`, `RuleEvaluationError`, `StateStoreError`). Engine-boundary failures (rule throws, AST parse errors, state flush failures) surface as `error` annotations in `EvaluationOutcome.annotations`. Security-boundary failures (broker envelope, askpass IPC) emit the same typed error to stderr **and** fail-CLOSED with a synthesized `deny`. The exception classes are exported from `@questi0nm4rk/hook-kit` for `instanceof` checks in custom rules.
 
 Approved commands run transparently. Denied commands never run. Escalated commands never run, but the warning goes to `stdout` (so a tail-the-output agent sees it without losing access to `stderr` for actual errors). Annotations (warning/note) are non-blocking — the command runs and its output flows below the `---` separator.
 
@@ -148,7 +151,7 @@ export default [
     { id: "destructive-rm", name: "Confirm rm -rf", events: ["PreToolUse"], matchers: ["Bash"] },
     [
       cmd("rm").withFlag("-r").withFlag("-f")
-        .escalate("rm -rf — confirm scope before running"),
+        .ask("rm -rf — confirm scope before running"),
     ],
   ),
 ];
@@ -236,7 +239,7 @@ cmd("git", "push")
   .withoutFlag("--force-with-lease")
   .deny("Use --force-with-lease");
 
-cmd("git", "checkout").withDdash().escalate("git checkout -- discards working tree");
+cmd("git", "checkout").withDdash().ask("git checkout -- discards working tree");
 
 cmd("gh", "api")
   .argMatches(/\/pulls\/\d+\/reviews/)
@@ -315,8 +318,8 @@ The eight invariants the framework enforces. The full version lives in [`docs/SP
 1. **Rules are data, not scripts.**
 2. **Parse once, evaluate many** — one shell-AST per invocation, shared across all command/pipe/redirect rules.
 3. **Recurse into inline shells** — `bash -c "…"`, `eval`, `exec` re-evaluate against the same modules. Default-on; depth-limited to 5.
-4. **Fail open on infra errors** (with one exception: `escalate` infra failure denies, never silent-allows).
-5. **Blacklist semantics** — only `deny` / `escalate` / `warning` / `note` / `null`.
+4. **Fail open on infra errors** (with one exception: `ask` infra failure denies, never silent-allows).
+5. **Blacklist semantics** — only `deny` / `ask` / `warning` / `note` / `null`.
 6. **Output convention is the wire format** — `stdout` / `stderr` / exit-code, no JSON for the caller to parse.
 7. **Each plugin compiles its own binary** — plugin isolation; one plugin's iteration doesn't disturb the others.
 8. **Escalation is async, tree-shaped, out-of-band** — see [Escalation](#escalation).
@@ -357,7 +360,7 @@ Anyone can author additional adapter bins (`hk-cursor-tools`, `hk-opencode-tools
 
 ## Escalation
 
-When a rule returns `escalate`, the binary asks up the parent tree:
+When a rule returns `ask`, the binary asks up the parent tree:
 
 ```
 [ root: harness UI (CC's native ask) ]
@@ -439,9 +442,18 @@ hook-kit decide "$ID" --session "$SESSION" --escalate-up
 `hook-kit` doesn't enforce timeouts on its own. The only ceiling is the harness's hook timeout (when going through `hooks.json`). The build CLI requires `--hook-timeout` when emitting `hooks.json`:
 
 ```bash
-hook-kit build … --hook-timeout 5      # plugins without escalate rules
-hook-kit build … --hook-timeout 3600   # plugins where escalate may need a human
+hook-kit build … --hook-timeout 5      # plugins without ask rules
+hook-kit build … --hook-timeout 3600   # plugins where ask may need a human
 ```
+
+#### `--hook-timeout` (build flag) vs `"timeout"` (hooks.json field)
+
+These are the **same value** at different layers:
+
+- `--hook-timeout N` is the **build-time argument** to `hook-kit build … --hooks-json`. It tells the CLI what value to write into the generated `hooks.json` next to every emitted hook entry. **Required** when `--hooks-json` is set — no default; pick deliberately.
+- `"timeout": N` is the **runtime field** in the generated `hooks.json`. Claude Code reads it on every PreToolUse and bounds how long the hook process can run before SIGTERM.
+
+If you bypass the build CLI and hand-write `hooks.json`, you'd just write `"timeout": N` directly. The `--hook-timeout` flag exists only so the build step can produce the same field without you opening the JSON. **Conceptually one value, two names** — if the two ever disagree (e.g., you regenerate `hooks.json` with a different `--hook-timeout`), the regenerated value wins because it overwrites the file.
 
 ---
 
@@ -587,9 +599,9 @@ hk --help
   - tmpdir/cache write fails → state lost, hook returns `null` (silent).
   - Rule throws → caught, treated as `null` (silent), logged.
   - Stdin empty/malformed (cc-tools adapter) → adapter exits 0 silent.
-  - `escalate` without `HOOK_KIT_ASKPASS` set → falls through to harness-ask. The harness UI is itself a responder, so this is not silent-allow.
-  - `escalate` with broken askpass infra (binary missing / non-zero exit / malformed output) → deny with `[hook-kit] askpass …`. Iron Law 4 exception.
-  - `escalate` with broker `NO PARENT ATTACHED` → deny. Surfaces misconfigured plugins immediately instead of hanging on the hook timeout.
+  - `ask` without `HOOK_KIT_ASKPASS` set → falls through to harness-ask. The harness UI is itself a responder, so this is not silent-allow.
+  - `ask` with broken askpass infra (binary missing / non-zero exit / malformed output) → deny with `[hook-kit] askpass …`. Iron Law 4 exception.
+  - `ask` with broker `NO PARENT ATTACHED` → deny. Surfaces misconfigured plugins immediately instead of hanging on the hook timeout.
 - **Deployment:** Compiled binary committed under the plugin (`dist/hk` for the wrapper, optionally `dist/hk-cc-tools` for the CC tool-call companion). For cc-tools, `hooks.json` points to `${CLAUDE_PLUGIN_ROOT}/dist/hk-cc-tools`. CI rebuilds on push. Plugin pins to `^major.minor`.
 - **Rollback:** Delete the compiled binary; restore the previous version from git. Per-plugin binaries mean one broken plugin doesn't affect others.
 
@@ -624,10 +636,10 @@ The design assumes the following. If any of them changes, revisit the noted area
 - **Assumes:** shell-AST can parse Bash / POSIX / mksh dialects with sufficient fidelity for rule matching. **If** a target shell (fish, nushell, PowerShell) becomes a primary integration → shell-ast may not cover it; either contribute parsing or use a different parser layer. Rules built on AST traversal would need to be reconfirmed.
 - **Assumes:** Cold start ~50ms is fast enough for the wrapper to sit in front of every command. **If** a profile shows the wrapper adds noticeable latency to interactive use → drop the bytecode build (`bun build --compile` without `--bytecode`) or split the engine into a long-running daemon spoken to over a socket. Output convention stays the same.
 - **Assumes:** `HOOK_KIT_ASKPASS` unset → harness-ask is acceptable as the default. **If** a deployment context demands hard-deny on missing infra (e.g. CI where there's no human to answer) → set `HOOK_KIT_ASKPASS=/bin/false` explicitly. This is a deployment-time decision, not a code change.
-- **Assumes:** Escalation is rare (the broker tree is invoked only on `escalate` decisions, not on every command). **If** a plugin starts using `escalate` for the common path → either revisit the rule (most "ask" use cases should be `deny` with a clear remediation, or `warning` / `note` with informational messaging) or expect operational complexity from broker setup.
+- **Assumes:** Escalation is rare (the broker tree is invoked only on `ask` decisions, not on every command). **If** a plugin starts using `ask` for the common path → either revisit the rule (most "ask" use cases should be `deny` with a clear remediation, or `warning` / `note` with informational messaging) or expect operational complexity from broker setup.
 - **Assumes:** Per-plugin compiled binaries are acceptable disk footprint (~66 MB each). **If** disk pressure becomes an issue (e.g. many plugins on a small system) → drop bytecode (smaller binary, slower start) or move to a shared runtime model.
-- **Assumes:** The output convention `stderr+exit-2` for deny / `stdout+exit-1` for escalate is unambiguous downstream. **If** a caller can't distinguish those (e.g. captures only one stream, or treats any non-zero as fatal) → it'll lose the deny/escalate distinction. Document the contract explicitly in any wrapper docs the caller might use.
-- **Assumes:** Iron Laws hold without weakening. **If** any future feature would require fail-closed behavior on a non-escalate path (e.g. mandatory whitelist mode) → that's a new mode, not an extension of the current one. Spec it as a separate decision kind, not by reweighing the existing fail-open semantics.
+- **Assumes:** The output convention `stderr+exit-2` for deny / `stdout+exit-1` for ask is unambiguous downstream. **If** a caller can't distinguish those (e.g. captures only one stream, or treats any non-zero as fatal) → it'll lose the deny/ask distinction. Document the contract explicitly in any wrapper docs the caller might use.
+- **Assumes:** Iron Laws hold without weakening. **If** any future feature would require fail-closed behavior on a non-ask path (e.g. mandatory whitelist mode) → that's a new mode, not an extension of the current one. Spec it as a separate decision kind, not by reweighing the existing fail-open semantics.
 
 ---
 

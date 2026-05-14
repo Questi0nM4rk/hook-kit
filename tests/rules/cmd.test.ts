@@ -1,19 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
-import { evaluate } from "../../src/engine/index.js";
+import { runModule } from "../../src/engine/index.js";
 import { cmd } from "../../src/rules/command.js";
 
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
-  };
-}
+// All rule evaluation flows through `runModule` — the 0.5 test harness. The
+// shortcut form (`{ module, command }`) builds the PreToolUse Bash event
+// internally so tests don't need to hand-roll `HookEvent` shapes.
 
 function nonBashEvent(): HookEvent {
   return {
@@ -32,12 +24,12 @@ function moduleWith(rule: Rule): HookModule {
 }
 
 async function runCmd(command: string, rule: Rule): Promise<Terminal | null> {
-  const outcome = await evaluate(bashEvent(command), [moduleWith(rule)]);
+  const outcome = await runModule({ module: moduleWith(rule), command });
   return outcome.terminal;
 }
 
 async function runCmdAnnotations(command: string, rule: Rule): Promise<readonly Annotation[]> {
-  const outcome = await evaluate(bashEvent(command), [moduleWith(rule)]);
+  const outcome = await runModule({ module: moduleWith(rule), command });
   return outcome.annotations;
 }
 
@@ -53,7 +45,10 @@ describe("cmd() — basic matching", () => {
   });
 
   test("does not run on non-Bash events", async () => {
-    const outcome = await evaluate(nonBashEvent(), [moduleWith(cmd("rm").deny("blocked"))]);
+    const outcome = await runModule({
+      module: moduleWith(cmd("rm").deny("blocked")),
+      event: nonBashEvent(),
+    });
     expect(outcome.terminal).toBeNull();
     expect(outcome.annotations).toEqual([]);
   });
@@ -288,8 +283,8 @@ describe("cmd() — terminal + annotation forms", () => {
   });
 
   test("escalate() returns an escalate terminal", async () => {
-    const t = await runCmd("rm foo", cmd("rm").escalate("ask"));
-    expect(t).toEqual({ kind: "escalate", reason: "ask" });
+    const t = await runCmd("rm foo", cmd("rm").ask("ask"));
+    expect(t).toEqual({ kind: "ask", reason: "ask" });
   });
 
   test("deny terminal label is preserved", async () => {

@@ -14,7 +14,7 @@ import { cmd, createModule } from "@questi0nm4rk/hook-kit";
 export default [
   createModule(
     { id: "fixture", name: "fixture-escalate", events: ["PreToolUse"], matchers: ["Bash"] },
-    [cmd("rm").escalate("review this rm before running")],
+    [cmd("rm").ask("review this rm before running")],
   ),
 ];
 `;

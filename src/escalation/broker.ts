@@ -14,6 +14,12 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  EnvelopeValidationError,
+  emitErrorLine,
+  FileWriteError,
+  JsonParseError,
+} from "../core/errors.js";
+import {
   type AskDecisionKind,
   type AskRequest,
   type AskResponse,
@@ -80,15 +86,17 @@ export function ensureSession(
   return paths;
 }
 
-/** Append one event to the session's audit log; never throws. */
+/** Append one event to the session's audit log; never throws. Failures are
+ *  surfaced as typed errors on stderr (0-silent-fails) but never raised — the
+ *  audit log is not load-bearing. */
 function audit(paths: BrokerPaths, event: Record<string, unknown>): void {
   try {
     appendFileSync(
       paths.auditPath,
       `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`,
     );
-  } catch {
-    // Iron Law 3: audit failures are not load-bearing.
+  } catch (cause) {
+    emitErrorLine(new FileWriteError(paths.auditPath, cause));
   }
 }
 
@@ -153,15 +161,16 @@ export async function brokerAskpass(
   let request: AskRequest;
   try {
     request = parseAskRequest(stdinText);
-  } catch (err) {
-    // Malformed envelope — synthesize an id-less deny so callAskpass's id-match
-    // check fails cleanly with a visible reason, rather than crashing.
+  } catch (cause) {
+    // Fail-CLOSED at security boundary: typed error on stderr, deny synthesized
+    // with an id-less envelope so callAskpass's id-match check fails cleanly
+    // rather than crashing.
+    const wrapped = new EnvelopeValidationError("broker stdin", cause);
+    emitErrorLine(wrapped);
     return createAskResponse({
       id: "<malformed>",
       decision: "deny",
-      reason: `[hook-kit broker] malformed request envelope: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+      reason: `[hook-kit broker] malformed request envelope: ${wrapped.message}`,
     });
   }
 
@@ -207,8 +216,8 @@ export async function brokerAskpass(
         try {
           rmSync(pendingPath, { force: true });
           rmSync(decidedPath, { force: true });
-        } catch {
-          // ignore
+        } catch (cause) {
+          emitErrorLine(new FileWriteError(`${pendingPath} / ${decidedPath}`, cause));
         }
         audit(paths, {
           kind: "decided",
@@ -217,11 +226,15 @@ export async function brokerAskpass(
           ...(response.by !== undefined ? { by: response.by } : {}),
         });
         return response;
-      } catch (err) {
+      } catch (cause) {
+        // Fail-CLOSED: malformed decision file. Typed error to stderr, break
+        // into auto-deny below.
+        const wrapped = new EnvelopeValidationError(decidedPath, cause);
+        emitErrorLine(wrapped);
         audit(paths, {
           kind: "decision-malformed",
           id: request.id,
-          error: err instanceof Error ? err.message : String(err),
+          error: wrapped.message,
         });
         break;
       }
@@ -246,8 +259,8 @@ export async function brokerAskpass(
   try {
     rmSync(pendingPath, { force: true });
     rmSync(decidedPath, { force: true });
-  } catch {
-    // ignore
+  } catch (cause) {
+    emitErrorLine(new FileWriteError(`${pendingPath} / ${decidedPath}`, cause));
   }
   audit(paths, { kind: "auto-deny", id: request.id });
   return autoDeny;
@@ -281,8 +294,9 @@ export function listSessions(opts: ListSessionsOptions = {}): SessionInfo[] {
       const pendingDir = join(dir, "pending");
       const pendingCount = existsSync(pendingDir) ? readdirSync(pendingDir).length : 0;
       sessions.push({ ...meta, pendingCount });
-    } catch {
-      // skip malformed session dirs
+    } catch (cause) {
+      // Malformed session dir — typed error to stderr, skip and continue.
+      emitErrorLine(new JsonParseError(metaPath, cause));
     }
   }
   return sessions;
@@ -295,11 +309,13 @@ export function listPending(sessionId: string, opts: { root?: string } = {}): As
   const out: AskRequest[] = [];
   for (const entry of readdirSync(paths.pendingDir)) {
     if (!entry.endsWith(".json")) continue;
+    const entryPath = join(paths.pendingDir, entry);
     try {
-      const raw = readFileSync(join(paths.pendingDir, entry), "utf8");
+      const raw = readFileSync(entryPath, "utf8");
       out.push(parseAskRequest(raw));
-    } catch {
-      // skip malformed
+    } catch (cause) {
+      // Malformed pending file — typed error to stderr, skip and continue.
+      emitErrorLine(new EnvelopeValidationError(entryPath, cause));
     }
   }
   return out;

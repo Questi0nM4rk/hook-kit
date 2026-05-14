@@ -2,6 +2,7 @@
 // See docs/SPEC.md § Rule Builders
 
 import { existsSync, readFileSync } from "node:fs";
+import { FileReadError } from "../core/errors.js";
 import type { Decision, HookEvent, Rule } from "../core/types.js";
 
 export type ContentValidator = (filePath: string, body: string) => Decision | Promise<Decision>;
@@ -31,12 +32,20 @@ class ContentRuleBuilder {
         if (filePath === "") return null;
         if (pathPattern !== undefined && !pathPattern.test(filePath)) return null;
 
-        if (!existsSync(filePath)) return null; // fail open: file vanished
+        // File vanished between the tool call and the PostToolUse hook — no
+        // decision to make, no error to surface. Distinct from an unreadable
+        // file that DOES exist (permissions, IO failure), which is a real
+        // FileReadError.
+        if (!existsSync(filePath)) return null;
         let body: string;
         try {
           body = readFileSync(filePath, "utf8");
-        } catch {
-          return null;
+        } catch (cause) {
+          // The engine catches HookKitErrors thrown from rule.evaluate() and
+          // emits them as `error` annotations — the rule contributes no
+          // decision, the failure surfaces to stderr, the user's tool call
+          // is unaffected.
+          throw new FileReadError(filePath, cause);
         }
         return fn(filePath, body);
       },

@@ -14,16 +14,16 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 2. **The shell is the contract.** Decisions surface through stdout / stderr / exit code — the same channel the caller already reads for everything else. No JSON, no env vars, no special parsing required to consume a decision.
 3. **shell-AST is the parser.** Real parsing, not regex. `bash -c "rm -rf /"` recurses; `cmd1 | cmd2` is a BinaryCmd node, not a substring; `> /etc/passwd` is a Stmt redir, not a `>` pattern.
 4. **Adapter bins are extensions, not the default.** A harness with non-shell tool channels (CC's `Edit`/`Write`/`NotebookEdit`/`Read`) can build a separate companion binary that handles those events. The shell wrapper stays the primary gate; the adapter is opt-in additional coverage.
-5. **Fail open on infra errors, fail closed on broken escalate.** Framework bugs must not block users. Exception: if a rule explicitly returns `escalate` and no askpass / harness UI is reachable to answer, deny — never silent-allow.
+5. **Fail open on infra errors, fail closed on broken ask.** Framework bugs must not block users. Exception: if a rule explicitly returns `ask` and no askpass / harness UI is reachable to answer, deny — never silent-allow.
 
 ## Iron Laws
 
 1. **Rules are data, not scripts.** Declarative builders (`cmd`, `path`, `content`, `pipe`, `redirect`, `custom`, `stateful`), never raw shell. Testable without process spawning, composable across modules, inspectable for reporting.
 2. **Parse once, evaluate many.** shell-AST WASM init is expensive (~200ms first call). The AST is parsed once per invocation and reused across all command/pipe/redirect rules.
 3. **Recurse into inline shells.** `bash -c "…"` / `sh -c "…"` / `eval "…"` / `exec "…"` are re-evaluated against the same modules. Without this, every rule has a 1-line bypass.
-4. **Fail open on infrastructure errors.** State-store disk full, JSON parse error, rule throws — caught, treated as silent. Hook-kit never blocks a user because of its own bugs. Exception: `escalate` with no responder and no harness UI to fall back to denies with a reason.
-5. **Blacklist semantics.** There is no `allow` decision. A hook either blocks (deny) / asks (escalate) / annotates (warning, note) — or stays silent. Silent = nothing was wrong.
-6. **Output convention is the wire format.** stdout for needs-review (escalate) and annotations (warning, note), stderr for errors (deny), exit code carries success/failure. No caller needs a JSON parser to consume an outcome.
+4. **Fail open on infrastructure errors.** State-store disk full, JSON parse error, rule throws — caught, treated as silent. Hook-kit never blocks a user because of its own bugs. Exception: `ask` with no responder and no harness UI to fall back to denies with a reason.
+5. **Blacklist semantics.** There is no `allow` decision. A hook either blocks (deny) / asks / annotates (warning, note) — or stays silent. Silent = nothing was wrong.
+6. **Output convention is the wire format.** stdout for needs-review (ask) and annotations (warning, note), stderr for errors (deny), exit code carries success/failure. No caller needs a JSON parser to consume an outcome.
 7. **Each plugin compiles its own binary.** Plugin isolation. One plugin can iterate without affecting the others. ~50 MB per binary; sub-50 ms cold start.
 8. **Escalation is async, tree-shaped, out-of-band.** Escalation requests publish to per-session ask channels and propagate up a `parent_session_id` tree. Any registered listener (TTY, parent agent, bridge) can answer through the same `askpass` contract; listeners that don't want to decide forward up via `escalate-up`. When the chain exhausts at the root, `harness-ask` delegates to whatever native UI the harness has (or, with `HOOK_KIT_ASKPASS` unset, falls through to harness-ask immediately — no broker infra needed for simple "ask the user" hooks).
 
@@ -38,7 +38,7 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 │   ├── version.ts                # VERSION (sourced from package.json at compile time)
 │   ├── core/
 │   │   ├── types.ts              # Decision, HookEvent, HookModule, Rule, EvalContext
-│   │   ├── decision.ts           # deny(), escalate(), warning(), note()
+│   │   ├── decision.ts           # deny(), ask(), warning(), note()
 │   │   ├── event.ts              # toToolEvent() — typed view of HookEvent
 │   │   └── module.ts             # createModule() factory
 │   ├── rules/
@@ -83,7 +83,7 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 // What a single Rule.evaluate() returns.
 type Terminal =
   | { kind: "deny";     reason: string;  label?: string }                // hard block
-  | { kind: "escalate"; reason: string;  label?: string };               // ask up the tree
+  | { kind: "ask"; reason: string;  label?: string };               // ask up the tree
 
 type Annotation =
   | { kind: "warning";  message: string; label?: string }                // non-blocking, distinct
@@ -124,7 +124,7 @@ interface HookModule {
 cmd("gh", "pr", "comment").deny("Use pr-review reply instead");
 cmd("git", "push").withFlag("--force").withoutFlag("--force-with-lease")
   .deny("Use --force-with-lease, not raw --force");
-cmd("git", "checkout").withDdash().escalate("git checkout -- discards working tree");
+cmd("git", "checkout").withDdash().ask("git checkout -- discards working tree");
 cmd("gh", "api").argMatches(/\/pulls\/\d+\/reviews(?!\/)/)
   .deny("Use pr-review status");
 ```
@@ -138,7 +138,7 @@ Semantics:
 - `.argIncludes("literal")` — exact-string membership in resolved args.
 - `.withDdash()` — require the POSIX `--` end-of-options separator. Disambiguates destructive forms like `git checkout -- file` from `git checkout file`.
 - `.deny(reason, label?)` — terminal; blocks the command, returns a `Rule`.
-- `.escalate(reason, label?)` — terminal; routes to askpass / harness UI, returns a `Rule`.
+- `.ask(reason, label?)` — terminal; routes to askpass / harness UI, returns a `Rule`.
 - `.warning(message, label?)` — annotation; non-blocking, surfaces as `[label] warning: <message>` above a `---` separator before the command runs.
 - `.note(message, label?)` — annotation; same mechanics as warning, rendered as `[label] note: <message>`. Distinct from warning so the AI can tell severity apart visually.
 
@@ -210,9 +210,9 @@ Flow:
 3. For each remaining module, evaluate rules sequentially in array order. State mutations within a rule are visible to the next rule.
 4. **Merge policy** (deterministic — no `shortCircuit` knob):
    - `deny` → terminate immediately. `outcome.terminal = deny`, `annotations = []` (DROPPED). The command will not run, so annotations about it are noise.
-   - `escalate` → record as terminal candidate but KEEP evaluating so annotations can still accumulate. First escalate wins; later escalates dropped.
+   - `ask` → record as terminal candidate but KEEP evaluating so annotations can still accumulate. First ask wins; later asks dropped.
    - `warning` / `note` → always append to `outcome.annotations` in encounter order.
-5. **Inline-shell recursion (default on):** after the main pass, if no `deny` and the event is Bash, the engine walks the AST for `bash -c "…"` / `sh -c …` / `eval …` / `ksh -c …` etc. (shell-ast `kind: "wrapped-script"`) and re-evaluates the modules against the inner script. Depth-limited to 5; exceeding the limit returns an `escalate` ("inspection depth"). Inner annotations bubble up into the outer outcome; inner `deny` short-circuits the whole evaluation. Set `recurseInlineShells: false` to disable for tests where recursion changes the asserted outcome.
+5. **Inline-shell recursion (default on):** after the main pass, if no `deny` and the event is Bash, the engine walks the AST for `bash -c "…"` / `sh -c …` / `eval …` / `ksh -c …` etc. (shell-ast `kind: "wrapped-script"`) and re-evaluates the modules against the inner script. Depth-limited to 5; exceeding the limit returns an `ask` ("inspection depth"). Inner annotations bubble up into the outer outcome; inner `deny` short-circuits the whole evaluation. Set `recurseInlineShells: false` to disable for tests where recursion changes the asserted outcome.
 6. State is flushed after evaluation (including on short-circuit).
 7. If no rule returned a non-null decision → `{ terminal: null, annotations: [] }`.
 
@@ -245,13 +245,26 @@ hk --help
 |---|---|---|---|
 | no terminal, no annotations | 0 | — | (silent, then exec the command verbatim, pass-through stdout/stderr/exit) |
 | no terminal, annotations only | exec's exit | **stdout** | one `<prefix> warning: <msg>` or `<prefix> note: <msg>` line per annotation, then `---` separator on its own line, then exec's stdout flows below |
-| `escalate` (needs review) | non-zero (1) | **stdout** | `<prefix> needs review: <reason>` + one line per accumulated annotation; command does NOT run (harness re-runs on approval) |
-| `deny` (hard block) | non-zero (2) | **stderr** | `<prefix> denied: <reason>` — annotations DROPPED |
+| `ask` (needs review) | non-zero (1) | **stdout** | `<prefix> needs review: <reason>` + one line per accumulated warning/note annotation; command does NOT run (harness re-runs on approval) |
+| `deny` (hard block) | non-zero (2) | **stderr** | `<prefix> denied: <reason>` — warning/note annotations DROPPED |
+| `error` annotation (alongside any outcome above) | unchanged | **stderr** | `<prefix> error: <ExceptionClass>: <message>` — engine-emitted on hook-infra failure; ALWAYS visible, survives deny, never blocks an otherwise-allowed command |
 
 `<prefix>` is the user-supplied decision label when set (e.g. `[my-plugin]`),
 or `[hook-kit]` when no label is provided. The label leads because it
 identifies which plugin/rule made the call — more meaningful for log
 grepping than the framework name.
+
+**Per-site failure policy (0.5+ "0-silent-fails" contract):**
+
+Every internal failure path constructs a typed `HookKitError` subclass. The policy is *visible to the operator always, but blocking behavior is per site*:
+
+| Site class | Examples | Policy |
+|---|---|---|
+| Engine boundary | `rule.evaluate()` throws, `getBashAst()` parse failure, `state.flush()` failure | Fail-OPEN: append `error` annotation, preserve prior decision state. Iron Law 3 — never break the user's tool over a hook-infra glitch. |
+| Security boundary | Broker envelope (`parseAskRequest`), askpass response (`parseAskResponse`), askpass spawn | Fail-CLOSED: emit typed error to stderr **and** synthesize a `deny`. A malformed envelope from a trusted IPC channel is itself a security signal. |
+| Best-effort I/O | Audit log append, listener marker cleanup, git enrichment | Emit typed error to stderr, continue. The operation isn't load-bearing; visibility is the requirement. |
+
+The exception hierarchy (8 classes — `FileReadError`, `FileWriteError`, `JsonParseError`, `EnvelopeValidationError`, `ShellAstParseError`, `ProcessSpawnError`, `RuleEvaluationError`, `StateStoreError`) is exported from `@questi0nm4rk/hook-kit` for `instanceof` checks. Custom rules that wrap external I/O should throw a `HookKitError` subclass instead of swallowing — the engine catches HookKitErrors thrown from `rule.evaluate()` and emits them as the specific error class, not as `RuleEvaluationError`.
 
 **About the `---` separator:** chosen because it's the standard YAML
 frontmatter / markdown horizontal-rule marker, so AI consumers parsing
@@ -286,7 +299,7 @@ The adapter reads CC's hook JSON from stdin and writes CC's hook JSON to stdout.
 | no terminal, no annotations | exit 0, silent | exit 0, silent |
 | no terminal, annotations only | `{hookSpecificOutput:{additionalContext}}` — annotations joined newline-separated, each prefixed `[label] warning\|note: <msg>` | same |
 | `deny` (annotations dropped) | `{hookSpecificOutput:{permissionDecision:"block",permissionDecisionReason}}` | stderr + exit 2 |
-| `escalate` (annotations bundled) | Resolved via askpass → allow (annotations surfaced as `additionalContext`) / deny / harness-ask (annotations bundled into `permissionDecisionReason`) | Resolved via askpass → silent / deny / `additionalContext` |
+| `ask` (annotations bundled) | Resolved via askpass → allow (annotations surfaced as `additionalContext`) / deny / harness-ask (annotations bundled into `permissionDecisionReason`) | Resolved via askpass → silent / deny / `additionalContext` |
 
 Anyone can author additional adapter bins (`hk-cursor-tools`, `hk-opencode-tools`, …) by importing the engine + writing ~50 LOC of stdin/stdout glue. The shell wrapper remains the primary gate; adapters extend coverage to harness-specific channels.
 
@@ -310,7 +323,7 @@ Custom stores implement `StateStore` (e.g., SQLite for shared cross-session stat
 
 ### Escalation
 
-The escalation system handles `Decision.kind === "escalate"`. It is the only path where a hook binary can block waiting for an external decision. Per Iron Law 8, the hook publishes a request and waits; any registered listener up the parent chain can answer through the same askpass contract.
+The escalation system handles `Decision.kind === "ask"`. It is the only path where a hook binary can block waiting for an external decision. Per Iron Law 8, the hook publishes a request and waits; any registered listener up the parent chain can answer through the same askpass contract.
 
 #### Tree Model
 
@@ -331,7 +344,7 @@ Multiple listeners can attach to any node simultaneously. They all see the same 
 
 #### Askpass Contract
 
-When the engine returns `escalate`, the binary:
+When the engine returns `ask`, the binary:
 
 1. Constructs an envelope (PROTOCOL_VERSION = 2):
    ```
@@ -381,14 +394,14 @@ Discovery: `meta.json`'s `parent_session_id` lets a process enumerate its descen
 When invoked as askpass (`hook-kit broker --askpass`), it:
 
 1. Reads the envelope from stdin.
-2. **Validates: NO PARENT ATTACHED check.** Walks the parent chain via `meta.json` (cycle-safe). At each level, scans `<session>/listeners/` for live markers (`kill(pid, 0)` liveness probe, stale markers pruned). If zero live listeners exist anywhere in the chain → returns a deny with reason `[hook-kit] NO PARENT ATTACHED`. The original `escalate` reason is preserved in the deny.
+2. **Validates: NO PARENT ATTACHED check.** Walks the parent chain via `meta.json` (cycle-safe). At each level, scans `<session>/listeners/` for live markers (`kill(pid, 0)` liveness probe, stale markers pruned). If zero live listeners exist anywhere in the chain → returns a deny with reason `[hook-kit] NO PARENT ATTACHED`. The original `ask` reason is preserved in the deny.
 3. Atomically writes `pending/$REQUEST_ID.json` (`O_EXCL`).
 4. Polls `decided/$REQUEST_ID.json` (default 100ms). **No internal timeout** — the broker waits until either a decision lands or its process is killed externally (CC's hooks.json timeout being the practical ceiling).
 5. On match → reads decision, deletes both files, appends to `audit.jsonl`, writes decision to stdout, exits 0.
 
 Directory permissions: `0700` on the session directory. Owner-only access; no tokens.
 
-The validator only fires for escalate paths (the broker is the askpass for escalate). Non-escalate decisions never reach the broker — `cmd("rm").deny("blocked")` works without any listener attached.
+The validator only fires for ask paths (the broker is the askpass for ask). Non-ask decisions never reach the broker — `cmd("rm").deny("blocked")` works without any listener attached.
 
 #### Forwarding (`escalate-up`)
 
@@ -407,8 +420,8 @@ There is no per-hop timeout by default. A test or specialized caller can pass `t
 
 `hook-kit` does not enforce a timeout on its own. The only ceiling is CC's `hooks.json` per-hook timeout. The build CLI **requires** `--hook-timeout <seconds>` when emitting `hooks.json` — there is no default. Pick deliberately:
 
-- Short (e.g., `5`) — plugins without escalate rules.
-- Long (e.g., `3600`) — plugins where escalate may need a human to think.
+- Short (e.g., `5`) — plugins without ask rules.
+- Long (e.g., `3600`) — plugins where ask may need a human to think.
 
 If CC kills the hook process before a decision lands, the adapter returns deny via the killed-process exit. The `pending/<id>.json` and any forwarded copies up the chain remain on disk; a late listener answer is wasted but harmless.
 
@@ -585,8 +598,8 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
 | Surface | Test approach |
 |---------|--------------|
 | Builders | Unit per builder × edge cases (flag matching, regex, empty args, unknown commands → silent, ddash, pipe, redirect) |
-| Engine | Deny short-circuit, escalate-with-annotations bundling, annotation stacking, module filtering, ordering, error handling, inline-shell recursion, depth limit |
-| Wrapper | Output convention (silent-on-null, stderr+exit-2 on deny, stdout+exit-1 on escalate), exec passthrough, exit-code passthrough, --version, --help |
+| Engine | Deny short-circuit, ask-with-annotations bundling, annotation stacking, module filtering, ordering, error handling, inline-shell recursion, depth limit, typed-error annotations |
+| Wrapper | Output convention (silent-on-null, stderr+exit-2 on deny, stdout+exit-1 on ask, stderr `error:` lines), exec passthrough, exit-code passthrough, --version, --help |
 | Adapters | CC JSON shape per decision per event; empty/malformed stdin |
 | State stores | get/set/has/delete/flush, missing file, disk full, corruption |
 | Escalation | askpass spawn + stdin/stdout protocol, unset askpass falls through to harness-ask, broker spool atomicity, listener marker liveness, NO PARENT ATTACHED validator, listener CLIs, escalate-up forward (single + multi-hop), harness-ask delegation |
@@ -601,9 +614,9 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
   - tmpdir/cache write fails → state lost, hook returns `null` (silent).
   - Rule throws → caught, treated as `null` (silent), logged.
   - Stdin empty/malformed (cc-tools adapter) → adapter exits 0 (silent).
-  - `escalate` without `HOOK_KIT_ASKPASS` set → falls through to harness-ask (CC ask JSON via cc-tools; non-blocking exit 1 from shell wrapper). The harness UI tier is itself a responder, so this is not silent-allow.
-  - `escalate` with broken askpass infra (binary missing / non-zero exit / malformed output) → deny with `[hook-kit] askpass …` reason. Iron Law 4 exception: when broker infra was *expected* but is broken, fail closed.
-  - `escalate` with broker `NO PARENT ATTACHED` (no live listener anywhere in the chain) → deny with reason. Surfaces misconfigured plugins immediately instead of hanging on the hook timeout.
+  - `ask` without `HOOK_KIT_ASKPASS` set → falls through to harness-ask (CC ask JSON via cc-tools; non-blocking exit 1 from shell wrapper). The harness UI tier is itself a responder, so this is not silent-allow.
+  - `ask` with broken askpass infra (binary missing / non-zero exit / malformed output) → deny with `[hook-kit] askpass …` reason. Iron Law 4 exception: when broker infra was *expected* but is broken, fail closed.
+  - `ask` with broker `NO PARENT ATTACHED` (no live listener anywhere in the chain) → deny with reason. Surfaces misconfigured plugins immediately instead of hanging on the hook timeout.
 - **Deployment:** Compiled binary committed under the plugin (e.g., `dist/hk` for the shell wrapper, optionally `dist/hk-cc-tools` for the CC tool-call companion). For the cc-tools binary, `hooks.json` points to `${CLAUDE_PLUGIN_ROOT}/dist/hk-cc-tools`. CI rebuilds on push. Plugin pins to `^major.minor` of hook-kit.
 - **Rollback:** Delete the compiled binary; restore the previous version from git. Per-plugin binaries mean one broken plugin doesn't affect others.
 - **CI gate:** `.github/workflows/test.yml` runs `bun install --frozen-lockfile` + `biome check` + `bun test` on push to main and every PR. Red CI = no merge.
@@ -612,13 +625,13 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
 
 - Don't put domain knowledge in tool binaries. Tools enforce, knowledge belongs elsewhere.
 - Don't add rules that depend on which other plugins are active. Tool rules are unconditional.
-- Don't output `allow` decisions. Silent exit = allowed. Only `deny` / `escalate` / `warning` / `note` produce output.
-- Don't catch errors and deny. Catch errors and stay silent (fail open) — except for `escalate` infrastructure failures, which deny explicitly.
+- Don't output `allow` decisions. Silent exit = allowed. Only `deny` / `ask` / `warning` / `note` produce output.
+- Don't catch errors and deny. Catch errors and stay silent (fail open) — except for `ask` infrastructure failures, which deny explicitly.
 - Don't assume `path()` rules fire under the shell wrapper. They don't — the wrapper synthesizes a Bash event. Use `redirect()` for shell-side write protection or build a cc-tools companion binary.
 - Don't put multiple tools in one binary. One binary per tool keeps release cycles independent.
 - Don't bypass the askpass contract. If you need synchronous human-in-the-loop, write an askpass binary; don't reach into the broker spool directly.
 - Don't expect `expiresAt` to be enforced by anything in hook-kit. It's metadata for audit/observability/MCP conformance only — listeners that want a hard deadline must enforce it themselves.
-- Don't ship a plugin whose escalate rules depend on broker infra without setting `HOOK_KIT_ASKPASS`. With it unset, escalate falls through to harness-ask immediately, which may be the wrong policy for your use case.
+- Don't ship a plugin whose ask rules depend on broker infra without setting `HOOK_KIT_ASKPASS`. With it unset, ask falls through to harness-ask immediately, which may be the wrong policy for your use case.
 
 ## Key Trade-offs
 
@@ -634,11 +647,11 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
 | Wrapper output convention (stdout/stderr/exit-code) | JSON output | The caller already reads shell I/O. No new parser needed to consume a decision. |
 | Sequential rule evaluation | Parallel | State mutations visible to next rule; no race conditions. |
 | Blacklist semantics | Whitelist | Matches harness behavior. One block wins regardless of others. |
-| `escalate` resolved via askpass + broker (with unset-fallback to harness-ask) | Hard-deny on unset askpass | Most simple "ask the user" hooks don't need a broker tree. The harness UI tier is itself a responder. Iron-law-4 fail-closed is preserved when broker infra is *expected* but broken. |
+| `ask` resolved via askpass + broker (with unset-fallback to harness-ask) | Hard-deny on unset askpass | Most simple "ask the user" hooks don't need a broker tree. The harness UI tier is itself a responder. Iron-law-4 fail-closed is preserved when broker infra is *expected* but broken. |
 | Per-session ask channels | One global queue | Avoids cross-session noise when multiple sessions × subagents are active. Discovery via `meta.json` parent links. |
 | Tree-shaped escalation with `escalate-up` forward | Auto-routing in the broker | Listeners explicitly choose to forward, matching the user's mental model. Synchronous forwarder, no daemon, audit trail per hop. |
 | Listener markers (`<session>/listeners/<pid>.lock`) | Implicit liveness via inotify on connections | File-based markers compose with the rest of the spool, survive process restarts of inspectors, and are pid-liveness-checkable from any tool. |
-| **NO PARENT ATTACHED validator** denies escalate when no listener anywhere in chain (broker mode only) | Silent hang or auto-allow | Hook timeouts can hide misconfigured plugins for minutes. The validator surfaces "you forgot to attach a listener" immediately. With `HOOK_KIT_ASKPASS` unset, the validator doesn't run — escalate falls through to harness-ask. |
+| **NO PARENT ATTACHED validator** denies ask when no listener anywhere in chain (broker mode only) | Silent hang or auto-allow | Hook timeouts can hide misconfigured plugins for minutes. The validator surfaces "you forgot to attach a listener" immediately. With `HOOK_KIT_ASKPASS` unset, the validator doesn't run — ask falls through to harness-ask. |
 | No default `--hook-timeout` (required when `--hooks-json` set) | Sensible default like 65s or 3600s | Either default has a wrong tail. Forcing the plugin author to pick makes the trade-off explicit at build time. |
 | Filesystem spool inside the broker | Socket-only or HTTP | Inspectable, crash-safe, atomic via `rename(2)`, no daemon strictly required. |
 | Askpass as the public escalation contract | A dedicated socket protocol | Decades of prior art (sudo, ssh, git, gpg). Any binary can be a responder. |
@@ -653,7 +666,7 @@ Things explored but deliberately deferred. Logged so we don't re-litigate.
 
 **Why not now:** hook-kit's purpose is hooking — intercepting tool calls the agent already made. A direct-ask tool serves the inverse flow (agent volunteers a question) and shouldn't share a binary with the wrapper. The broker substrate is reusable, but a CLI surface for it doesn't belong inside the `hk` bin.
 
-**When to revisit:** when a concrete consumer needs it. Build as a separate project; copy the askpass envelope protocol over rather than depend on hook-kit as a library — the protocol is the contract, the code is incidental. Per-rule `timeoutMs` on `escalate()` belongs in the same revisit window if/when it shows up.
+**When to revisit:** when a concrete consumer needs it. Build as a separate project; copy the askpass envelope protocol over rather than depend on hook-kit as a library — the protocol is the contract, the code is incidental. Per-rule `timeoutMs` on `ask()` belongs in the same revisit window if/when it shows up.
 
 ### `hk exec` wrapper for non-bash-timeout harnesses
 

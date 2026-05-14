@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FileWriteError } from "../../src/core/errors.js";
 import { TmpdirStore } from "../../src/state/tmpdir-store.js";
 
 let workDir: string;
@@ -72,13 +73,17 @@ describe("TmpdirStore — persistence", () => {
   });
 });
 
-describe("TmpdirStore — fail-open behavior", () => {
+describe("TmpdirStore — error surfacing (0.5 contract)", () => {
   test("starts empty when the state file does not exist", () => {
     const s = new TmpdirStore({ namespace: "ns", sessionId: "missing", root: workDir });
     expect(s.has("anything")).toBe(false);
   });
 
-  test("starts empty when the state file is corrupt JSON", () => {
+  test("starts empty when the state file is corrupt JSON (load fails open, error to stderr)", () => {
+    // Constructor load failures emit a typed error line to stderr (visible)
+    // and continue with an empty map. No exception propagates out of the
+    // constructor — there's no EvaluationOutcome channel at construction time,
+    // so stderr is the surfacing path.
     const corrupt = join(workDir, "hook-kit-ns-corrupt.json");
     writeFileSync(corrupt, "{ not valid json", "utf8");
 
@@ -94,14 +99,17 @@ describe("TmpdirStore — fail-open behavior", () => {
     expect(s.has("anything")).toBe(false);
   });
 
-  test("flush does not throw when the directory is unwritable", () => {
+  test("flush throws FileWriteError when the directory is unwritable", () => {
+    // 0.5 contract: flush throws a typed FileWriteError. The engine catches it
+    // and surfaces it as an `error` annotation in the EvaluationOutcome — the
+    // hook never blocks the user, but the failure is visible. (Old 0.4
+    // behavior was silent-swallow per Iron Law 3; new behavior is typed-throw.)
     const s = new TmpdirStore({
       namespace: "ns",
       sessionId: "unwritable",
       root: "/this/path/does/not/exist",
     });
     s.set("k", "v");
-    // Iron Law 3: state lost, no exception.
-    expect(() => s.flush()).not.toThrow();
+    expect(() => s.flush()).toThrow(FileWriteError);
   });
 });

@@ -11,7 +11,7 @@ loss-of-coverage for every command/pipe/redirect rule.
 
 A compiled hk binary runs every Bash command through the engine, silently
 returns `null` (no rule fired) for everything, exits 0, exec's the command
-verbatim. Decisions never trigger. Approve / deny / escalate distinction
+verbatim. Decisions never trigger. Approve / deny / ask distinction
 collapses to "approve everything".
 
 ### Reproduction
@@ -28,7 +28,7 @@ But hook-kit's behavior under that failure is the load-bearing observation:
 ```
 
 End user sees `git push --force` succeed when ai-guardrails-hk should have
-escalated.
+askd.
 
 ### Root cause
 
@@ -273,7 +273,7 @@ Either:
 
 1. Wire `HOOK_KIT_VERBOSE` through `runShell()` so it always emits one
    stderr trace line per evaluation (even for null decisions): `event=
-   tool= modules-considered= modules-fired= final=null|deny|escalate
+   tool= modules-considered= modules-fired= final=null|deny|ask
    reason= time=`.
 
 2. If verbose only fires for the cc-tools adapter today, document that
@@ -296,7 +296,7 @@ $ ai-guardrails-hk -c "git push --force origin main"
 ```
 
 The output convention prefixes the decision with `[hook-kit] needs review:`
-and then the user's `label` (set via `escalate("reason", "[ai-guardrails]")`)
+and then the user's `label` (set via `ask("reason", "[ai-guardrails]")`)
 appears as the next token. Two prefix-shaped tokens stacked.
 
 ### Possible fix

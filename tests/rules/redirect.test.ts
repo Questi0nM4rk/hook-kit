@@ -61,7 +61,7 @@ describe("redirect()", () => {
   });
 
   test("escalate() form returns escalate decision", async () => {
-    const d = await run("echo x > .env", redirect(/\.env$/).escalate("review"));
-    expect(d).toEqual({ kind: "escalate", reason: "review" });
+    const d = await run("echo x > .env", redirect(/\.env$/).ask("review"));
+    expect(d).toEqual({ kind: "ask", reason: "review" });
   });
 });

@@ -56,10 +56,10 @@ describe("engine/trace — traceLine() formatting", () => {
   });
 
   test("formats an escalate outcome without a label", () => {
-    const out = outcome({ kind: "escalate", reason: "needs review" });
+    const out = outcome({ kind: "ask", reason: "needs review" });
     const line = traceLine(makeEvent(), out, 1, 8);
     expect(line).toBe(
-      '[hook-kit] event=PreToolUse tool=Bash session=s1 modules=1 → escalate reason="needs review" time=8ms\n',
+      '[hook-kit] event=PreToolUse tool=Bash session=s1 modules=1 → ask reason="needs review" time=8ms\n',
     );
   });
 
@@ -72,13 +72,13 @@ describe("engine/trace — traceLine() formatting", () => {
   });
 
   test("annotations count is appended when present alongside a terminal", () => {
-    const out = outcome({ kind: "escalate", reason: "ask" }, [
+    const out = outcome({ kind: "ask", reason: "ask" }, [
       { kind: "warning", message: "a" },
       { kind: "note", message: "b" },
     ]);
     const line = traceLine(makeEvent(), out, 1, 2);
     expect(line).toBe(
-      '[hook-kit] event=PreToolUse tool=Bash session=s1 modules=1 → escalate reason="ask" annotations=2 time=2ms\n',
+      '[hook-kit] event=PreToolUse tool=Bash session=s1 modules=1 → ask reason="ask" annotations=2 time=2ms\n',
     );
   });
 });

@@ -12,7 +12,7 @@
 // These tests pin the policy so a future refactor can't silently shift it.
 
 import { describe, expect, test } from "bun:test";
-import { deny, escalate, note, warning } from "../../src/core/decision.js";
+import { ask, deny, note, warning } from "../../src/core/decision.js";
 import type { Decision, HookEvent, HookModule, Rule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
 
@@ -77,22 +77,22 @@ describe("evaluate() — deny merge policy", () => {
 describe("evaluate() — escalate merge policy", () => {
   test("escalate does NOT short-circuit — annotations continue accumulating", async () => {
     const outcome = await evaluate(event, [
-      moduleWith([alwaysReturn(escalate("ask")), alwaysReturn(warning("after-escalate"))]),
+      moduleWith([alwaysReturn(ask("ask")), alwaysReturn(warning("after-escalate"))]),
     ]);
-    expect(outcome.terminal).toEqual({ kind: "escalate", reason: "ask" });
+    expect(outcome.terminal).toEqual({ kind: "ask", reason: "ask" });
     expect(outcome.annotations).toEqual([{ kind: "warning", message: "after-escalate" }]);
   });
 
   test("FIRST escalate wins terminal; later escalates dropped", async () => {
     const outcome = await evaluate(event, [
-      moduleWith([alwaysReturn(escalate("first")), alwaysReturn(escalate("second"))]),
+      moduleWith([alwaysReturn(ask("first")), alwaysReturn(ask("second"))]),
     ]);
-    expect(outcome.terminal).toEqual({ kind: "escalate", reason: "first" });
+    expect(outcome.terminal).toEqual({ kind: "ask", reason: "first" });
   });
 
   test("escalate then deny → deny still wins (deny is highest)", async () => {
     const outcome = await evaluate(event, [
-      moduleWith([alwaysReturn(escalate("ask")), alwaysReturn(deny("blocked"))]),
+      moduleWith([alwaysReturn(ask("ask")), alwaysReturn(deny("blocked"))]),
     ]);
     expect(outcome.terminal).toEqual({ kind: "deny", reason: "blocked" });
     expect(outcome.annotations).toEqual([]);
@@ -100,9 +100,9 @@ describe("evaluate() — escalate merge policy", () => {
 
   test("annotations fired before escalate are bundled with it", async () => {
     const outcome = await evaluate(event, [
-      moduleWith([alwaysReturn(warning("before")), alwaysReturn(escalate("ask"))]),
+      moduleWith([alwaysReturn(warning("before")), alwaysReturn(ask("ask"))]),
     ]);
-    expect(outcome.terminal).toEqual({ kind: "escalate", reason: "ask" });
+    expect(outcome.terminal).toEqual({ kind: "ask", reason: "ask" });
     expect(outcome.annotations).toEqual([{ kind: "warning", message: "before" }]);
   });
 });

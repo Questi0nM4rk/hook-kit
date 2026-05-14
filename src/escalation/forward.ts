@@ -3,6 +3,7 @@
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { emitErrorLine, JsonParseError } from "../core/errors.js";
 import { brokerPaths, ensureSession, type SessionMeta } from "./broker.js";
 import {
   type AskResponse,
@@ -102,7 +103,8 @@ function readParentId(metaPath: string): string | undefined {
   try {
     const meta = JSON.parse(readFileSync(metaPath, "utf8")) as SessionMeta;
     return meta.parentSessionId;
-  } catch {
+  } catch (cause) {
+    emitErrorLine(new JsonParseError(metaPath, cause));
     return undefined;
   }
 }

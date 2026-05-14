@@ -189,8 +189,8 @@ describe("path() — terminal + annotation forms", () => {
   });
 
   test("escalate() returns an escalate terminal", async () => {
-    const t = await run("Write", { file_path: "/x" }, path(/x/).escalate("ask"));
-    expect(t).toEqual({ kind: "escalate", reason: "ask" });
+    const t = await run("Write", { file_path: "/x" }, path(/x/).ask("ask"));
+    expect(t).toEqual({ kind: "ask", reason: "ask" });
   });
 
   test("deny terminal label is preserved", async () => {

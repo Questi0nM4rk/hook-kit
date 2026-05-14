@@ -96,7 +96,7 @@ export function suppressCommentsRule(): Rule {
       .join("\n");
     const more = findings.length > 5 ? `\n  …and ${findings.length - 5} more` : "";
     return {
-      kind: "escalate",
+      kind: "ask",
       reason: `unjustified linter suppression(s) added to ${rawPath}:\n${summary}${more}\n\nIf intentional, add an inline justification:\n  # ai-guardrails-allow: <rule> "<reason>"`,
       label: "[suppress-comments]",
     };

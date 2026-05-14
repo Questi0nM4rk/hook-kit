@@ -2,8 +2,8 @@
 // See docs/SPEC.md § Rule Builders
 
 import {
+  ask as askDecision,
   deny as denyDecision,
-  escalate as escalateDecision,
   note as noteDecision,
   warning as warningDecision,
 } from "../core/decision.js";
@@ -36,8 +36,8 @@ class PathRuleBuilder {
     return this.buildRule(denyDecision(reason, label));
   }
 
-  escalate(reason: string, label?: string): Rule {
-    return this.buildRule(escalateDecision(reason, label));
+  ask(reason: string, label?: string): Rule {
+    return this.buildRule(askDecision(reason, label));
   }
 
   warning(message: string, label?: string): Rule {

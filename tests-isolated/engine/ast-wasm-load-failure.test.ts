@@ -1,28 +1,31 @@
-// Isolated test for BUG-001: WasmLoadError must surface a loud one-shot
-// warning so silently-disabled rules aren't invisible. Lives in
+// Isolated test for the WasmLoadError surfacing contract. Lives in
 // `tests-isolated/` because Bun's `mock.module()` is process-sticky
-// (oven-sh/bun#14516) — even with afterAll re-mock, sibling test files
-// in the same `bun test` invocation see the throwing parse.
+// (oven-sh/bun#14516) — sibling test files in the same `bun test` invocation
+// would see the throwing parse and break unrelated assertions.
 //
 // Run via `bun test tests-isolated/` (separate invocation; the package's
 // `test` script chains both directories sequentially).
 //
-// Contract since shell-ast 0.3:
-//   WasmLoadError / WasmRuntimeError → loud one-shot stderr warning
-//     (infra broken; every AST-aware rule is disabled across the process)
-//   ParseSyntaxError                 → silent (per-input user typo)
+// Contract since 0.5 (0-silent-fails):
+//   WasmLoadError /        → ShellAstParseError annotation in every
+//   WasmRuntimeError         EvaluationOutcome where AST parsing is
+//                            attempted. Per-invocation, not once-per-process.
+//   ParseSyntaxError       → silent (per-input typo; user-meaningful only).
+//
+// Iron Law 4 still holds: rules contribute null when AST is unavailable.
+// The annotation is the visibility channel; it never blocks the command.
 //
 // Covered here:
-//   1. WasmLoadError throw → warning fires once with the expected wording
-//   2. Latch holds across 3 evaluates (no warning duplication)
-//   3. Iron Law 4 still holds: rules return null under infra failure
+//   1. WasmLoadError throw → ShellAstParseError annotation fires each invocation
+//   2. Non-Bash events skip parse entirely, no annotation produced
+//   3. Iron Law 4: rules still contribute null (no terminal) under infra failure
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import * as realShellAst from "@questi0nm4rk/shell-ast";
 import { createModule } from "../../src/core/module.js";
-import { __resetAstErrorLoggedForTests, evaluate } from "../../src/engine/index.js";
+import { evaluate } from "../../src/engine/index.js";
 import { cmd } from "../../src/rules/command.js";
-import { bashEvent, captureStderr } from "../../tests/_helpers.js";
+import { bashEvent } from "../../tests/_helpers.js";
 
 mock.module("@questi0nm4rk/shell-ast", () => ({
   ...realShellAst,
@@ -35,53 +38,43 @@ const denyRm = createModule({ id: "x", name: "test", events: ["PreToolUse"], mat
   cmd("rm").deny("blocked"),
 ]);
 
-describe("engine — WasmLoadError emits loud one-shot warning (BUG-001)", () => {
-  let captured: { restore: () => void; output: () => string };
-
-  beforeEach(() => {
-    __resetAstErrorLoggedForTests();
-    captured = captureStderr();
-  });
-
-  test("first WASM-load failure emits a stderr warning with the expected wording", async () => {
-    await evaluate(bashEvent("rm -rf /"), [denyRm]);
-    captured.restore();
-
-    const out = captured.output();
-    expect(out).toContain("[hook-kit] shell-ast WASM unavailable");
-    expect(out).toContain("[hook-kit] details:");
-    expect(out).toContain("test injection: WASM unavailable");
-  });
-
-  test("warning fires once per process across multiple WASM failures", async () => {
-    await evaluate(bashEvent("rm -rf /"), [denyRm]);
-    await evaluate(bashEvent("echo hello"), [denyRm]);
-    await evaluate(bashEvent("git status"), [denyRm]);
-    captured.restore();
-
-    const out = captured.output();
-    const lineCount = out
-      .split("\n")
-      .filter((l) => l.includes("[hook-kit] shell-ast WASM unavailable")).length;
-    expect(lineCount).toBe(1);
-  });
-
-  test("rules still return null under WasmLoadError (Iron Law 4 preserved)", async () => {
+describe("engine — WasmLoadError surfaces as ShellAstParseError annotation", () => {
+  test("first WASM failure emits a ShellAstParseError annotation with the cause message", async () => {
     const outcome = await evaluate(bashEvent("rm -rf /"), [denyRm]);
-    captured.restore();
-    expect(outcome.terminal).toBeNull();
-    expect(outcome.annotations).toEqual([]);
+    const errors = outcome.annotations.filter((a) => a.kind === "error");
+    expect(errors).toHaveLength(1);
+    const err = errors[0] as Extract<(typeof errors)[number], { kind: "error" }>;
+    expect(err.errorCode).toBe("ShellAstParseError");
+    expect(err.message).toContain("test injection: WASM unavailable");
   });
 
-  test("non-Bash events stay silent under WasmLoadError (no spurious warning)", async () => {
-    // getBashAst only calls parse() for Bash events. Non-Bash events should
-    // not exercise the WASM path at all, so the warning must not fire.
-    await evaluate(
+  test("annotation fires per-invocation (not once-per-process)", async () => {
+    // Each evaluate() should produce its own annotation. The old design
+    // dedup'd to once-per-process via a module-level latch; the 0.5 design
+    // surfaces every failure so a long-running session doesn't go dark
+    // after the first message.
+    for (let i = 0; i < 3; i++) {
+      const outcome = await evaluate(bashEvent("rm -rf /"), [denyRm]);
+      const errors = outcome.annotations.filter((a) => a.kind === "error");
+      expect(errors).toHaveLength(1);
+    }
+  });
+
+  test("rules contribute null under WasmLoadError (Iron Law 4 preserved)", async () => {
+    const outcome = await evaluate(bashEvent("rm -rf /"), [denyRm]);
+    // Annotation present, but no terminal — the AST-aware rule couldn't fire
+    // and there are no other rules to produce a decision.
+    expect(outcome.terminal).toBeNull();
+  });
+
+  test("non-Bash events skip parse entirely, no error annotation produced", async () => {
+    // getBashAst only calls parse() for Bash events. Non-Bash events never
+    // exercise the WASM path, so no ShellAstParseError annotation should
+    // appear.
+    const outcome = await evaluate(
       { ...bashEvent("rm -rf /"), toolName: "Read", toolInput: { file_path: "/etc/passwd" } },
       [denyRm],
     );
-    captured.restore();
-
-    expect(captured.output()).toBe("");
+    expect(outcome.annotations.filter((a) => a.kind === "error")).toEqual([]);
   });
 });

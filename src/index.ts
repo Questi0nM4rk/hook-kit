@@ -5,7 +5,22 @@
 export { type RawAdapter, type RawAdapterState, rawAdapter } from "./adapters/raw.js";
 export type { ProtocolAdapter } from "./adapters/types.js";
 // Decision constructors
-export { deny, escalate, note, warning } from "./core/decision.js";
+export { ask, deny, note, warning } from "./core/decision.js";
+// Typed errors — thrown by rules / engine boundary, surfaced as `error`
+// annotations in EvaluationOutcome.annotations. Consumers writing custom
+// rules can throw these to surface infra failures through the annotation
+// channel rather than swallowing them.
+export {
+  EnvelopeValidationError,
+  FileReadError,
+  FileWriteError,
+  HookKitError,
+  JsonParseError,
+  ProcessSpawnError,
+  RuleEvaluationError,
+  ShellAstParseError,
+  StateStoreError,
+} from "./core/errors.js";
 // Event helpers
 export { toToolEvent } from "./core/event.js";
 // Module factory
@@ -23,7 +38,13 @@ export type {
   ToolEvent,
 } from "./core/types.js";
 // Engine
-export { type EvaluateOptions, evaluate, evaluateRule } from "./engine/index.js";
+export {
+  type EvaluateOptions,
+  evaluate,
+  evaluateRule,
+  type RunModuleOptions,
+  runModule,
+} from "./engine/index.js";
 // Rule builders
 export { cmd } from "./rules/command.js";
 export { content } from "./rules/content.js";
