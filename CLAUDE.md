@@ -50,6 +50,8 @@ src/wrapper/      hk.ts — runShell() (the v0.3 default for compiled binaries)
 src/adapters/     ProtocolAdapter: claude-code (cc-tools), raw
 src/state/        StateStore: memory-store, tmpdir-store
 src/escalation/   askpass, broker, envelope, forward, listeners, watch-tui, enrich-git
+src/testing/      0.7+ test-builders SDK: expectModule, mockState, mockAskpass,
+                  event factories — exported via `./testing` subpath
 src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 ```
 
@@ -116,26 +118,56 @@ Three coordinated builder-primitive upgrades adopting shell-ast 0.6's polymorphi
 
 A3 (`findRedirects({depth: "top"})` as default) was **deliberately dropped** — subshell redirects DO touch the filesystem (`result=$(echo evil > /etc/passwd)` actually overwrites `/etc/passwd`), so switching to top-only would create a silent deny-bypass. Current `depth: "any"` default is correct for filesystem-write security rules.
 
-## Roadmap (next — workstream B)
+## What 0.7.0 landed (workstream B — shipped)
 
-**Test-builders SDK** as a first-class subpath export `@questi0nm4rk/hook-kit/testing`. Consumers shouldn't hand-roll synthetic events / mock state stores / mock askpass scripts. Working sketch:
+**Test-builders SDK** as a first-class subpath export `@questi0nm4rk/hook-kit/testing`. Consumers no longer hand-roll synthetic events / mock state stores / mock askpass scripts.
 
 ```ts
-import { expectModule, mockState, mockAskpass } from "@questi0nm4rk/hook-kit/testing";
+import {
+  expectModule, expectRule,
+  bashEvent, editEvent, writeEvent, readEvent,
+  mockState, mockAskpass,
+} from "@questi0nm4rk/hook-kit/testing";
 
-expectModule(myModule)
-  .onCommand("gcc -o /etc/passwd src.c")
-  .toDeny(/system file/);
+// terminal assertions
+await expectModule(myModule).onCommand("gcc -o /etc/passwd src.c").toDeny(/system file/);
+await expectModule(myModule).onCommand("git push --force").toAsk(/confirm/);
+await expectModule(myModule).onCommand("ls /tmp").toRun();
 
-expectModule(myModule)
-  .onCommand("rm -rf /tmp/x")
+// annotation assertions
+await expectModule(myModule).onCommand("rm /tmp/x").toWarn(/quota/);
+await expectModule(myModule).onCommand("rm /tmp/x").toNote(/heads up/);
+
+// chained setup (mockState, shellAstOpts, recursion override)
+await expectModule(myModule)
   .withState(mockState({ "deletions:count": 5 }))
+  .onCommand("rm -rf /tmp/x")
   .toWarn(/quota/);
 
-expectModule(myModule)
-  .onCommand("git push --force")
-  .withAskpass(mockAskpass({ decision: "allow" }))
-  .toRun();
+await expectModule(myModule)
+  .withShellAstOpts({ globalFlags: { terraform: ["-chdir"] } })
+  .onCommand("terraform -chdir ./infra apply")
+  .toDeny();
+
+// non-Bash events
+await expectModule(myModule).onWrite("/tmp/.env", "x=1").toDeny();
+await expectModule(myModule).onEdit("/migrations/001.sql", "old", "new").toDeny();
+await expectModule(myModule).onRead("/secrets.json").toDeny();
+
+// askpass-mediated decisions
+const askpass = mockAskpass({ decision: "allow" });
+try {
+  process.env.HOOK_KIT_ASKPASS = askpass.path;
+  await expectModule(myModule).onCommand("git push --force").toRun();
+} finally {
+  askpass.cleanup();
+}
+
+// single-rule shortcut + outcome() escape hatch
+await expectRule(cmd("rm").deny("blocked")).onCommand("rm /").toDeny();
+const out = await expectModule(myModule).onCommand("rm /").outcome();
 ```
 
-Surface: `expectModule` / `expectRule` fluent runner, `bashEvent` / `editEvent` / `writeEvent` event factories, `mockState` / `mockAskpass` factories, terminal/annotation assertions. Lives in `src/testing/` and exports via `package.json` `"./testing"` subpath. Keeps current `runModule` + `evaluateRule` as low-level escape hatches.
+Surface lives in `src/testing/` and exports via `package.json` `"./testing"` subpath. `runModule` + `evaluateRule` remain in the main barrel as low-level escape hatches; the testing SDK is the ergonomic primary lens for rule tests.
+
+Coverage: `tests/testing/` has 51 cases (10 events, 9 mock-state, 9 mock-askpass via real `callAskpass` integration, 23 expect). Exercises actual builders (cmd, path, redirect, stateful) end-to-end through the engine — not against a mock — so divergence between SDK behavior and production behavior surfaces in CI.

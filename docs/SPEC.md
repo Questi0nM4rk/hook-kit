@@ -608,6 +608,24 @@ The shell wrapper is the always-applicable contract; the cc-tools binary is the 
 | Adapters | CC JSON shape per decision per event; empty/malformed stdin |
 | State stores | get/set/has/delete/flush, missing file, disk full, corruption |
 | Escalation | askpass spawn + stdin/stdout protocol, unset askpass falls through to harness-ask, broker spool atomicity, listener marker liveness, NO PARENT ATTACHED validator, listener CLIs, escalate-up forward (single + multi-hop), harness-ask delegation |
+| Testing SDK (0.7+) | `expectModule` / `expectRule` fluent runner (terminal + annotation assertions, `.outcome()` escape hatch, regex/string matchers), event factories (`bashEvent`/`writeEvent`/`editEvent`/`readEvent` defaults + opts), `mockState` (Map-backed, optional `flushFn`), `mockAskpass` (POSIX shell script, integrates via real `callAskpass`) |
+
+### Testing SDK (`@questi0nm4rk/hook-kit/testing`)
+
+Lives in `src/testing/` and exports via the `"./testing"` subpath in `package.json`. Consumers writing rule tests should reach for this; the lower-level `runModule` / `evaluateRule` in the main barrel are escape hatches for cases that need custom event shapes.
+
+| Export | Shape |
+|--------|-------|
+| `expectModule(mod \| mods)` | `ExpectationBuilder` — chainable `.withState`, `.withShellAstOpts`, `.noInlineShellRecursion`; advance via `.onCommand`/`.onWrite`/`.onEdit`/`.onRead`/`.withEvent` |
+| `expectRule(rule)` | Wraps a single rule in a synthetic module that accepts every event name |
+| Returned `AssertionRunner` | `.toDeny(reason?)`, `.toAsk(reason?)`, `.toRun()`, `.toWarn(msg?)`, `.toNote(msg?)`, `.outcome()` |
+| `StringMatcher` | `RegExp \| string` — regex uses `.test()`, string uses `===` (strict equality) |
+| `bashEvent(cmd, opts?)` | `HookEvent` for Bash with `toolInput.command` |
+| `writeEvent(path, content?, opts?)` | `HookEvent` for Write |
+| `editEvent(path, oldStr?, newStr?, opts?)` | `HookEvent` for Edit |
+| `readEvent(path, opts?)` | `HookEvent` for Read |
+| `mockState(initial?, opts?)` | Map-backed `StateStore`; `flushFn` can throw to test `StateStoreError` annotation path |
+| `mockAskpass({decision, reason?, by?, decidedAt?})` | `{path, env, cleanup}` — generates a POSIX shell script that synthesizes a valid `AskResponse` echoing the request id |
 | Integration | Compile fixture + execute end-to-end (shell wrapper + cc-tools) |
 | Performance | Compiled binary cold start < 50ms |
 
