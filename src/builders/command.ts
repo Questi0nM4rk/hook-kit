@@ -27,7 +27,23 @@ class CommandRuleBuilder {
     private argMatchPatterns: RegExp[] = [],
     private argIncludeValues: string[] = [],
     private requireDdash: boolean = false,
+    private strictPathFlag: boolean = false,
   ) {}
+
+  /**
+   * Match the command against the verbatim path-as-typed instead of the
+   * basename. Default behavior (since 0.6.0) is basename match — `cmd("git")`
+   * fires on `/usr/bin/git`, `./bin/git`, etc. Use `.strictPath()` when you
+   * want `cmd("/usr/bin/git")` to fire ONLY on that exact invocation:
+   *
+   *   cmd("/usr/bin/git").strictPath().deny("vendored git only")
+   *
+   * Rarely needed. Default basename match is what most consumers want.
+   */
+  strictPath(): this {
+    this.strictPathFlag = true;
+    return this;
+  }
 
   withFlag(...flags: string[]): this {
     this.flags = [...this.flags, ...flags];
@@ -120,6 +136,7 @@ class CommandRuleBuilder {
       argMatchPatterns: [...this.argMatchPatterns] as readonly RegExp[],
       argIncludeValues: [...this.argIncludeValues] as readonly string[],
       requireDdash: this.requireDdash,
+      strictPath: this.strictPathFlag,
     };
     return {
       kind: "command",
@@ -131,7 +148,7 @@ class CommandRuleBuilder {
           const u = unwrapCall(call);
           if (u === null) continue;
           // See `unwrappedName` in engine/helpers.ts for the dispatch policy.
-          if (unwrappedName(u) !== cfg.command) continue;
+          if (unwrappedName(u, cfg.strictPath) !== cfg.command) continue;
 
           // Match subcommands by position
           let subOk = true;
