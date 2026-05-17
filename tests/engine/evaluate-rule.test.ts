@@ -3,11 +3,11 @@
 // in createModule + evaluate.
 
 import { describe, expect, test } from "bun:test";
+import { cmd } from "../../src/builders/command.js";
+import { custom } from "../../src/builders/custom.js";
 import { deny } from "../../src/core/decision.js";
 import type { HookEvent, Rule } from "../../src/core/types.js";
 import { evaluateRule } from "../../src/engine/index.js";
-import { cmd } from "../../src/rules/command.js";
-import { custom } from "../../src/rules/custom.js";
 import { bashEvent } from "../_helpers.js";
 
 describe("evaluateRule() — single-rule test helper", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { redirect } from "../../src/builders/redirect.js";
 import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
-import { redirect } from "../../src/rules/redirect.js";
 
 function bashEvent(command: string): HookEvent {
   return {

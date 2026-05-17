@@ -22,9 +22,9 @@
 
 import { describe, expect, mock, test } from "bun:test";
 import * as realShellAst from "@questi0nm4rk/shell-ast";
+import { cmd } from "../../src/builders/command.js";
 import { createModule } from "../../src/core/module.js";
 import { evaluate } from "../../src/engine/index.js";
-import { cmd } from "../../src/rules/command.js";
 import { bashEvent } from "../../tests/_helpers.js";
 
 mock.module("@questi0nm4rk/shell-ast", () => ({

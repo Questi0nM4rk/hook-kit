@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { stateful } from "../../src/builders/state.js";
 import { warning } from "../../src/core/decision.js";
 import type { Annotation, HookEvent, HookModule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
-import { stateful } from "../../src/rules/state.js";
 import { MemoryStore } from "../../src/state/memory-store.js";
 import { TmpdirStore } from "../../src/state/tmpdir-store.js";
 

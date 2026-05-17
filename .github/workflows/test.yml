@@ -16,6 +16,6 @@ jobs:
       - name: Install deps
         run: bun install --frozen-lockfile
       - name: Lint
-        run: bun x biome check src/ tests/
+        run: bun run lint
       - name: Test
-        run: bun test
+        run: bun run test

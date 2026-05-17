@@ -41,7 +41,8 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 │   │   ├── decision.ts           # deny(), ask(), warning(), note()
 │   │   ├── event.ts              # toToolEvent() — typed view of HookEvent
 │   │   └── module.ts             # createModule() factory
-│   ├── rules/
+│   ├── builders/                 # Rule BUILDERS (primitives) — hook-kit ships
+│   │   │                         # no pre-built rules; consumers compose their own.
 │   │   ├── command.ts            # cmd() — shell-AST based command matching
 │   │   ├── path.ts               # path() — file path patterns (Edit/Write/Read events)
 │   │   ├── pipe.ts               # pipe(from, into) — `cmd1 | cmd2` detection

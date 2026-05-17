@@ -479,7 +479,7 @@ TypeScript (src/)
 ```
 src/
 ├── core/         types.ts, decision.ts, event.ts, module.ts
-├── rules/        cmd(), path(), pipe(), redirect(), content(), custom(), stateful()
+├── builders/     cmd(), path(), pipe(), redirect(), content(), custom(), stateful() — primitives only; no pre-built rules ship
 ├── engine/       evaluate() loop + helpers (flag aliases, inline-shell extraction)
 ├── wrapper/      hk.ts — runShell() (the v0.4 default)
 ├── adapters/     ProtocolAdapter: claude-code (cc-tools), raw
