@@ -2,7 +2,7 @@
 // See docs/SPEC.md § Rule Builders for semantics
 
 import type { CallExprNode } from "@questi0nm4rk/shell-ast";
-import { findCalls, isResolved, unwrapCall, wordToLit } from "@questi0nm4rk/shell-ast";
+import { findCalls, isResolved, tokensAfter, unwrapCall, wordToLit } from "@questi0nm4rk/shell-ast";
 import {
   ask as askDecision,
   deny as denyDecision,
@@ -16,8 +16,19 @@ export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
   return new CommandRuleBuilder(command, sub);
 }
 
+/** Predicate over a single resolved flag-value string. ANY-match semantics
+ *  in evaluate() — if at least one of `tokensAfter(u, flag)`'s values
+ *  satisfies the predicate, the rule fires. DYNAMIC values are skipped
+ *  (the predicate isn't given a chance — see "Dynamic-value policy" in
+ *  the README's flag-value section). */
+interface FlagValuePredicate {
+  readonly flag: string;
+  readonly test: (value: string) => boolean;
+}
+
 class CommandRuleBuilder {
   private anyOfFlags: string[][] = [];
+  private flagValuePredicates: FlagValuePredicate[] = [];
 
   constructor(
     private readonly command: string,
@@ -101,6 +112,42 @@ class CommandRuleBuilder {
     return this;
   }
 
+  /**
+   * Fire when `flag`'s value matches `pattern`. Inspects the value AFTER
+   * the flag in the resolved arg list (both `-o /etc/passwd` space form
+   * and `--output=/etc/passwd` = form work). Repeated flags use ANY-match
+   * semantics — fires if at least one occurrence's value matches. Dynamic
+   * values (`-o "$VAR"`, `-o $(cmd)`) are skipped silently; consumers who
+   * want strict block-on-uncertainty compose via `.custom()`.
+   *
+   * Backed by shell-ast 0.6's polymorphic `tokensAfter(u, flag)` —
+   * dispatches to the INNER call for `wrapped` (sudo) variants, so
+   * `cmd("gcc").flagValueMatches("-o", /.../)` fires on `sudo gcc -o ...`.
+   *
+   *   cmd("gcc").flagValueMatches("-o", /^\/(etc|sys|dev)/).deny("system path")
+   *   cmd("curl").flagValueMatches("-o", /^\/(etc|root)/).deny("sensitive path")
+   *   cmd("git", "commit").flagValueMatches("-F", /^\/tmp/).warning("tmpfs msg")
+   */
+  flagValueMatches(flag: string, pattern: RegExp): this {
+    this.flagValuePredicates = [
+      ...this.flagValuePredicates,
+      { flag, test: (v) => pattern.test(v) },
+    ];
+    return this;
+  }
+
+  /**
+   * Fire when `flag`'s value equals `value` exactly (string `===`).
+   * Same dispatch and dynamic-skip semantics as `.flagValueMatches()`.
+   *
+   *   cmd("docker", "run").flagValueEquals("--user", "root").ask("root container")
+   *   cmd("kubectl").flagValueEquals("--context", "prod").ask("prod context")
+   */
+  flagValueEquals(flag: string, value: string): this {
+    this.flagValuePredicates = [...this.flagValuePredicates, { flag, test: (v) => v === value }];
+    return this;
+  }
+
   deny(reason: string, label?: string): Rule {
     return this.buildRule(denyDecision(reason, label));
   }
@@ -137,6 +184,7 @@ class CommandRuleBuilder {
       argIncludeValues: [...this.argIncludeValues] as readonly string[],
       requireDdash: this.requireDdash,
       strictPath: this.strictPathFlag,
+      flagValuePredicates: [...this.flagValuePredicates] as readonly FlagValuePredicate[],
     };
     return {
       kind: "command",
@@ -174,6 +222,17 @@ class CommandRuleBuilder {
 
           // POSIX `--` end-of-options separator (e.g. git checkout -- file)
           if (cfg.requireDdash && !hasDdash(call)) continue;
+
+          // Flag-value predicates (uses shell-ast 0.6 polymorphic tokensAfter;
+          // dispatches to u.innerRaw for wrapped, u.raw for plain, walks the
+          // arg list — works regardless of GLOBAL_VALUE_FLAGS registration).
+          if (
+            !cfg.flagValuePredicates.every((p) =>
+              tokensAfter(u, p.flag).some((v) => isResolved(v) && p.test(v)),
+            )
+          ) {
+            continue;
+          }
 
           return decision;
         }
