@@ -19,9 +19,9 @@
 // instead, so the latch is gone and these tests assert on annotations.
 
 import { describe, expect, test } from "bun:test";
+import { cmd } from "../../src/builders/command.js";
 import { createModule } from "../../src/core/module.js";
 import { evaluate } from "../../src/engine/index.js";
-import { cmd } from "../../src/rules/command.js";
 import { bashEvent } from "../_helpers.js";
 
 const denyRm = createModule({ id: "x", name: "test", events: ["PreToolUse"], matchers: ["Bash"] }, [

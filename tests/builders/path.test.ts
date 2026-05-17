@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { path } from "../../src/builders/path.js";
 import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
-import { path } from "../../src/rules/path.js";
 
 function event(toolName: string, toolInput: Record<string, unknown>): HookEvent {
   return {
