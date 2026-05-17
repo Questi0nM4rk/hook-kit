@@ -145,7 +145,7 @@ class CommandRuleBuilder {
         if (ast === null) return null;
 
         for (const call of findCalls(ast)) {
-          const u = unwrapCall(call);
+          const u = unwrapCall(call, ctx.shellAstOpts);
           if (u === null) continue;
           // See `unwrappedName` in engine/helpers.ts for the dispatch policy.
           if (unwrappedName(u, cfg.strictPath) !== cfg.command) continue;
