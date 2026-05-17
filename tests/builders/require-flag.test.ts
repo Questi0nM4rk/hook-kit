@@ -5,9 +5,9 @@
 // types beyond an OR-group accumulator on the builder.
 
 import { describe, expect, test } from "bun:test";
+import { cmd } from "../../src/builders/command.js";
 import { createModule } from "../../src/core/module.js";
 import { runModule } from "../../src/engine/index.js";
-import { cmd } from "../../src/rules/command.js";
 
 function modOf(rule: Parameters<typeof createModule>[1][number]) {
   return createModule({ id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash"] }, [rule]);

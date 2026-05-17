@@ -1,6 +1,6 @@
 // Behavior pins for the cmd() rule's dispatch on UnwrappedCall.kind.
 // Each kind has a specific policy choice — without these tests, a future
-// refactor of `src/rules/command.ts:95` (the dispatch one-liner) could
+// refactor of `src/builders/command.ts:95` (the dispatch one-liner) could
 // silently shift the policy.
 //
 // Policy (matches shell-ast 0.3 migration guide):
@@ -10,8 +10,8 @@
 //   wrapped-opaque → match u.wrapper    (escalator catch: cmd("sudo") fires on `sudo $X`)
 
 import { describe, expect, test } from "bun:test";
+import { cmd } from "../../src/builders/command.js";
 import { evaluateRule } from "../../src/engine/index.js";
-import { cmd } from "../../src/rules/command.js";
 import { bashEvent } from "../_helpers.js";
 
 describe("cmd() — kind=plain (no wrapper)", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { pipe } from "../../src/builders/pipe.js";
 import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
-import { pipe } from "../../src/rules/pipe.js";
 
 function bashEvent(command: string): HookEvent {
   return {

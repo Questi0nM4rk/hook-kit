@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { content } from "../../src/builders/content.js";
 import {
   FileReadError,
   FileWriteError,
@@ -21,7 +22,6 @@ import {
 import { createModule } from "../../src/core/module.js";
 import type { Rule } from "../../src/core/types.js";
 import { runModule } from "../../src/engine/index.js";
-import { content } from "../../src/rules/content.js";
 import { TmpdirStore } from "../../src/state/tmpdir-store.js";
 
 /** A rule that always throws the given HookKitError on evaluation. Used to

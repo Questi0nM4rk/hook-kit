@@ -4,6 +4,14 @@
 // Adapter interface + raw adapter (for library/test use)
 export { type RawAdapter, type RawAdapterState, rawAdapter } from "./adapters/raw.js";
 export type { ProtocolAdapter } from "./adapters/types.js";
+// Rule builders
+export { cmd } from "./builders/command.js";
+export { content } from "./builders/content.js";
+export { custom } from "./builders/custom.js";
+export { path } from "./builders/path.js";
+export { pipe } from "./builders/pipe.js";
+export { redirect } from "./builders/redirect.js";
+export { stateful } from "./builders/state.js";
 // Decision constructors
 export { ask, deny, note, warning } from "./core/decision.js";
 // Typed errors — thrown by rules / engine boundary, surfaced as `error`
@@ -45,14 +53,6 @@ export {
   type RunModuleOptions,
   runModule,
 } from "./engine/index.js";
-// Rule builders
-export { cmd } from "./rules/command.js";
-export { content } from "./rules/content.js";
-export { custom } from "./rules/custom.js";
-export { path } from "./rules/path.js";
-export { pipe } from "./rules/pipe.js";
-export { redirect } from "./rules/redirect.js";
-export { stateful } from "./rules/state.js";
 // Entry point — adapter mode (used by cc-tools binary, library consumers)
 export { type RunOptions, run } from "./run.js";
 // Entry point — shell-wrapper mode (the v0.3 default for compiled binaries)

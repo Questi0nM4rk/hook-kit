@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { cmd } from "../../src/builders/command.js";
 import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { __setMaxRecurseDepthForTests, evaluate } from "../../src/engine/index.js";
-import { cmd } from "../../src/rules/command.js";
 
 function bashEvent(command: string): HookEvent {
   return {

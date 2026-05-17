@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { content } from "../../src/builders/content.js";
 import { deny, warning } from "../../src/core/decision.js";
 import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
-import { content } from "../../src/rules/content.js";
 
 let workDir: string;
 

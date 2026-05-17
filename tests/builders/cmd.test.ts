@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { cmd } from "../../src/builders/command.js";
 import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { runModule } from "../../src/engine/index.js";
-import { cmd } from "../../src/rules/command.js";
 
 // All rule evaluation flows through `runModule` — the 0.5 test harness. The
 // shortcut form (`{ module, command }`) builds the PreToolUse Bash event

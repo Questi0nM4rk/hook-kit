@@ -5,10 +5,10 @@
 // style that previously had to compile a binary, exec it, and grep stdout.
 
 import { describe, expect, test } from "bun:test";
+import { cmd } from "../../src/builders/command.js";
+import { content } from "../../src/builders/content.js";
 import { createModule } from "../../src/core/module.js";
 import { runModule } from "../../src/engine/index.js";
-import { cmd } from "../../src/rules/command.js";
-import { content } from "../../src/rules/content.js";
 
 describe("runModule — test harness", () => {
   test("command shortcut: builds a PreToolUse Bash event from a string", async () => {
