@@ -1,13 +1,9 @@
 // Regression for shell-ast BUG-000: leading value-taking global flags
 // (`git -C /tmp`, `docker -H ...`, `kubectl --context ...`, `make -C ...`,
 // `tar -C ...`) used to shift positional args, breaking hook-kit's
-// subcommand-position matching. shell-ast v0.4.0 fixed this via the
-// per-tool GLOBAL_VALUE_FLAGS table in src/flags.ts.
-//
-// These tests are SKIPPED until hook-kit's shell-ast dep is bumped from
-// ^0.3.2 → ^0.4.0. Flip `test.skip` → `test` after the bump and verify the
-// suite stays green. The tests document the EXPECTED behavior post-bump so
-// the upgrade is a one-line operation.
+// subcommand-position matching. shell-ast v0.4.0 closed the bug via the
+// per-tool GLOBAL_VALUE_FLAGS table in src/flags.ts; adopted in hook-kit
+// 0.5.1 via the shell-ast `^0.5.1` dep range.
 //
 // Coverage map (each row = one previously-bypass pattern):
 //   git -C <dir> <sub> [args]      — subcommand-position match must still fire
@@ -26,8 +22,8 @@ function modOf(rule: Parameters<typeof createModule>[1][number]) {
   return createModule({ id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash"] }, [rule]);
 }
 
-describe("shell-ast BUG-000 regression (skipped until dep bump to ^0.4.0)", () => {
-  test.skip("git -C /tmp worktree add → cmd('git', 'worktree', 'add') fires", async () => {
+describe("shell-ast BUG-000 regression — global value-flag positional shift", () => {
+  test("git -C /tmp worktree add → cmd('git', 'worktree', 'add') fires", async () => {
     const mod = modOf(cmd("git", "worktree", "add").deny("blocked"));
     const outcome = await runModule({
       module: mod,
@@ -36,7 +32,7 @@ describe("shell-ast BUG-000 regression (skipped until dep bump to ^0.4.0)", () =
     expect(outcome.terminal?.kind).toBe("deny");
   });
 
-  test.skip("docker -H tcp://... run → cmd('docker', 'run') fires", async () => {
+  test("docker -H tcp://... run → cmd('docker', 'run') fires", async () => {
     const mod = modOf(cmd("docker", "run").deny("blocked"));
     const outcome = await runModule({
       module: mod,
@@ -45,7 +41,7 @@ describe("shell-ast BUG-000 regression (skipped until dep bump to ^0.4.0)", () =
     expect(outcome.terminal?.kind).toBe("deny");
   });
 
-  test.skip("kubectl --context prod get → cmd('kubectl', 'get') fires", async () => {
+  test("kubectl --context prod get → cmd('kubectl', 'get') fires", async () => {
     const mod = modOf(cmd("kubectl", "get").deny("blocked"));
     const outcome = await runModule({
       module: mod,
@@ -54,7 +50,7 @@ describe("shell-ast BUG-000 regression (skipped until dep bump to ^0.4.0)", () =
     expect(outcome.terminal?.kind).toBe("deny");
   });
 
-  test.skip("make -C /repo build → cmd('make') + argIncludes('build') fires", async () => {
+  test("make -C /repo build → cmd('make') + argIncludes('build') fires", async () => {
     const mod = modOf(cmd("make").argIncludes("build").deny("blocked"));
     const outcome = await runModule({
       module: mod,
@@ -63,7 +59,7 @@ describe("shell-ast BUG-000 regression (skipped until dep bump to ^0.4.0)", () =
     expect(outcome.terminal?.kind).toBe("deny");
   });
 
-  test.skip("tar -C /target xf - → cmd('tar') with subcommand-style arg fires", async () => {
+  test("tar -C /target xf - → cmd('tar') with subcommand-style arg fires", async () => {
     // tar's `xf` is a flag-cluster, not a subcommand; this test verifies
     // that the -C value consumption doesn't break flag-cluster matching.
     const mod = modOf(cmd("tar").withFlag("-x").deny("blocked"));
@@ -74,7 +70,7 @@ describe("shell-ast BUG-000 regression (skipped until dep bump to ^0.4.0)", () =
     expect(outcome.terminal?.kind).toBe("deny");
   });
 
-  test.skip("sudo git -C /tmp worktree add → global-flag table applies post-sudo-unwrap", async () => {
+  test("sudo git -C /tmp worktree add → global-flag table applies post-sudo-unwrap", async () => {
     // The sudo-aware unwrap re-runs flag resolution on the inner call.
     // The global-flag table must apply to the inner `git` for the subcommand
     // match to fire.
@@ -86,7 +82,7 @@ describe("shell-ast BUG-000 regression (skipped until dep bump to ^0.4.0)", () =
     expect(outcome.terminal?.kind).toBe("deny");
   });
 
-  test.skip("regression: bare `git worktree add` still fires (no global flag present)", async () => {
+  test("regression: bare `git worktree add` still fires (no global flag present)", async () => {
     // Sanity check that adding the global-flag table doesn't break the
     // existing happy path.
     const mod = modOf(cmd("git", "worktree", "add").deny("blocked"));
@@ -97,7 +93,7 @@ describe("shell-ast BUG-000 regression (skipped until dep bump to ^0.4.0)", () =
     expect(outcome.terminal?.kind).toBe("deny");
   });
 
-  test.skip("regression: unknown tool with leading -X stays in boolean-flag mode", async () => {
+  test("regression: unknown tool with leading -X stays in boolean-flag mode", async () => {
     // The global-flag table is opt-in coverage; for tools not in the table,
     // leading -X tokens are still treated as boolean flags. We assert that
     // an unknown tool's positional args shift just like 0.3 behavior.
