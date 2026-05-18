@@ -87,7 +87,7 @@
     "prepublishOnly": "bun run build && bun run test"
   },
   "dependencies": {
-    "@questi0nm4rk/shell-ast": "^0.6.0",
+    "@questi0nm4rk/shell-ast": "^0.7.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
