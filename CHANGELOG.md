@@ -6,11 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
+_(no unreleased changes — next release will accumulate here)_
+
+## [0.8.0] — 2026-05-18
+
 ### Fixed
 - Chained-wrapper coverage: `sudo bash -c '…'` (sudo at the outermost wrapper) now triggers the same rule pass as the symmetric `bash -c '…'`. Was tracked as shell-ast BUG-008 / [shell-ast#11](https://github.com/Questi0nM4rk/shell-ast/issues/11). The engine's `recurseInlineShells` block in `src/engine/index.ts` now walks shell-ast 0.7's `unwrapDeepParsed` chain and recurses on the first `wrapped-script` layer found anywhere in the chain — closing the asymmetry where the v0.6 one-level `unwrapCall` would only fire for bash-outermost shapes. Multi-level chains (`bash -c 'bash -c "..."'`) handled by the recursion's own walk + `MAX_RECURSE_DEPTH` cap. The previously-failing test in `tests/builders/deep-nesting.test.ts` is now `expect(out.terminal?.kind).toBe("deny")`.
 
 ### Changed
 - Bumped `@questi0nm4rk/shell-ast` to `^0.7.0`.
+
+### Pre-1.0 hygiene (this release cycle)
+- `docs/BUGS.md` wiped — all 6 catalogued entries (BUG-001 through BUG-006 from the 2026-05-11 ai-guardrails 0.2→0.3 migration) verified fixed in current code; file reset to active-catalog header.
+- `CHANGELOG.md` created covering 0.1.0 → 0.7.0.
+- Retroactive git tags added for v0.5.1, v0.6.0, v0.7.0 (npm-published but previously untagged).
 
 ## [0.7.0] — 2026-05-18
 
