@@ -225,6 +225,60 @@ import modules from "./hooks.js";
 await runShell(modules);  // reads process.argv, evaluates, exits per the convention
 ```
 
+### Writing rule tests — the testing SDK (0.7+)
+
+Tests for your rules live in your own repo, but hook-kit ships the harness at `@questi0nm4rk/hook-kit/testing`. The fluent runner removes the boilerplate of hand-building synthetic events / state stores / askpass scripts.
+
+```typescript
+import {
+  expectModule, expectRule,
+  bashEvent, writeEvent, editEvent, readEvent,
+  mockState, mockAskpass,
+} from "@questi0nm4rk/hook-kit/testing";
+
+// terminal assertions
+await expectModule(myModule).onCommand("gcc -o /etc/passwd src.c").toDeny(/system file/);
+await expectModule(myModule).onCommand("git push --force").toAsk(/confirm/);
+await expectModule(myModule).onCommand("ls /tmp").toRun();    // negative case
+
+// annotation assertions
+await expectModule(myModule).onCommand("rm /tmp/x").toWarn(/quota/);
+await expectModule(myModule).onCommand("rm /tmp/x").toNote(/info/);
+
+// chained setup
+await expectModule(myModule)
+  .withState(mockState({ "deletions:count": 5 }))
+  .onCommand("rm -rf /tmp/x")
+  .toWarn(/quota/);
+
+await expectModule(myModule)
+  .withShellAstOpts({ globalFlags: { terraform: ["-chdir"] } })
+  .onCommand("terraform -chdir ./infra apply")
+  .toDeny();
+
+// non-Bash events (path() / content() rules)
+await expectModule(myModule).onWrite("/tmp/.env", "x=1").toDeny();
+await expectModule(myModule).onEdit("/migrations/001.sql", "old", "new").toDeny();
+await expectModule(myModule).onRead("/secrets.json").toDeny();
+
+// askpass-mediated decisions
+const askpass = mockAskpass({ decision: "allow", reason: "test-approved" });
+try {
+  process.env.HOOK_KIT_ASKPASS = askpass.path;
+  await expectModule(myModule).onCommand("git push --force").toRun();
+} finally {
+  askpass.cleanup();
+}
+
+// single-rule shortcut + escape hatch
+await expectRule(cmd("rm").deny("blocked")).onCommand("rm /").toDeny();
+const outcome = await expectModule(myModule).onCommand("rm /").outcome();  // raw EvaluationOutcome
+```
+
+Matchers (`toDeny(pattern)`, `toAsk(pattern)`, `toWarn(pattern)`, `toNote(pattern)`) accept `RegExp` (uses `.test()`) or `string` (uses `===` — strict equality, not substring). All assertions return the full `EvaluationOutcome` for chained inspection; failure messages include the actual terminal/annotations so test debugging doesn't require an additional `.outcome()` call.
+
+`runModule` / `evaluateRule` from the main barrel stay as low-level escape hatches. Reach for them when you need to drive evaluation with a custom-shape `HookEvent` the testing SDK doesn't synthesize for you.
+
 ---
 
 ## Rule builders
@@ -723,7 +777,10 @@ git push --follow-tags
 
 ## Status
 
-Pre-release (`0.x`). Current: **`0.6.0`**. The shell-wrapper API + output convention is intended to stabilize toward `1.0`. Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
+Pre-release (`0.x`). Current: **`0.7.0`**. The shell-wrapper API + output convention is intended to stabilize toward `1.0`. Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
+
+**0.7.0 highlights** (pure addition):
+- New subpath `@questi0nm4rk/hook-kit/testing` — first-class test-builders SDK. `expectModule` / `expectRule` fluent runner; `bashEvent`/`writeEvent`/`editEvent`/`readEvent` factories; `mockState` Map-backed StateStore; `mockAskpass` POSIX-shell script generator. Worked examples below.
 
 **0.6.0 highlights** (breaking on default command-name matching; pure addition for the rest):
 - `cmd()` default-basename match (`cmd("git")` fires on `/usr/bin/git`). `.strictPath()` opts out.
