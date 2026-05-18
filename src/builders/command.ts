@@ -1,8 +1,15 @@
 // cmd() builder — shell-ast based command matching
 // See docs/SPEC.md § Rule Builders for semantics
 
-import type { CallExprNode } from "@questi0nm4rk/shell-ast";
-import { findCalls, isResolved, tokensAfter, unwrapCall, wordToLit } from "@questi0nm4rk/shell-ast";
+import type { CallExprNode, ResolvedArg } from "@questi0nm4rk/shell-ast";
+import {
+  findCalls,
+  isDynamic,
+  isResolved,
+  tokensAfter,
+  unwrapCall,
+  wordToLit,
+} from "@questi0nm4rk/shell-ast";
 import {
   ask as askDecision,
   deny as denyDecision,
@@ -16,19 +23,17 @@ export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
   return new CommandRuleBuilder(command, sub);
 }
 
-/** Predicate over a single resolved flag-value string. ANY-match semantics
- *  in evaluate() — if at least one of `tokensAfter(u, flag)`'s values
- *  satisfies the predicate, the rule fires. DYNAMIC values are skipped
- *  (the predicate isn't given a chance — see "Dynamic-value policy" in
- *  the README's flag-value section). */
-interface FlagValuePredicate {
-  readonly flag: string;
-  readonly test: (value: string) => boolean;
-}
+/** Discriminated predicate over `tokensAfter(u, flag)`. `match` fires when at
+ *  least one resolved value satisfies `test`; `dynamic` fires when at least
+ *  one value is DYNAMIC. Multiple predicates compose with AND across the
+ *  builder; ANY-match across each flag's values. */
+type FlagPredicate =
+  | { readonly kind: "match"; readonly flag: string; readonly test: (value: string) => boolean }
+  | { readonly kind: "dynamic"; readonly flag: string };
 
 class CommandRuleBuilder {
   private anyOfFlags: string[][] = [];
-  private flagValuePredicates: FlagValuePredicate[] = [];
+  private flagPredicates: FlagPredicate[] = [];
 
   constructor(
     private readonly command: string,
@@ -38,20 +43,32 @@ class CommandRuleBuilder {
     private argMatchPatterns: RegExp[] = [],
     private argIncludeValues: string[] = [],
     private requireDdash: boolean = false,
-    private strictPathFlag: boolean = false,
+    // Auto-detect path-mode from the cmd-arg shape: a "/" anywhere flips to
+    // exact match by default. Lets `cmd("/usr/bin/git")` fire on the exact
+    // invocation without `.matchExact()` boilerplate. For bare names the
+    // basename-match default still applies; `.matchExact()` is the bare-name
+    // opt-in (vendored-binary pattern).
+    private strictPathFlag: boolean = command.includes("/"),
   ) {}
 
   /**
-   * Match the command against the verbatim path-as-typed instead of the
-   * basename. Default behavior (since 0.6.0) is basename match — `cmd("git")`
-   * fires on `/usr/bin/git`, `./bin/git`, etc. Use `.strictPath()` when you
-   * want `cmd("/usr/bin/git")` to fire ONLY on that exact invocation:
+   * Match the command exactly — no basename normalization. Two cases:
    *
-   *   cmd("/usr/bin/git").strictPath().deny("vendored git only")
+   *   cmd("/usr/bin/git")                fires on `/usr/bin/git` only.
+   *                                      Auto-applied because the cmd arg
+   *                                      contains "/" — explicit `.matchExact()`
+   *                                      is redundant but harmless.
    *
-   * Rarely needed. Default basename match is what most consumers want.
+   *   cmd("git").matchExact()            fires on bare `git` only — NOT on
+   *                                      `/usr/bin/git`. The vendored-binary
+   *                                      pattern: "allow `/opt/git/bin/git`,
+   *                                      deny default `git`".
+   *
+   * The 95% case (`cmd("git")` should fire on the system git) is handled by
+   * the default — basename match via shell-ast's `resolvedCmd`. `.matchExact()`
+   * is the explicit opt-out for that small set of cases that need it.
    */
-  strictPath(): this {
+  matchExact(): this {
     this.strictPathFlag = true;
     return this;
   }
@@ -117,8 +134,8 @@ class CommandRuleBuilder {
    * the flag in the resolved arg list (both `-o /etc/passwd` space form
    * and `--output=/etc/passwd` = form work). Repeated flags use ANY-match
    * semantics — fires if at least one occurrence's value matches. Dynamic
-   * values (`-o "$VAR"`, `-o $(cmd)`) are skipped silently; consumers who
-   * want strict block-on-uncertainty compose via `.custom()`.
+   * values (`-o "$VAR"`, `-o $(cmd)`) are skipped silently; pair with
+   * `.flagValueDynamic(flag)` for block-on-uncertainty.
    *
    * Backed by shell-ast 0.6's polymorphic `tokensAfter(u, flag)` —
    * dispatches to the INNER call for `wrapped` (sudo) variants, so
@@ -129,9 +146,9 @@ class CommandRuleBuilder {
    *   cmd("git", "commit").flagValueMatches("-F", /^\/tmp/).warning("tmpfs msg")
    */
   flagValueMatches(flag: string, pattern: RegExp): this {
-    this.flagValuePredicates = [
-      ...this.flagValuePredicates,
-      { flag, test: (v) => pattern.test(v) },
+    this.flagPredicates = [
+      ...this.flagPredicates,
+      { kind: "match", flag, test: (v) => pattern.test(v) },
     ];
     return this;
   }
@@ -144,7 +161,38 @@ class CommandRuleBuilder {
    *   cmd("kubectl").flagValueEquals("--context", "prod").ask("prod context")
    */
   flagValueEquals(flag: string, value: string): this {
-    this.flagValuePredicates = [...this.flagValuePredicates, { flag, test: (v) => v === value }];
+    this.flagPredicates = [
+      ...this.flagPredicates,
+      { kind: "match", flag, test: (v) => v === value },
+    ];
+    return this;
+  }
+
+  /**
+   * Fire when at least one occurrence of `flag` has a DYNAMIC value the
+   * resolver can't see statically (`-o "$VAR"`, `-o $(cmd)`, `-o ~/x`).
+   *
+   * Pairs with `.flagValueMatches` for defense-in-depth — the matcher catches
+   * concrete-value violations, this catches "we can't tell, treat as
+   * suspicious." Both rules can ship side-by-side:
+   *
+   *   cmd("gcc")
+   *     .flagValueMatches("-o", /^\/(etc|sys|dev|usr|boot)/)
+   *     .deny("gcc -o targets system path");
+   *
+   *   cmd("gcc")
+   *     .flagValueDynamic("-o")
+   *     .ask("gcc -o has dynamic target — verify before running");
+   *
+   * shell-ast surfaces DYNAMIC via its `flagValues` / `tokensAfter` (IDEOLOGY
+   * §2 "honest about limitations" — never silently allow). hook-kit's policy:
+   * matchers reject dynamics by default (they describe concrete patterns);
+   * dynamics get their own explicit hook. Same polymorphic dispatch as
+   * `.flagValueMatches`: works on bare, sudo-wrapped, and inline-shell
+   * invocations.
+   */
+  flagValueDynamic(flag: string): this {
+    this.flagPredicates = [...this.flagPredicates, { kind: "dynamic", flag }];
     return this;
   }
 
@@ -184,7 +232,7 @@ class CommandRuleBuilder {
       argIncludeValues: [...this.argIncludeValues] as readonly string[],
       requireDdash: this.requireDdash,
       strictPath: this.strictPathFlag,
-      flagValuePredicates: [...this.flagValuePredicates] as readonly FlagValuePredicate[],
+      flagPredicates: [...this.flagPredicates] as readonly FlagPredicate[],
     };
     return {
       kind: "command",
@@ -223,13 +271,27 @@ class CommandRuleBuilder {
           // POSIX `--` end-of-options separator (e.g. git checkout -- file)
           if (cfg.requireDdash && !hasDdash(call)) continue;
 
-          // Flag-value predicates (uses shell-ast 0.6 polymorphic tokensAfter;
-          // dispatches to u.innerRaw for wrapped, u.raw for plain, walks the
-          // arg list — works regardless of GLOBAL_VALUE_FLAGS registration).
+          // Flag-value predicates. Per-flag `tokensAfter` cache avoids
+          // re-walking call.args when multiple predicates target the same
+          // flag. Polymorphic dispatch: tokensAfter sees u.innerRaw for
+          // wrapped variants, u.raw for plain — works regardless of
+          // GLOBAL_VALUE_FLAGS registration.
+          const tokensCache = new Map<string, readonly ResolvedArg[]>();
+          const tokensFor = (flag: string): readonly ResolvedArg[] => {
+            let cached = tokensCache.get(flag);
+            if (cached === undefined) {
+              cached = tokensAfter(u, flag);
+              tokensCache.set(flag, cached);
+            }
+            return cached;
+          };
           if (
-            !cfg.flagValuePredicates.every((p) =>
-              tokensAfter(u, p.flag).some((v) => isResolved(v) && p.test(v)),
-            )
+            !cfg.flagPredicates.every((p) => {
+              const tokens = tokensFor(p.flag);
+              return p.kind === "match"
+                ? tokens.some((v) => isResolved(v) && p.test(v))
+                : tokens.some((v) => isDynamic(v));
+            })
           ) {
             continue;
           }

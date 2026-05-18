@@ -149,6 +149,68 @@ describe(".flagValueMatches() — regex predicate (A2)", () => {
   });
 });
 
+describe(".flagValueDynamic() — fire when flag has DYNAMIC value (A2)", () => {
+  test("gcc -o $VAR fires deny — explicit block-on-uncertainty", async () => {
+    const mod = modOf(
+      cmd("gcc").flagValueDynamic("-o").deny("gcc -o has dynamic target — can't verify"),
+    );
+    const out = await runModule({ module: mod, command: "gcc -o $TARGET src.c" });
+    expect(out.terminal?.kind).toBe("deny");
+  });
+
+  test("gcc -o $(some-cmd) fires (command substitution = DYNAMIC)", async () => {
+    const mod = modOf(cmd("gcc").flagValueDynamic("-o").deny("dynamic"));
+    const out = await runModule({ module: mod, command: "gcc -o $(date +%s) src.c" });
+    expect(out.terminal?.kind).toBe("deny");
+  });
+
+  test("gcc -o /tmp/x does NOT fire (concrete value)", async () => {
+    const mod = modOf(cmd("gcc").flagValueDynamic("-o").deny("dynamic"));
+    const out = await runModule({ module: mod, command: "gcc -o /tmp/x src.c" });
+    expect(out.terminal).toBeNull();
+  });
+
+  test("flag absent does NOT fire", async () => {
+    const mod = modOf(cmd("gcc").flagValueDynamic("-o").deny("dynamic"));
+    const out = await runModule({ module: mod, command: "gcc src.c" });
+    expect(out.terminal).toBeNull();
+  });
+
+  test("defense-in-depth: flagValueMatches + flagValueDynamic stack with AND", async () => {
+    // Composes correctly: both predicates must be satisfied for the rule
+    // to fire — so this rule needs BOTH a regex-matching `-o` value AND a
+    // dynamic `-i` value. Demonstrates the predicates compose without
+    // collision. The realistic deployment uses TWO separate rules (one
+    // matcher rule + one dynamic-catcher rule), not stacked.
+    const mod = modOf(
+      cmd("gcc")
+        .flagValueMatches("-o", /^\/etc/)
+        .flagValueDynamic("-i")
+        .deny("both matched + dynamic"),
+    );
+    const both = await runModule({
+      module: mod,
+      command: "gcc -o /etc/x -i $LIBPATH src.c",
+    });
+    expect(both.terminal?.kind).toBe("deny");
+
+    const onlyMatch = await runModule({
+      module: mod,
+      command: "gcc -o /etc/x -i /usr/include src.c",
+    });
+    expect(onlyMatch.terminal).toBeNull();
+  });
+
+  test("wrapped (sudo gcc -o $VAR) — polymorphic isDynamic via innerRaw", async () => {
+    const mod = modOf(cmd("gcc").flagValueDynamic("-o").deny("dynamic"));
+    const out = await runModule({
+      module: mod,
+      command: "sudo gcc -o $TARGET src.c",
+    });
+    expect(out.terminal?.kind).toBe("deny");
+  });
+});
+
 describe(".flagValueEquals() — exact-string predicate (A2)", () => {
   test("docker run --user=root fires deny", async () => {
     const mod = modOf(
