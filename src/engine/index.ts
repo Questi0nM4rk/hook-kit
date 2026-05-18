@@ -7,7 +7,7 @@ import {
   parse,
   type ResolveFlagsOptions,
   type ShellFile,
-  unwrapCall,
+  unwrapDeepParsed,
 } from "@questi0nm4rk/shell-ast";
 import { ask as askDecision, errorAnnotation } from "../core/decision.js";
 import {
@@ -270,10 +270,14 @@ async function evaluateInternal(
   }
 
   // Inline-shell recursion: a banned command hidden inside `bash -c "rm -rf /"`
-  // wouldn't trigger normal cmd() rules because the outer AST sees `bash`,
-  // not `rm`. shell-ast 0.3 surfaces these as kind="wrapped-script" with the
-  // inner source as u.script; we feed that back through evaluate() as a
-  // synthetic event so the inner script gets the full rule pass.
+  // (or `sudo bash -c "rm -rf /"`) wouldn't trigger normal cmd() rules because
+  // the outer AST sees `bash` / `sudo`, not `rm`. shell-ast 0.7's
+  // `unwrapDeepParsed` walks the wrapper chain through inline-shell boundaries
+  // and returns the layers outermost-first. We scan the chain for any
+  // wrapped-script layer and feed its inner script back through evaluate() as
+  // a synthetic event so the inner gets the full rule pass. Multi-level
+  // chains are handled by the recursion's own unwrapDeepParsed walk; the
+  // depth cap prevents runaway nesting.
   if ((opts.recurseInlineShells ?? true) && event.toolName === "Bash") {
     if (internal.depth >= MAX_RECURSE_DEPTH) {
       drainContextErrors();
@@ -286,11 +290,12 @@ async function evaluateInternal(
     const ast = await ctx.getBashAst();
     if (ast !== null) {
       for (const call of findCalls(ast)) {
-        const u = unwrapCall(call, ctx.shellAstOpts);
-        if (u?.kind !== "wrapped-script") continue;
+        const chain = await unwrapDeepParsed(call, parse, ctx.shellAstOpts);
+        const innerScript = chain.find((u) => u.kind === "wrapped-script");
+        if (innerScript === undefined || innerScript.kind !== "wrapped-script") continue;
         const synthetic: HookEvent = {
           ...event,
-          toolInput: { ...event.toolInput, command: u.script },
+          toolInput: { ...event.toolInput, command: innerScript.script },
         };
         const inner = await evaluateInternal(synthetic, modules, opts, {
           depth: internal.depth + 1,

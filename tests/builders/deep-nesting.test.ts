@@ -1,15 +1,19 @@
-// Regression for nested wrapper chains that must NOT silently bypass rules:
+// Regression for nested wrapper chains that must NOT silently bypass rules.
 //
-//   bash -c "sudo gcc -o /etc/passwd src.c"
+// Two chain shapes are covered:
 //
-// The chain: outer is wrapped-script (bash -c '…'); engine recurses on the
-// inner script, parses it; inner is wrapped (sudo gcc); unwrapCall produces
-// wrapped with innerRaw = gcc call. cmd("gcc").flagValueMatches must fire
-// via the polymorphic tokensAfter dispatch on innerRaw.
+//   1.  bash -c "sudo gcc -o /etc/passwd src.c"  (bash outer)
+//       Chain: wrapped-script[bash:"sudo gcc..."] → wrapped[sudo→gcc] →
+//       plain[gcc]. Engine recurses on the wrapped-script's inner; inner pass
+//       sees the sudo-gcc, runs cmd("gcc").flagValueMatches via the
+//       polymorphic tokensAfter dispatch on innerRaw.
 //
-// Pinned here so future engine / shell-ast changes can't quietly break the
-// chain. shell-ast BUG-008 (unwrapDeep) would simplify this, but the
-// recursion + sudo-unwrap composition already covers the case today.
+//   2.  sudo bash -c "gcc -o /etc/passwd src.c"  (sudo outer — was BUG-008)
+//       Chain: wrapped[sudo→bash] → wrapped-script[bash:"gcc..."] → plain[gcc].
+//       Closed in hook-kit 0.8 via shell-ast 0.7's unwrapDeepParsed walk —
+//       the engine scans the full chain for a wrapped-script layer and
+//       recurses on its inner script, so the sudo-outermost shape resolves
+//       symmetrically to the bash-outermost shape.
 
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
@@ -47,16 +51,14 @@ describe("deep-nesting wrapper chains — recursion + sudo-unwrap + flagValue (r
     expect(out.terminal?.kind).toBe("deny");
   });
 
-  test("sudo bash -c 'gcc -o /etc/passwd src.c' — sudo at outermost level (wrapped-opaque-then-recurse path)", async () => {
-    // Today's known limitation (shell-ast BUG-008): sudo bash -c '…' unwraps
-    // as wrapped(sudo→bash) at the outer level; the bash -c argument is
-    // opaque to one-level unwrap. Our engine recursion fires only on
-    // kind="wrapped-script", which `sudo bash -c '…'` is NOT (it's
-    // `wrapped`, the inner being bash). So the inner gcc currently escapes.
-    //
-    // This test pins the CURRENT behavior (no terminal) so we notice if
-    // shell-ast ships unwrapDeep / equivalent and the test flips to deny —
-    // at which point we update the assertion + remove this comment.
+  test("sudo bash -c 'gcc -o /etc/passwd src.c' — sudo at outermost level (closes BUG-008)", async () => {
+    // Was the BUG-008 case: sudo bash -c '…' unwraps as wrapped(sudo→bash) at
+    // the outer level, so the v0.6 one-level unwrapCall in recurseInlineShells
+    // couldn't see the inner bash -c script and the gcc call escaped. shell-ast
+    // 0.7's unwrapDeepParsed walks the full chain: wrapped[sudo→bash] →
+    // wrapped-script[bash:"gcc..."] → plain[gcc]. The engine now scans the
+    // chain for the wrapped-script layer and recurses on its inner script,
+    // resolving this case symmetrically to the bash-outermost shape above.
     const mod = modOf(
       cmd("gcc")
         .flagValueMatches("-o", /^\/(etc|sys|dev)/)
@@ -66,7 +68,7 @@ describe("deep-nesting wrapper chains — recursion + sudo-unwrap + flagValue (r
       module: mod,
       command: 'sudo bash -c "gcc -o /etc/passwd src.c"',
     });
-    expect(out.terminal).toBeNull(); // BUG-008 limitation — flip when shell-ast ships unwrapDeep
+    expect(out.terminal?.kind).toBe("deny");
   });
 
   test("nested bash -c 'bash -c \"gcc -o /etc/x src.c\"' — two layers of inline-shell recursion", async () => {
