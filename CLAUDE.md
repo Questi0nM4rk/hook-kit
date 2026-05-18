@@ -72,7 +72,7 @@ src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 
 ## Dependencies & Conventions
 
-- `@questi0nm4rk/shell-ast` ^0.5.1 — local source at `~/Projects/shell-ast`, repo `Questi0nM4rk/shell-ast`. Surface used: `parse` → `findCalls` → `unwrapCall` (sudo-aware discriminated `UnwrappedCall`) / `findRedirects` / `effectOf` / `isResolved` / `wordToLit`. 0.5 adds query helpers (`tokenAfter`, `tokensAfter`, `hasFlag`-on-`CallExpr`, `flagValues`, `resolvedCmd`) + `ResolveFlagsOptions.globalFlags` — not yet adopted; planned for 0.6.0. File consumer pain at `~/Projects/shell-ast/docs/BUGS.md`.
+- `@questi0nm4rk/shell-ast` ^0.6.0 — local source at `~/Projects/shell-ast`, repo `Questi0nM4rk/shell-ast`. Surface used: `parse` → `findCalls` → `unwrapCall(call, opts)` (sudo-aware discriminated `UnwrappedCall`, `flagValues` and `innerRaw` on `.wrapped` per shell-ast 0.6 IDEOLOGY §11 "primary lens completeness") / `findRedirects` / `effectOf` / `isResolved` / `wordToLit` / `tokensAfter(u, flag)` (polymorphic — dispatches to `innerRaw` for wrapped, `raw` for plain) / `resolvedCmd(u)` (basename normalization). `ResolveFlagsOptions.globalFlags` exposed through hook-kit's `EvaluateOptions.shellAstOpts`. File consumer pain at `~/Projects/shell-ast/docs/BUGS.md` or as GH issues on the repo.
 - `bun` — runtime, test runner, binary compiler (`bun build --compile --bytecode`).
 - `tsc --noEmit` typecheck via `bun run typecheck`. CLAUDE.md preference is for `tsgo` (TypeScript 7 native) but it's not installed on this machine; `tsc` is the working path.
 - `biome check --reporter=rdjson` — never `--reporter=json`.
@@ -106,18 +106,19 @@ Add similar coverage when introducing new builder primitives or wrapper behavior
 
 `examples/ai-guardrails/` — faithful port of the original ai-guardrails project. One source tree, two builds (`dist/hk` + `dist/hk-cc-tools`). README walks through the composed rule set and integration. Treat it as the reference implementation for new consumers — and as the smoke-test target (`tests/build/example-ai-guardrails.test.ts` builds it as part of CI).
 
-## Roadmap (0.6.0 — breaking)
+## What 0.6.0 landed (workstream A — shipped)
 
-The next minor lands a coordinated set of shell-ast 0.5 adoption + SDK ergonomics. Three workstreams:
+Three coordinated builder-primitive upgrades adopting shell-ast 0.6's polymorphic lens:
 
-**A. Builder primitives get shell-ast 0.5's power**
-- **Default basename match.** `cmd("git")` fires on `/usr/bin/git`, `./bin/git`, etc. by default (uses shell-ast's `resolvedCmd(call)`). Opt-out via `.strictPath()` if anyone needs the old behavior. Breaking — semver minor.
-- **`.flagValueMatches(flag, /pattern/)` / `.flagValueEquals(flag, value)` on `cmd()`.** Inspect the VALUE of a flag, not just its presence. Backed by shell-ast 0.5's `flagValues` on `ResolvedCall`. Unlocks deny patterns like `gcc -o /etc/passwd`, `dd of=/dev/sda`, `docker --user=root`, `git commit -F /tmp/secret`, `curl -o /etc/hosts`. Pure addition.
-- **`findRedirects(ast, {depth: "top"})` in `redirect()`.** Skip in-subshell redirects (`echo $(other > /tmp/x)`) which can't actually escape to outer scope. Semantic tightening; opt-out via `.includeSubshells()`.
-- **Expose `ResolveFlagsOptions.globalFlags` through `evaluate()` / `runShell()`.** Let downstream consumers register their own value-taking-flag tables (`terraform: ["-chdir"]`, etc.) without waiting on shell-ast releases.
+- **Default basename match on `cmd()`.** `cmd("git")` fires on `/usr/bin/git`, `./bin/git`, `sudo /usr/bin/rm`, `/usr/bin/bash -c "..."`, etc. by default. Backed by shell-ast's polymorphic `resolvedCmd(u)` in `engine/helpers.ts:unwrappedName`. Breaking change from 0.5.x's strict-path default. Opt-out: `cmd("/usr/bin/git").strictPath()` for vendored-binary policies.
+- **`.flagValueMatches(flag, /regex/)` and `.flagValueEquals(flag, value)` on `cmd()`.** Inspect the VALUE of a flag, not just its presence. Uses shell-ast 0.6's polymorphic `tokensAfter(u, flag)` which auto-dispatches to `u.innerRaw` for wrapped variants, so `cmd("gcc").flagValueMatches("-o", /^\/etc/)` fires on bare `gcc`, `sudo gcc`, and `bash -c "gcc ..."` invocations uniformly. Both `=` form (`--output=/tmp/x`) and space form (`-o /tmp/x`) captured. Multiple flagValue* calls stack with AND semantics; repeated occurrences of the same flag use ANY-match. Dynamic values (`-o $VAR`) skip silently — compose `.custom()` for block-on-uncertainty.
+- **`EvaluateOptions.shellAstOpts.globalFlags` pass-through.** Lets downstream consumers register per-tool value-taking flags (`{terraform: ["-chdir"], kustomize: ["--load-restrictor"]}`) so commands like `terraform -chdir ./infra apply` resolve `apply` as `args[0]` instead of being shifted by the unconsumed `-chdir`. Threaded through `RunModuleOptions` / `RunShellOptions` / `RunOptions` (all extend `EvaluateOptions`) into every `unwrapCall(call, opts)` site — both the inline-shell recursion and the `cmd()` builder.
 
-**B. Test-builders SDK (the headline ergonomics improvement)**
-A first-class fluent test DSL exported from `@questi0nm4rk/hook-kit/testing`, so consumers don't have to hand-roll synthetic events / mock state stores / mock askpass scripts. Working sketch (subject to design):
+A3 (`findRedirects({depth: "top"})` as default) was **deliberately dropped** — subshell redirects DO touch the filesystem (`result=$(echo evil > /etc/passwd)` actually overwrites `/etc/passwd`), so switching to top-only would create a silent deny-bypass. Current `depth: "any"` default is correct for filesystem-write security rules.
+
+## Roadmap (next — workstream B)
+
+**Test-builders SDK** as a first-class subpath export `@questi0nm4rk/hook-kit/testing`. Consumers shouldn't hand-roll synthetic events / mock state stores / mock askpass scripts. Working sketch:
 
 ```ts
 import { expectModule, mockState, mockAskpass } from "@questi0nm4rk/hook-kit/testing";
@@ -137,10 +138,4 @@ expectModule(myModule)
   .toRun();
 ```
 
-Surface includes: `expectModule` / `expectRule` fluent runner, `bashEvent` / `editEvent` / `writeEvent` event factories, `mockState` / `mockAskpass` factories, terminal/annotation assertions. Lives in `src/testing/` and exports via `package.json` `"./testing"` subpath. Keeps current `runModule` + `evaluateRule` as low-level escape hatches.
-
-**C. Rename + docs (landed in 0.5.1)**
-- `src/rules/` → `src/builders/`; `tests/rules/` → `tests/builders/`. Internal-only rename — no public-API change.
-- README + SPEC clarify the rule-free split (hook-kit ships primitives, consumers ship rules).
-
-When you're working in this repo and a 0.6.0-tagged item is in scope, surface it explicitly so the user can scope the work.
+Surface: `expectModule` / `expectRule` fluent runner, `bashEvent` / `editEvent` / `writeEvent` event factories, `mockState` / `mockAskpass` factories, terminal/annotation assertions. Lives in `src/testing/` and exports via `package.json` `"./testing"` subpath. Keeps current `runModule` + `evaluateRule` as low-level escape hatches.

@@ -173,6 +173,32 @@ const protectFromRedirects = createModule(
   ],
 );
 
+// ─── flagValueMatches demo (0.6+) — compiler / curl writes to system paths ──
+//
+// Demonstrates the 0.6 API: inspect the VALUE of a flag, not just its presence.
+// `gcc -o /etc/passwd src.c` was undetectable in 0.5 (`-o` is boolean, target
+// is just args[1]); now we can scope the deny to system-write targets.
+
+const systemPathWrites = createModule(
+  {
+    id: "system-path-writes",
+    name: "Block compiler / fetcher writes to system paths",
+    events: ["PreToolUse"],
+    matchers: ["Bash"],
+  },
+  [
+    cmd("gcc")
+      .flagValueMatches("-o", /^\/(etc|sys|dev|usr|bin|sbin|boot|root)(\/|$)/)
+      .deny("gcc -o targets a system path", "[system-path-writes]"),
+    cmd("curl")
+      .flagValueMatches("-o", /^\/(etc|sys|dev|root|boot)(\/|$)/)
+      .deny("curl -o writes to a system path", "[system-path-writes]"),
+    cmd("curl")
+      .flagValueMatches("--output", /^\/(etc|sys|dev|root|boot)(\/|$)/)
+      .deny("curl --output writes to a system path", "[system-path-writes]"),
+  ],
+);
+
 // ─── Suppress-comments — content() rule fires PostToolUse on edited files ──
 
 const suppressComments = createModule(
@@ -195,5 +221,6 @@ export default [
   protectConfigs,
   protectReads,
   protectFromRedirects,
+  systemPathWrites,
   suppressComments,
 ];

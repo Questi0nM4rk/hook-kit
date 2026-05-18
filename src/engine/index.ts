@@ -5,6 +5,7 @@ import {
   findCalls,
   ParseSyntaxError,
   parse,
+  type ResolveFlagsOptions,
   type ShellFile,
   unwrapCall,
 } from "@questi0nm4rk/shell-ast";
@@ -33,6 +34,28 @@ export interface EvaluateOptions {
    *  can't hide inside an inline shell. Default true. Disable for tests where
    *  recursion changes the asserted outcome. */
   readonly recurseInlineShells?: boolean;
+  /**
+   * shell-ast resolver options threaded through every `unwrapCall(call, opts)`
+   * call inside the engine and builder primitives. Primary use: register
+   * per-tool value-taking flags via `globalFlags` so commands like
+   * `terraform -chdir=./infra apply` resolve `apply` as `args[0]` instead of
+   * being shifted out by the un-consumed `-chdir=...`.
+   *
+   * Example:
+   *
+   *   evaluate(event, modules, {
+   *     shellAstOpts: {
+   *       globalFlags: {
+   *         terraform: ["-chdir", "-state"],
+   *         kustomize: ["--load-restrictor"],
+   *       },
+   *     },
+   *   });
+   *
+   * Undefined → shell-ast's built-in GLOBAL_VALUE_FLAGS table only (git,
+   * docker, kubectl, make, tar, xargs).
+   */
+  readonly shellAstOpts?: ResolveFlagsOptions;
 }
 
 /** Internal evaluator state — never reachable from the public `evaluate()`
@@ -115,6 +138,7 @@ export async function runModule(opts: RunModuleOptions): Promise<EvaluationOutco
     ...(opts.recurseInlineShells !== undefined
       ? { recurseInlineShells: opts.recurseInlineShells }
       : {}),
+    ...(opts.shellAstOpts !== undefined ? { shellAstOpts: opts.shellAstOpts } : {}),
   };
   return evaluate(event, modules, evalOpts);
 }
@@ -182,7 +206,7 @@ async function evaluateInternal(
   let terminal: Terminal | null = null;
 
   const state = opts.state ?? noopState;
-  const { ctx, drainErrors } = buildEvalContext(event, state, modules);
+  const { ctx, drainErrors } = buildEvalContext(event, state, modules, opts.shellAstOpts);
 
   const flushState = async (): Promise<void> => {
     try {
@@ -262,7 +286,7 @@ async function evaluateInternal(
     const ast = await ctx.getBashAst();
     if (ast !== null) {
       for (const call of findCalls(ast)) {
-        const u = unwrapCall(call);
+        const u = unwrapCall(call, ctx.shellAstOpts);
         if (u?.kind !== "wrapped-script") continue;
         const synthetic: HookEvent = {
           ...event,
@@ -308,6 +332,7 @@ function buildEvalContext(
   event: HookEvent,
   state: StateStore,
   modules: readonly HookModule[],
+  shellAstOpts: ResolveFlagsOptions | undefined,
 ): { ctx: EvalContext; drainErrors: () => HookKitError[] } {
   let cached: ShellFile | null | undefined;
   const errors: HookKitError[] = [];
@@ -315,6 +340,7 @@ function buildEvalContext(
     ctx: {
       state,
       modules,
+      ...(shellAstOpts !== undefined ? { shellAstOpts } : {}),
       async getBashAst(): Promise<ShellFile | null> {
         if (cached !== undefined) return cached;
         if (event.toolName !== "Bash") {

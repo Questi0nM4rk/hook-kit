@@ -3,7 +3,7 @@
  * See docs/SPEC.md § Core Types for the full contract.
  */
 
-import type { ShellFile } from "@questi0nm4rk/shell-ast";
+import type { ResolveFlagsOptions, ShellFile } from "@questi0nm4rk/shell-ast";
 import type { HookKitErrorCode } from "./errors.js";
 
 // === Decisions ===
@@ -101,6 +101,15 @@ export interface EvalContext {
    * (Iron Law 4: fail open on infra errors).
    */
   getBashAst(): Promise<ShellFile | null>;
+  /**
+   * shell-ast resolver options threaded through every `unwrapCall(call, opts)`
+   * site. Set via `EvaluateOptions.shellAstOpts` at engine entry. Lets consumers
+   * register per-tool value-taking flags (`globalFlags`) so commands like
+   * `terraform -chdir=./infra apply` resolve `apply` as `args[0]` instead of
+   * being shifted by the un-consumed `-chdir=...`. Undefined → use shell-ast's
+   * built-in `GLOBAL_VALUE_FLAGS` table only.
+   */
+  readonly shellAstOpts?: ResolveFlagsOptions;
 }
 
 // === Modules ===

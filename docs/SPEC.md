@@ -133,15 +133,19 @@ cmd("gh", "api").argMatches(/\/pulls\/\d+\/reviews(?!\/)/)
 Semantics:
 
 - Variadic sub matching checks args by position. CLI convention: subcommands precede flags, so position is reliable.
+- **Default basename match (0.6+)**: `cmd("git")` fires on `git`, `/usr/bin/git`, `./bin/git`, `sudo /usr/bin/rm`, `/usr/bin/bash -c "…"`. Dispatch uses shell-ast 0.6's polymorphic `resolvedCmd(u)` in `engine/helpers.ts:unwrappedName`. Opt-out: `.strictPath()` requires exact-path match (`cmd("/usr/bin/git").strictPath()` fires only on that exact invocation).
 - `.withFlag("--force")` — required (presence). Flags are expanded via aliases (`-f` → `--force`, `-r` → `--recursive`/`-R`).
 - `.withoutFlag("--force-with-lease")` — forbidden (must be absent).
 - `.argMatches(/regex/)` — at least one resolved arg matches the pattern. Quoted strings (`"…"`/`'…'`) become `<dynamic>` and never match literal patterns. Use this for unquoted patterns like `event=COMMENT` in `--field event=COMMENT`.
 - `.argIncludes("literal")` — exact-string membership in resolved args.
+- **`.flagValueMatches(flag, /regex/)` and `.flagValueEquals(flag, value)` (0.6+)**: inspect the VALUE of a flag. Uses shell-ast 0.6's polymorphic `tokensAfter(u, flag)` (dispatches to `u.innerRaw` for `wrapped`, `u.raw` otherwise). Both `=` form (`--output=/etc/passwd`) and space form (`-o /etc/passwd`) captured. Multiple flagValue* predicates stack with AND; repeated occurrences of the same flag use ANY-match (at least one value must satisfy). Dynamic values (`-o $VAR`) skip silently — predicate doesn't see DYNAMIC. Composable with `.custom()` for block-on-uncertainty.
 - `.withDdash()` — require the POSIX `--` end-of-options separator. Disambiguates destructive forms like `git checkout -- file` from `git checkout file`.
 - `.deny(reason, label?)` — terminal; blocks the command, returns a `Rule`.
 - `.ask(reason, label?)` — terminal; routes to askpass / harness UI, returns a `Rule`.
 - `.warning(message, label?)` — annotation; non-blocking, surfaces as `[label] warning: <message>` above a `---` separator before the command runs.
 - `.note(message, label?)` — annotation; same mechanics as warning, rendered as `[label] note: <message>`. Distinct from warning so the AI can tell severity apart visually.
+
+**Engine-level `shellAstOpts.globalFlags` (0.6+):** `EvaluateOptions.shellAstOpts.globalFlags?: Record<string, readonly string[]>` registers per-tool value-taking flags so commands like `terraform -chdir ./infra apply` resolve `apply` as `args[0]`. Built-in shell-ast table covers `git`/`docker`/`kubectl`/`make`/`tar`/`xargs`; anything else needs registration. Threaded through `RunModuleOptions` / `RunShellOptions` / `RunOptions` (all extend `EvaluateOptions`) into every `unwrapCall(call, opts)` site — both the inline-shell recursion and the `cmd()` builder.
 
 ```typescript
 // pipe(from, into) — `cmd1 | cmd2` detection via shell-AST BinaryCmd walk
