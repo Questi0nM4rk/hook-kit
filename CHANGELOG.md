@@ -6,8 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
-### Pending
-- Chained-wrapper coverage (`sudo bash -c '…'`) via shell-ast 0.7.0 `unwrapDeep` migration. Tracked at [shell-ast#11](https://github.com/Questi0nM4rk/shell-ast/issues/11). When shell-ast ships, hook-kit walks the returned chain in `src/engine/index.ts` `recurseInlineShells`, drops the `wrapped-script`-only branch, and flips the pinned `expect(out.terminal).toBeNull()` in `tests/builders/deep-nesting.test.ts:69` to `toBe("deny")`.
+### Fixed
+- Chained-wrapper coverage: `sudo bash -c '…'` (sudo at the outermost wrapper) now triggers the same rule pass as the symmetric `bash -c '…'`. Was tracked as shell-ast BUG-008 / [shell-ast#11](https://github.com/Questi0nM4rk/shell-ast/issues/11). The engine's `recurseInlineShells` block in `src/engine/index.ts` now walks shell-ast 0.7's `unwrapDeepParsed` chain and recurses on the first `wrapped-script` layer found anywhere in the chain — closing the asymmetry where the v0.6 one-level `unwrapCall` would only fire for bash-outermost shapes. Multi-level chains (`bash -c 'bash -c "..."'`) handled by the recursion's own walk + `MAX_RECURSE_DEPTH` cap. The previously-failing test in `tests/builders/deep-nesting.test.ts` is now `expect(out.terminal?.kind).toBe("deny")`.
+
+### Changed
+- Bumped `@questi0nm4rk/shell-ast` to `^0.7.0`.
 
 ## [0.7.0] — 2026-05-18
 
