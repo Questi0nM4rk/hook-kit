@@ -82,22 +82,29 @@ export function hasFlag(expanded: readonly string[], wanted: string): boolean {
 
 // ─── UnwrappedCall name dispatch (shared by command.ts + pipe.ts) ───────────
 
-import type { UnwrappedCall } from "@questi0nm4rk/shell-ast";
+import { resolvedCmd, type UnwrappedCall } from "@questi0nm4rk/shell-ast";
 
 /**
  * Project an `UnwrappedCall` onto the single "name that matters" for rule
- * matching. The policy is intentional and shared between `cmd()` and `pipe()`:
+ * matching. Two modes:
  *
- * - `plain`          → `u.cmd`     (no wrapper, just a command name)
- * - `wrapped`        → `u.cmd`     (sudo-aware: cmd("rm") fires on `sudo rm /`)
- * - `wrapped-script` → `u.wrapper` (cmd("bash") fires on `bash -c '…'`; the
- *                                   inner script is handled by engine recursion)
- * - `wrapped-opaque` → `u.wrapper` (escalator catch: cmd("sudo") fires on
- *                                   `sudo $X` where the inner is dynamic)
+ * **Default (`strictPath = false`)** — basename match via shell-ast's
+ * polymorphic `resolvedCmd(u)`. Dispatches per kind:
  *
- * Both call sites used to inline this ternary; extracting it makes the
- * policy editable in ONE place if shell-ast adds a new `kind`.
+ * - `plain`          → basename of `args[0]` (so `cmd("git")` fires on `/usr/bin/git`)
+ * - `wrapped`        → basename of inner cmd (sudo-aware: `cmd("rm")` fires on `sudo /usr/bin/rm /`)
+ * - `wrapped-script` → basename of wrapper (`cmd("bash")` fires on `/usr/bin/bash -c '…'`)
+ * - `wrapped-opaque` → basename of wrapper (`cmd("sudo")` fires on `sudo $X`)
+ *
+ * **Strict (`strictPath = true`)** — verbatim path-as-typed via `u.cmd` / `u.wrapper`.
+ * Used by `cmd("/usr/bin/git").strictPath()` to require exact full-path match.
+ *
+ * Returns empty string only if `resolvedCmd` returns undefined (dynamic command
+ * word) — empty-string match is impossible since `cmd("")` is meaningless.
  */
-export function unwrappedName(u: UnwrappedCall): string {
-  return u.kind === "plain" || u.kind === "wrapped" ? u.cmd : u.wrapper;
+export function unwrappedName(u: UnwrappedCall, strictPath = false): string {
+  if (strictPath) {
+    return u.kind === "plain" || u.kind === "wrapped" ? u.cmd : u.wrapper;
+  }
+  return resolvedCmd(u) ?? "";
 }

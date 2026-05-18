@@ -252,10 +252,29 @@ cmd("gh", "api", "graphql")
 ```
 
 - **Variadic subcommands** match by position: `cmd("gh", "pr", "comment")` checks `args[0] === "pr" && args[1] === "comment"`.
+- **Default basename match (0.6+)**: `cmd("git")` fires on `/usr/bin/git`, `./bin/git`, `sudo /usr/bin/git`, `/usr/bin/bash -c "..."`, etc. — uses shell-ast 0.6's polymorphic `resolvedCmd`. Opt-out via `.strictPath()` if you need exact-path matching: `cmd("/usr/bin/git").strictPath().deny("vendored git only")`.
+- **`.flagValueMatches(flag, /regex/)` and `.flagValueEquals(flag, value)` (0.6+)**: inspect the VALUE of a flag, not just presence. Works on both `=` and space forms; auto-dispatches to inner call for sudo/wrapped variants. Examples: `cmd("gcc").flagValueMatches("-o", /^\/(etc|sys|dev)/).deny("system path")`, `cmd("docker", "run").flagValueEquals("--user", "root").ask("root container")`. Multiple flagValue* calls stack with AND; repeated flag occurrences use ANY-match. Dynamic values (`-o $VAR`) skip silently — compose `.custom()` for block-on-uncertainty.
 - **`.withFlag("...")`** is alias-aware: `-r`, `-R`, and `--recursive` are interchangeable. Compound shorts like `-D` expand to `--delete + --force`.
 - **`.argMatches(/regex/)`** searches all resolved args (including flag values like `event=COMMENT` from `--field event=COMMENT`). Quoted strings (`"…"`/`'…'`) become `<dynamic>` in shell-ast and never match.
 - **`.withDdash()`** requires the POSIX `--` end-of-options separator. Lets `git checkout -- file` (destructive) be matched without false-flagging `git checkout main`.
 - **`unwrapCall`** strips `sudo`/`doas`/`run0`/`su` automatically: `cmd("rm")` matches `sudo -u root rm /etc/passwd`.
+
+#### Engine-level `shellAstOpts.globalFlags` (0.6+)
+
+Register per-tool value-taking flags so commands like `terraform -chdir ./infra apply` resolve `apply` as `args[0]`:
+
+```typescript
+runShell([myModules], {
+  shellAstOpts: {
+    globalFlags: {
+      terraform: ["-chdir", "-state"],
+      kustomize: ["--load-restrictor"],
+    },
+  },
+});
+```
+
+shell-ast's built-in table covers `git`/`docker`/`kubectl`/`make`/`tar`/`xargs`. Anything else needs registration via this option.
 
 ### `pipe(from, into)` — pipe pattern detection
 
@@ -704,7 +723,13 @@ git push --follow-tags
 
 ## Status
 
-Pre-release (`0.x`). Current: **`0.5.0`**. The shell-wrapper API + output convention is intended to stabilize toward `1.0`. Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
+Pre-release (`0.x`). Current: **`0.6.0`**. The shell-wrapper API + output convention is intended to stabilize toward `1.0`. Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
+
+**0.6.0 highlights** (breaking on default command-name matching; pure addition for the rest):
+- `cmd()` default-basename match (`cmd("git")` fires on `/usr/bin/git`). `.strictPath()` opts out.
+- `.flagValueMatches(flag, /regex/)` and `.flagValueEquals(flag, value)` on `cmd()`.
+- `EvaluateOptions.shellAstOpts.globalFlags` for per-tool value-flag registration.
+- Bumped to shell-ast `^0.6.0` (adopts polymorphic query helpers + IDEOLOGY §11 "primary lens completeness").
 
 Published to npm as [`@questi0nm4rk/hook-kit`](https://www.npmjs.com/package/@questi0nm4rk/hook-kit).
 
