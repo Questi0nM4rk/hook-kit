@@ -1,8 +1,10 @@
-// Git enrichment for ask envelopes — opt-in via HOOK_KIT_ENRICH_GIT=1 or
-// explicit invocation. Cheap shell-outs against `git -C <cwd>`. Failures
-// degrade per-field to undefined but always emit a typed error line to
-// stderr so the loss is visible (Iron Law 4: never break the hook over
-// enrichment, but never silent either).
+/** @internal — no stability promise, may move/rename in any release.
+ *  Git enrichment for ask envelopes — opt-in via HOOK_KIT_ENRICH_GIT=1 or
+ *  explicit invocation. Cheap shell-outs against `git -C <cwd>`. Failures
+ *  degrade per-field to undefined but always emit a typed error line to
+ *  stderr so the loss is visible (Iron Law 4: never break the hook over
+ *  enrichment, but never silent either). The `HOOK_KIT_ENRICH_GIT` env var
+ *  IS a STABLE contract; the helper functions in this file are not. */
 
 import { emitErrorLine, ProcessSpawnError } from "../core/errors.js";
 import type { GitInfo } from "./envelope.js";

@@ -1,4 +1,5 @@
 /**
+ * @internal — no stability promise, may move/rename in any release.
  * Shared annotation render + partition helpers used by both rendering paths
  * (shell wrapper `runShell` and CC adapter `decideCcOutput` / `resolveCcOutput`).
  *

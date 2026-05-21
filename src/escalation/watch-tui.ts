@@ -1,3 +1,5 @@
+/** @internal — no stability promise, may move/rename in any release.
+ *  Reference TUI listener used by `hook-kit watch`. */
 // Minimal interactive TUI for `hook-kit watch`.
 // Two modes:
 //   - "list": shows pending requests with ↑/↓/j/k navigation and a/d/e/q

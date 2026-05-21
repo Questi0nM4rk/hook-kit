@@ -1,5 +1,13 @@
-// Default broker — per-session ask channels backed by a filesystem spool.
-// See docs/SPEC.md § Escalation § Default Broker.
+/** @internal — no stability promise, may move/rename in any release.
+ *  Reference implementation of the broker socket protocol. The PROTOCOL itself
+ *  is STABLE (spec'd in M1.4); the file's implementation details — exported
+ *  helpers, file layout under `~/.cache/hook-kit/sessions/`, polling intervals
+ *  — are NOT. Consumers should drive the broker via the `hook-kit broker`
+ *  CLI or write their own listener against the spec'd protocol, not import
+ *  from this module.
+ *
+ *  Default broker — per-session ask channels backed by a filesystem spool.
+ *  See docs/SPEC.md § Escalation § Default Broker. */
 
 import {
   appendFileSync,
