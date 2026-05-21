@@ -31,3 +31,9 @@ jobs:
           # Indirect via env so github.base_ref can't shell-inject the run step.
           BASE_REF: ${{ github.base_ref }}
         run: bun scripts/check-stable-exports.ts --base "origin/$BASE_REF"
+      - name: Check CHANGELOG [Unreleased] discipline
+        # PR-only; same shell-injection-safe env indirection.
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bun scripts/check-changelog.ts --base "origin/$BASE_REF"
