@@ -72,7 +72,7 @@ const MINUTES_PER_HOUR = 60;
 const GIT_SHORT_SHA_LEN = 7;
 /** Minimum value column width before truncation; protects narrow terminals. */
 const MIN_VALUE_COL_WIDTH = 8;
-/** Label column gutter: " label: " = 11 chars; gutter padding is 4 chars. */
+/** Slack reserved beyond `labelWidth` for the "│ " prefix (2 chars) and trailing-space gutter (2 chars). */
 const LABEL_GUTTER_PAD = 4;
 /** Spacers between row columns in the list view (one space + one separator). */
 const LIST_ROW_GUTTER = 2;
