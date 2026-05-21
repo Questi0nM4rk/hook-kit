@@ -1,5 +1,7 @@
 # hook-kit
 
+> **Status:** spec describes the 0.8 surface, audited 2026-05-20 (M0 of the v1.0 plan). Every symbol mentioned below exists in `src/` at this revision. Stability tiers are tagged at the declaration site — see [`STABILITY.md`](./STABILITY.md) and the full export inventory in [`specs/v1.0-exports.md`](./specs/v1.0-exports.md). Features marked "subject to M1–M5" reflect planned 1.x evolution; their shape may shift before 1.0.0 ships. The v1.0 roadmap lives in [`plans/v1.0.0.md`](./plans/v1.0.0.md).
+
 Build agent-agnostic shell-wrapper hook binaries. Real shell-AST parsing, output via stdout/stderr/exit-code, no JSON wire protocol with the caller, no harness coupling. Optional adapter bins extend coverage to harness tool-call channels (Claude Code's `Edit` / `Write` / `Read`, etc.) for the cases that bypass the shell.
 
 ## Problem
@@ -54,7 +56,7 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 │   │   ├── index.ts              # evaluate() — core loop + inline-shell recursion
 │   │   └── helpers.ts            # Flag aliases, inline-shell extraction
 │   ├── wrapper/
-│   │   └── hk.ts                 # runShell() — the v0.3 default entrypoint
+│   │   └── hk.ts                 # runShell() — the default entrypoint for compiled binaries
 │   ├── adapters/
 │   │   ├── types.ts              # ProtocolAdapter interface (for adapter bins)
 │   │   ├── claude-code.ts        # CC tool-call adapter (Edit/Write/NotebookEdit/Read)
@@ -225,9 +227,9 @@ shell-AST caching: `parse()` is called once per invocation for Bash events; all 
 
 Rule errors: `rule.evaluate()` throwing is caught and treated as `null`. Iron Law 4.
 
-### Shell Wrapper (the `hk` binary — v0.3 default)
+### Shell Wrapper (the `hk` binary — default adapter)
 
-The compiled-binary entry point in v0.3. Substitutes for `bash -c "<cmd>"`. Agent-agnostic — knows nothing about hooks.json, harness JSON, or who's calling.
+The default compiled-binary entry point (selected by `hook-kit build … --adapter shell`, which is the default if `--adapter` is omitted). Substitutes for `bash -c "<cmd>"`. Agent-agnostic — knows nothing about hooks.json, harness JSON, or who's calling.
 
 ```typescript
 import { runShell } from "@questi0nm4rk/hook-kit/wrapper/hk";
@@ -660,7 +662,7 @@ Lives in `src/testing/` and exports via the `"./testing"` subpath in `package.js
 
 | Chose | Over | Because |
 |-------|------|---------|
-| Shell wrapper as the v0.3 default | Harness adapter as the default | Caller-agnostic by design — no JSON wire protocol with the harness, decisions surface through the same channel the caller already reads. Works for any caller that runs commands. |
+| Shell wrapper as the default adapter | Harness adapter as the default | Caller-agnostic by design — no JSON wire protocol with the harness, decisions surface through the same channel the caller already reads. Works for any caller that runs commands. |
 | Per-plugin binaries | One monolithic binary | Plugin isolation; independent release cycles. |
 | Variadic `cmd(command, ...sub)` | Named or array sub | Most natural TypeScript API; covers single-level and multi-level subcommands. |
 | Inline-shell recursion default-on | Opt-in | Without it every cmd() rule has a 1-line bypass via `bash -c "…"`. |
@@ -680,6 +682,8 @@ Lives in `src/testing/` and exports via the `"./testing"` subpath in `package.js
 | Askpass as the public escalation contract | A dedicated socket protocol | Decades of prior art (sudo, ssh, git, gpg). Any binary can be a responder. |
 
 ## Considered Future Additions
+
+> Subject to M1–M5 of the v1.0 plan (see [`plans/v1.0.0.md`](./plans/v1.0.0.md)). The DecisionObserver API, the spec'd extension contracts (`ADAPTERS.md`, `ESCALATION.md`, `STATE.md`), production primitives (SqliteStateStore, benches, integrity helpers), additional builders (`env`/`subshell`/`regex`/`frequency`), and the testing-SDK analytics (`coverageReport`, conflict detection, snapshot harness) land in the 1.0 milestones rather than as 1.x add-ons. Items in this section are the ones still deferred AFTER the 1.0 cut.
 
 Things explored but deliberately deferred. Logged so we don't re-litigate.
 
