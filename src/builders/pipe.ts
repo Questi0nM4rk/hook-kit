@@ -13,6 +13,7 @@ import {
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 import { unwrappedName } from "../engine/helpers.js";
 
+/** @stable @since 1.0.0 */
 export function pipe(from: readonly string[], into: readonly string[]): PipeRuleBuilder {
   return new PipeRuleBuilder(from, into);
 }

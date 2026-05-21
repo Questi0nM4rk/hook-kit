@@ -10,6 +10,7 @@ import type { EvaluationOutcome, HookEvent } from "../core/types.js";
  * The CC adapter calls `process.exit` from `writeOutput` and `handleError`
  * (so they "never" return at runtime) — but the type permits void returns
  * so library/test adapters can collect the result in memory instead.
+ * @stable @since 1.0.0
  */
 export interface ProtocolAdapter {
   readInput(): Promise<HookEvent>;

@@ -52,6 +52,7 @@ Output convention:
                               an otherwise-allowed command)
 `;
 
+/** @stable @since 1.0.0 */
 export interface RunShellOptions extends EvaluateOptions {
   /** Override the version string for `--version`. Defaults to package.json. */
   readonly version?: string;
@@ -111,6 +112,7 @@ async function execCommand(
  * `hook-kit build … --adapter shell` (the default) call this with their
  * modules. Reads `process.argv`, evaluates, emits the outcome via the
  * stdout/stderr/exit-code convention, then execs on approval.
+ * @stable @since 1.0.0
  */
 export async function runShell(
   modules: readonly HookModule[],
