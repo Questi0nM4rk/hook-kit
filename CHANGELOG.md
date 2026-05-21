@@ -6,7 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
-_(no unreleased changes — next release will accumulate here)_
+### Added
+- **v1.0 stability tagging.** Every public export now carries a `@stable @since 1.0.0` JSDoc tag at its declaration site; internal-only modules (`src/engine/helpers.ts`, `src/engine/trace.ts`, `src/escalation/{broker,listeners,watch-tui,enrich-git,forward}.ts`, `src/build/`, `src/core/annotations.ts`) carry a file-header `@internal` tag. Consumers can grep `node_modules/@questi0nm4rk/hook-kit/src/**/*.ts` for `@stable` to audit what's part of the v1.0 semver-promised surface. The full inventory + tier assignments live in `docs/specs/v1.0-exports.md`.
+- **`docs/STABILITY.md`.** Documents the three stability tiers (STABLE / EXPERIMENTAL / INTERNAL), the deprecation cycle for STABLE removals (`@deprecated` JSDoc + runtime `console.warn` once-per-load + minimum-one-minor warning before removal at next major), and the versioning policy table covering which change kinds are allowed in patch / minor / major.
+- **`scripts/check-stable-exports.ts`.** CI diff guard that fails the build when STABLE exports are removed from `src/index.ts` without a `BREAKING CHANGE:` footer in the commit range. Wired into `.github/workflows/test.yml` on every PR.
+- **`scripts/check-changelog.ts`.** CI discipline check that fails when commits touch `src/` without a corresponding edit to the `## [Unreleased]` section. Wired alongside `check-stable-exports.ts`. `[skip-changelog]` in any commit message in the range opts out (use for refactors / comment-only edits).
+
+### Changed
+- **`docs/SPEC.md` audited against the 0.8 source.** Added a top-of-file status banner referencing `STABILITY.md`, the export inventory, and `plans/v1.0.0.md`. Replaced misleading "v0.3 default" version markers on `runShell` with the timeless "default adapter" framing. Marked § Considered Future Additions as "subject to M1–M5" so deferred items there are read against the 1.0 roadmap, not as deferred-forever. Verified every backtick-quoted API symbol in the SPEC resolves to a real export in `src/` (42 symbols, zero missing).
 
 ## [0.8.0] — 2026-05-18
 
