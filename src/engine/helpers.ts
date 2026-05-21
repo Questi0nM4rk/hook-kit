@@ -1,12 +1,8 @@
-/** @internal — no stability promise, may move/rename in any release.
- *  Engine plumbing (flag expansion, unwrappedName helper) used by the
- *  builder primitives. Consumers should compose builder DSLs from
- *  `src/index.ts`; importing this module directly is not part of the
- *  v1.0 public surface.
- *
- *  Inline-shell extraction lives in shell-ast 0.3+ via the discriminated
- *  `UnwrappedCall` (kind: "wrapped-script") and is consumed in engine/index.ts.
- *  Wrapper-vs-command dispatch likewise switches on `u.kind` at the rule sites. */
+// Engine helpers — flag expansion utilities.
+//
+// Inline-shell extraction lives in shell-ast 0.3+ via the discriminated
+// `UnwrappedCall` (kind: "wrapped-script") and is consumed in engine/index.ts.
+// Wrapper-vs-command dispatch likewise switches on `u.kind` at the rule sites.
 
 const FLAG_GROUPS: readonly (readonly string[])[] = [
   ["-r", "--recursive", "-R"],
