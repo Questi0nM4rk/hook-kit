@@ -1,0 +1,14 @@
+// hook-kit markdownlint config. One-line WHY per disabled rule (L4 brevity).
+{
+  "default": true,
+  // MD013: line length — disabled, docs/plans + CHANGELOG tables intentionally exceed 80.
+  "MD013": false,
+  // MD033: inline HTML — disabled, README/SPEC use <details> and similar tags.
+  "MD033": false,
+  // MD041: first line H1 — disabled, some docs lead with a context paragraph before H1.
+  "MD041": false,
+  // MD024: duplicate headings — only forbid same-level siblings; Keep-a-Changelog reuses ### Added / ### Fixed across versions.
+  "MD024": { "siblings_only": true },
+  // MD060: table-column-style "compact" — disabled, repo uses padded/aligned table style for readability.
+  "MD060": false
+}

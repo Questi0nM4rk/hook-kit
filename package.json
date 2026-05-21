@@ -96,6 +96,7 @@
     "@questi0nm4rk/feats": "1.0.1",
     "@types/bun": "^1.3.14",
     "lefthook": "1.13.6",
+    "markdownlint-cli2": "0.22.1",
     "typescript": "^6.0.3"
   }
 }

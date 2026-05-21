@@ -23,6 +23,13 @@ pre-commit:
       fail_text: "Spell errors found"
       priority: 2
 
+    markdownlint:
+      glob: "*.md"
+      exclude: '(node_modules/.*|dist/.*|\.claude/.*|docs/plans/.*|docs/specs/.*)'
+      run: markdownlint-cli2 {staged_files}
+      fail_text: "Markdown lint errors found"
+      priority: 2
+
 commit-msg:
   commands:
     conventional:
