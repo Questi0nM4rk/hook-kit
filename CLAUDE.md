@@ -40,7 +40,7 @@ bun run build:bin                 # compile dist/hook-kit binary
 
 ## Module Layout
 
-```
+```text
 src/version.ts    VERSION (single source of truth, sourced from package.json)
 src/core/         types, decision constructors, event helpers, createModule()
 src/builders/     cmd(), path(), pipe(), redirect(), content(), custom(), stateful()
@@ -98,6 +98,7 @@ bun test tests/ && bun test tests-isolated/
 - CI (`.github/workflows/test.yml`) and `prepublishOnly` both call `bun run test`, not raw `bun test` — preserves the isolation. Don't regress that.
 
 Canonical end-to-end tests under `tests/build/`:
+
 - `example-ai-guardrails.test.ts` — compiles `examples/ai-guardrails/` into `dist/hk` and exercises rule firings against the real binary.
 - `adversarial.test.ts` — 50+ adversarial inputs against the compiled binary (alias expansion, sudo unwrap, inline-shell recursion, redirects, edge cases).
 - `warning-annotation.test.ts` — annotation rendering contract: `[label] warning: <msg>` lines + `---` separator + exec output.

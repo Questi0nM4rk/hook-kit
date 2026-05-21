@@ -75,7 +75,7 @@ Requires Bun ≥ 1.2 (used as runtime, test runner, and binary compiler). The co
 
 Hooks are usually built around one specific harness — Claude Code's `hooks.json`, Cursor's tool-call config, your own CI wrapper — so the gating logic gets duplicated everywhere it needs to apply. `hook-kit` picks the one channel every caller already speaks: the shell.
 
-```
+```text
 agent runs `bash -c "rm -rf /tmp/scratch"`   → bypasses naïve harness hooks
 agent runs through `hk -c "rm -rf /tmp/scratch"` → cmd("rm") rule fires regardless of which agent
 human pastes `git push --force` from a tutorial → same gate, same decision
@@ -435,7 +435,7 @@ Anyone can author additional adapter bins (`hk-cursor-tools`, `hk-opencode-tools
 
 When a rule returns `ask`, the binary asks up the parent tree:
 
-```
+```text
 [ root: harness UI (CC's native ask) ]
             |
 [ agent session ]
@@ -455,7 +455,7 @@ Any program that reads JSON on stdin and writes a decision to stdout is a valid 
 
 The bundled `hook-kit broker --askpass` manages per-session ask channels at `~/.cache/hook-kit/sessions/$SESSION_ID/`:
 
-```
+```text
 sessions/abc-123/
 ├── meta.json            # {parent_session_id?, started_at, pid}
 ├── pending/<id>.json    # the envelope
@@ -472,7 +472,7 @@ hook-kit watch --children-of $MY_ID    # only descendants of a session you spawn
 hook-kit watch --session abc-123       # one specific session
 ```
 
-```
+```text
 hook-kit watch                                3 pending  ·  1 listener attached
 
   SESSION             REQ-ID      AGE   TOOL      DETAILS
@@ -532,7 +532,7 @@ If you bypass the build CLI and hand-write `hooks.json`, you'd just write `"time
 
 ## Architecture
 
-```
+```text
 TypeScript (src/)
   cmd / pipe / redirect / path / content / stateful / custom  ─┐
                                                                 ├─→ HookModule[]
@@ -549,7 +549,7 @@ TypeScript (src/)
                        stdout/stderr/exit        JSON over stdin/stdout   any I/O shape
 ```
 
-```
+```text
 src/
 ├── core/         types.ts, decision.ts, event.ts, module.ts
 ├── builders/     cmd(), path(), pipe(), redirect(), content(), custom(), stateful() — primitives only; no pre-built rules ship
@@ -635,7 +635,7 @@ Each decision can carry a `label` (e.g. `[my-plugin]`) for source attribution ac
 
 ## CLI reference
 
-```
+```text
 hook-kit build <entrypoint> --out <path>
                             [--adapter shell|cc-tools]   (default: shell)
                             [--hooks-json <path>] [--binary-command <s>]
@@ -656,7 +656,7 @@ hook-kit --version
 
 Compiled `hk` binary (built with `--adapter shell`):
 
-```
+```text
 hk -c "<command-string>"   # mirrors `bash -c`
 hk -- <argv...>            # exec form
 hk --version
@@ -780,9 +780,11 @@ git push --follow-tags
 Pre-release (`0.x`). Current: **`0.7.0`**. The shell-wrapper API + output convention is intended to stabilize toward `1.0`. Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
 
 **0.7.0 highlights** (pure addition):
+
 - New subpath `@questi0nm4rk/hook-kit/testing` — first-class test-builders SDK. `expectModule` / `expectRule` fluent runner; `bashEvent`/`writeEvent`/`editEvent`/`readEvent` factories; `mockState` Map-backed StateStore; `mockAskpass` POSIX-shell script generator. Worked examples below.
 
 **0.6.0 highlights** (breaking on default command-name matching; pure addition for the rest):
+
 - `cmd()` default-basename match (`cmd("git")` fires on `/usr/bin/git`). `.strictPath()` opts out.
 - `.flagValueMatches(flag, /regex/)` and `.flagValueEquals(flag, value)` on `cmd()`.
 - `EvaluateOptions.shellAstOpts.globalFlags` for per-tool value-flag registration.
