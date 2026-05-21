@@ -27,7 +27,9 @@ function stageExample(): { dir: string; entry: string; cleanup: () => void } {
   return {
     dir,
     entry: join(dir, "src", "hooks.ts"),
-    cleanup: () => rmSync(dir, { recursive: true, force: true }),
+    cleanup: () => {
+      rmSync(dir, { recursive: true, force: true });
+    },
   };
 }
 

@@ -112,6 +112,8 @@ describe("TmpdirStore — error surfacing (0.5 contract)", () => {
       root: "/this/path/does/not/exist",
     });
     s.set("k", "v");
-    expect(() => s.flush()).toThrow(FileWriteError);
+    expect(() => {
+      s.flush();
+    }).toThrow(FileWriteError);
   });
 });

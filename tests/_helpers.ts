@@ -21,10 +21,10 @@ export function bashEvent(command: string): HookEvent {
 export function captureStderr(): { restore: () => void; output: () => string } {
   const buf: string[] = [];
   const original = process.stderr.write.bind(process.stderr);
-  process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+  process.stderr.write = (chunk: string | Uint8Array): boolean => {
     buf.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
     return true;
-  }) as typeof process.stderr.write;
+  };
   return { restore: () => (process.stderr.write = original), output: () => buf.join("") };
 }
 

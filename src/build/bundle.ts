@@ -106,7 +106,7 @@ export interface HooksJsonOptions {
 
 interface HookEntry {
   matcher: string;
-  hooks: Array<{ type: "command"; command: string; timeout: number }>;
+  hooks: { type: "command"; command: string; timeout: number }[];
 }
 
 export interface HooksJson {

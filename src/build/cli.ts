@@ -93,8 +93,8 @@ function positionals(argv: readonly string[]): string[] {
 
 /** `exactOptionalPropertyTypes` workaround: produce `{}` when value is undefined,
  *  `{ [key]: value }` otherwise. Keeps spread idioms compact at call sites. */
-function optional<K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } {
-  return value === undefined ? {} : ({ [key]: value } as { [P in K]?: V });
+function optional<K extends string, V>(key: K, value: V | undefined): Partial<Record<K, V>> {
+  return value === undefined ? {} : ({ [key]: value } as Partial<Record<K, V>>);
 }
 
 function writeErr(message: string): void {

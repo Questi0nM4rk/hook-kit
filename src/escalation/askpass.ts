@@ -87,7 +87,9 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
     const timer =
       timeoutMs === undefined
         ? undefined
-        : setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+        : setTimeout(() => {
+            resolve({ kind: "timeout" });
+          }, timeoutMs);
     proc.exited.then((code) => {
       if (timer !== undefined) {
         clearTimeout(timer);

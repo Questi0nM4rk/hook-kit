@@ -111,7 +111,7 @@ function truncate(s: string, max: number): string {
 }
 
 function fmtDetails(req: AskRequest): string {
-  const input = req.toolInput as Record<string, unknown>;
+  const input = req.toolInput;
   const command = typeof input.command === "string" ? input.command : undefined;
   if (command !== undefined) {
     return command;

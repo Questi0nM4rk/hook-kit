@@ -44,6 +44,7 @@ describe("engine — WasmLoadError surfaces as ShellAstParseError annotation", (
     const outcome = await evaluate(bashEvent("rm -rf /"), [denyRm]);
     const errors = outcome.annotations.filter((a) => a.kind === "error");
     expect(errors).toHaveLength(1);
+    // eslint-disable-next-line @typescript-eslint/non-nullable-type-assertion-style -- Extract<…, {kind:"error"}> narrows to the error variant of the annotation union; the `!` shortcut loses that kind discrimination and biome's noNonNullAssertion would then reject it anyway.
     const err = errors[0] as Extract<(typeof errors)[number], { kind: "error" }>;
     expect(err.errorCode).toBe("ShellAstParseError");
     expect(err.message).toContain("test injection: WASM unavailable");

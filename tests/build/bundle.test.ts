@@ -3,7 +3,8 @@ import { generateEntrypoint, generateHooksJson } from "../../src/build/bundle.js
 
 // CC reads `${CLAUDE_PLUGIN_ROOT}` literally from hooks.json. We construct it
 // as concat to avoid biome's template-placeholder-in-string lint warning.
-const PLUGIN_ROOT_PATH = `${"$"}{CLAUDE_PLUGIN_ROOT}/dist/hooks`;
+// biome-ignore lint/style/noUnusedTemplateLiteral: backslash-escaped `\${...}` placeholder must stay in a template literal — switching to a plain string trips biome's noTemplateCurlyInString and the literal CC dollar-sign syntax must survive verbatim.
+const PLUGIN_ROOT_PATH = `\${CLAUDE_PLUGIN_ROOT}/dist/hooks`;
 
 describe("generateEntrypoint", () => {
   test("imports the claude-code adapter and dynamically loads the user's modules", () => {
