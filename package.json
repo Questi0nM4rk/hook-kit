@@ -84,7 +84,8 @@
     "build:types": "tsc -p tsconfig.build.json",
     "build": "bun run build:types",
     "build:bin": "bun build src/build/cli.ts --compile --bytecode --outfile dist/hook-kit",
-    "prepublishOnly": "bun run build && bun run test"
+    "prepublishOnly": "bun run build && bun run test",
+    "prepare": "lefthook install"
   },
   "dependencies": {
     "@questi0nm4rk/shell-ast": "^0.7.0",
@@ -94,6 +95,7 @@
     "@biomejs/biome": "^2.4.15",
     "@questi0nm4rk/feats": "1.0.1",
     "@types/bun": "^1.3.14",
+    "lefthook": "1.13.6",
     "typescript": "^6.0.3"
   }
 }
