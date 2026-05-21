@@ -42,7 +42,9 @@
             // Bun runtime: global process is canonical; node:process import is unnecessary indirection.
             "noProcessGlobal": "off",
             // Library targets Bun runtime; node:fs / node:os / node:path are canonical ESM imports.
-            "noNodejsModules": "off"
+            "noNodejsModules": "off",
+            // Qwik framework rule; project is a server-side library, not a Qwik app.
+            "useQwikValidLexicalScope": "off"
           },
           "performance": {
             // Inline regex is legibility-positive in tests; perf gain trivial; revisit if regex moves into hot paths.
