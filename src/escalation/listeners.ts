@@ -1,6 +1,7 @@
-// Listener markers — per-session liveness records that the validator uses
-// to answer "is anyone watching this ask channel?" before staging pending.
-// See docs/SPEC.md § Escalation § Default Broker.
+/** @internal — no stability promise, may move/rename in any release.
+ *  Listener markers — per-session liveness records that the validator uses
+ *  to answer "is anyone watching this ask channel?" before staging pending.
+ *  See docs/SPEC.md § Escalation § Default Broker. */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
