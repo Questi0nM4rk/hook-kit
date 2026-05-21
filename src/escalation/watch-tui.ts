@@ -1,10 +1,12 @@
-/** @internal — no stability promise, may move/rename in any release.
- *  Reference TUI listener for `hook-kit watch`. Two modes: "list" shows
- *  pending requests with ↑/↓/j/k navigation and a/d/e/q action keys;
- *  "prompt" is a one-line reason prompt activated when an action is picked,
- *  Enter commits, Esc cancels back to list. Render is pure over state for
- *  testability; the IO loop (raw stdin + setInterval poll) lives in
- *  `runWatchTui`. */
+// Minimal interactive TUI for `hook-kit watch`.
+// Two modes:
+//   - "list": shows pending requests with ↑/↓/j/k navigation and a/d/e/q
+//     keystrokes to act on the highlighted row.
+//   - "prompt": one-line reason prompt activated when the user picks an
+//     action; Enter commits, Esc cancels back to list.
+//
+// Render is a pure function over state for testability. The IO loop
+// (process.stdin raw mode + setInterval poll) lives in `runWatchTui`.
 
 import { listPending, listSessions, submitDecision } from "./broker.js";
 import type { AskRequest } from "./envelope.js";

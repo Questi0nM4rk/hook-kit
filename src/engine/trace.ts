@@ -1,9 +1,7 @@
-/** @internal — no stability promise, may move/rename in any release.
- *  HOOK_KIT_VERBOSE tracing. Single trace line per evaluation: event,
- *  tool, session, module count, final outcome, time. Used by both run()
- *  (adapter path) and runShell() (shell-wrapper path) so observability is
- *  uniform across modes. The `HOOK_KIT_VERBOSE=1` env var IS a STABLE
- *  public contract; the trace-line format is best-effort and may change. */
+// HOOK_KIT_VERBOSE tracing. Single trace line per evaluation: event,
+// tool, session, module count, final outcome, time. Used by both run()
+// (adapter path) and runShell() (shell-wrapper path) so observability is
+// uniform across modes.
 
 import type { EvaluationOutcome, HookEvent } from "../core/types.js";
 

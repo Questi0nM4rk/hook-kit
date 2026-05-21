@@ -1,6 +1,5 @@
-/** @internal — no stability promise, may move/rename in any release.
- *  Forwarder — implements the synchronous "escalate-up" verb.
- *  See docs/SPEC.md § Escalation § Tree-shaped escalation. */
+// Forwarder — implements the synchronous "escalate-up" verb.
+// See docs/SPEC.md § Escalation § Tree-shaped escalation.
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";

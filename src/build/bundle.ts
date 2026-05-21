@@ -1,7 +1,5 @@
-/** @internal — no stability promise, may move/rename in any release.
- *  Binary entrypoint generator + hooks.json emitter. Driven by `src/build/cli.ts`;
- *  not part of the public surface.
- *  See docs/SPEC.md § Build CLI */
+// Binary entrypoint generator + hooks.json emitter
+// See docs/SPEC.md § Build CLI
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";

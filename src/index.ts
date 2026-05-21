@@ -18,6 +18,7 @@ export { ask, deny, note, warning } from "./core/decision.js";
 // annotations in EvaluationOutcome.annotations. Consumers writing custom
 // rules can throw these to surface infra failures through the annotation
 // channel rather than swallowing them.
+export type { HookKitErrorCode } from "./core/errors.js";
 export {
   EnvelopeValidationError,
   FileReadError,

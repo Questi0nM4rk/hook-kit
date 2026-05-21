@@ -1,12 +1,6 @@
 #!/usr/bin/env bun
-/** @internal — no stability promise, may move/rename in any release.
- *  The `hook-kit` CLI ITSELF (argv shape, subcommand surface, exit codes)
- *  is STABLE — but this module's internal structure (helper functions,
- *  flag-parsing helpers, etc.) is not. Consumers script against the CLI,
- *  never import from this file.
- *
- *  hook-kit CLI: build + escalation listener subcommands.
- *  See docs/SPEC.md § Build CLI and § Escalation. */
+// hook-kit CLI: build + escalation listener subcommands
+// See docs/SPEC.md § Build CLI and § Escalation.
 
 import { writeFileSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
