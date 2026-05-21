@@ -1,4 +1,6 @@
 # hook-kit pre-commit + commit-msg hooks. See docs/SPEC.md / lessons L4 (no paragraphs in config headers).
+# gitleaks is a system tool (not npm). Install: `yay -S gitleaks` (Arch) / `brew install gitleaks` (mac) / github releases.
+# No gitleaks.toml baseline: default ruleset is fine — add a baseline only if false positives appear.
 pre-commit:
   commands:
 
@@ -8,6 +10,11 @@ pre-commit:
       run: biome check --write {staged_files} && git add {staged_files}
       stage_fixed: true
       priority: 1
+
+    gitleaks:
+      run: gitleaks protect --staged --no-banner
+      fail_text: "Potential secrets detected"
+      priority: 2
 
 commit-msg:
   commands:
