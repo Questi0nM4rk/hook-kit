@@ -86,6 +86,8 @@ describe("mockState", () => {
 
   test("delete on missing key is silent", () => {
     const s = mockState();
-    expect(() => s.delete("missing")).not.toThrow();
+    expect(() => {
+      s.delete("missing");
+    }).not.toThrow();
   });
 });

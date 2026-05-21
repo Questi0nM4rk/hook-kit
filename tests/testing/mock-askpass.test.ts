@@ -52,7 +52,9 @@ describe("mockAskpass — script generation", () => {
   test("cleanup is idempotent (force: true)", () => {
     const m = mockAskpass({ decision: "allow" });
     m.cleanup();
-    expect(() => m.cleanup()).not.toThrow();
+    expect(() => {
+      m.cleanup();
+    }).not.toThrow();
   });
 });
 

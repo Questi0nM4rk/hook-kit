@@ -74,7 +74,7 @@ class PipeRuleBuilder {
 
 function stmtToCmdName(stmt: Stmt): string | null {
   const cmd = stmt.cmd;
-  if (cmd === null || cmd.type !== "CallExpr") {
+  if (cmd?.type !== "CallExpr") {
     return null;
   }
   const u = unwrapCall(cmd);

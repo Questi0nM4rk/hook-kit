@@ -282,7 +282,7 @@ async function evaluateInternal(
       }
       // warning / note / (rule-emitted error — type-allowed but engine never
       // produces this; if a rule somehow emits one, accumulate like any other)
-      annotations.push(decision as Annotation);
+      annotations.push(decision);
     }
   }
 
@@ -310,7 +310,7 @@ async function evaluateInternal(
         // biome-ignore lint/performance/noAwaitInLoops: shell-ast deep-unwrap is sync-ish but typed async; chained-wrapper recursion needs per-call ordering for the depth cap.
         const chain = await unwrapDeepParsed(call, parse, ctx.shellAstOpts);
         const innerScript = chain.find((u) => u.kind === "wrapped-script");
-        if (innerScript === undefined || innerScript.kind !== "wrapped-script") {
+        if (innerScript?.kind !== "wrapped-script") {
           continue;
         }
         const synthetic: HookEvent = {

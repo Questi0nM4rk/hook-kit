@@ -24,19 +24,27 @@ const SILENT: EvaluationOutcome = outcome(null);
 
 describe("engine/trace — isVerbose()", () => {
   test("returns true for HOOK_KIT_VERBOSE=1", () => {
-    withEnv("HOOK_KIT_VERBOSE", "1", () => expect(isVerbose()).toBe(true));
+    withEnv("HOOK_KIT_VERBOSE", "1", () => {
+      expect(isVerbose()).toBe(true);
+    });
   });
 
   test("returns true for HOOK_KIT_VERBOSE=true", () => {
-    withEnv("HOOK_KIT_VERBOSE", "true", () => expect(isVerbose()).toBe(true));
+    withEnv("HOOK_KIT_VERBOSE", "true", () => {
+      expect(isVerbose()).toBe(true);
+    });
   });
 
   test("returns false when unset", () => {
-    withEnv("HOOK_KIT_VERBOSE", undefined, () => expect(isVerbose()).toBe(false));
+    withEnv("HOOK_KIT_VERBOSE", undefined, () => {
+      expect(isVerbose()).toBe(false);
+    });
   });
 
   test("returns false for HOOK_KIT_VERBOSE=0", () => {
-    withEnv("HOOK_KIT_VERBOSE", "0", () => expect(isVerbose()).toBe(false));
+    withEnv("HOOK_KIT_VERBOSE", "0", () => {
+      expect(isVerbose()).toBe(false);
+    });
   });
 });
 
