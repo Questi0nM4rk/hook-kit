@@ -76,8 +76,10 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src/ tests/ tests-isolated/",
-    "lint:fix": "biome check --write src/ tests/ tests-isolated/",
+    "lint": "bun run lint:biome && bun run lint:eslint",
+    "lint:biome": "biome check src/ tests/ tests-isolated/",
+    "lint:eslint": "eslint --max-warnings=0 src/ tests/ tests-isolated/ scripts/",
+    "lint:fix": "biome check --write src/ tests/ tests-isolated/ && eslint --fix --max-warnings=0 src/ tests/ tests-isolated/ scripts/",
     "test": "bun test tests/ && bun test tests-isolated/",
     "test:unit": "bun test tests/",
     "test:isolated": "bun test tests-isolated/",
