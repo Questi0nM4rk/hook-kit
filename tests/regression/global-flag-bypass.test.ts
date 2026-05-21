@@ -50,6 +50,7 @@ describe("shell-ast BUG-000 regression — global value-flag positional shift", 
     expect(outcome.terminal?.kind).toBe("deny");
   });
 
+  // biome-ignore lint/security/noSecrets: test name describing a shell command pattern; not a credential.
   test("make -C /repo build → cmd('make') + argIncludes('build') fires", async () => {
     const mod = modOf(cmd("make").argIncludes("build").deny("blocked"));
     const outcome = await runModule({

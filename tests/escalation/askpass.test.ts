@@ -27,6 +27,7 @@ function makeRequest() {
 function stageScript(name: string, body: string): string {
   const path = join(workDir, name);
   writeFileSync(path, body, "utf8");
+  // biome-ignore lint/style/noMagicNumbers: rwxr-xr-x literal file mode for executable askpass-script test fixture.
   chmodSync(path, 0o755);
   return path;
 }
@@ -42,7 +43,9 @@ describe("callAskpass — unset askpass falls through to harness UI", () => {
       expect(res.decision).toBe("harness-ask");
       expect(res.reason).toContain("no askpass configured");
     } finally {
-      if (prev !== undefined) process.env.HOOK_KIT_ASKPASS = prev;
+      if (prev !== undefined) {
+        process.env.HOOK_KIT_ASKPASS = prev;
+      }
     }
   });
 });
@@ -107,7 +110,7 @@ function stageDecisionScript(
   decision: "allow" | "deny" | "harness-ask",
   reason?: string,
 ): string {
-  const reasonField = reason !== undefined ? `,"reason":"${reason}"` : "";
+  const reasonField = reason === undefined ? "" : `,"reason":"${reason}"`;
   const body = `#!/bin/sh
 REQ=$(cat)
 ID=$(printf %s "$REQ" | grep -oE '"id":"[^"]*"' | head -1 | sed 's/"id":"//; s/"$//')
@@ -117,6 +120,7 @@ EOF
 `;
   const path = join(workDir, name);
   writeFileSync(path, body, "utf8");
+  // biome-ignore lint/style/noMagicNumbers: rwxr-xr-x literal file mode for executable askpass-script test fixture.
   chmodSync(path, 0o755);
   return path;
 }

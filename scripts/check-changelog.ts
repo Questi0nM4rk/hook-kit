@@ -80,10 +80,14 @@ function changedFiles(base: string): string[] | null {
  *  from one side, treat that asymmetry as a touch. */
 function unreleasedTouched(base: string): boolean | null {
   const headSource = readHeadFile("CHANGELOG.md", SCRIPT);
-  if (headSource === null) return null;
+  if (headSource === null) {
+    return null;
+  }
   const headBlock = findUnreleasedBlock(headSource.split("\n"));
   if (headBlock === null) {
-    process.stderr.write(`${SCRIPT}: CHANGELOG.md has no '## [Unreleased]' section; please add one.\n`);
+    process.stderr.write(
+      `${SCRIPT}: CHANGELOG.md has no '## [Unreleased]' section; please add one.\n`,
+    );
     return false;
   }
 
@@ -93,7 +97,9 @@ function unreleasedTouched(base: string): boolean | null {
   }
   const baseLines = baseSource.split("\n");
   const baseBlock = findUnreleasedBlock(baseLines);
-  if (baseBlock === null) return true;
+  if (baseBlock === null) {
+    return true;
+  }
 
   const headLines = headSource.split("\n");
   return baseLines.slice(...baseBlock).join("\n") !== headLines.slice(...headBlock).join("\n");
@@ -103,7 +109,9 @@ function main(): number {
   const args = parseArgs(process.argv.slice(2));
 
   const files = changedFiles(args.base);
-  if (files === null) return 2;
+  if (files === null) {
+    return 2;
+  }
 
   const srcTouched = files.some((f) => f.startsWith("src/"));
   const changelogTouched = files.includes("CHANGELOG.md");
@@ -115,7 +123,9 @@ function main(): number {
 
   if (!changelogTouched) {
     const messages = commitRangeMessages(args.base, SCRIPT);
-    if (messages === null) return 2;
+    if (messages === null) {
+      return 2;
+    }
     if (messages.includes("[skip-changelog]")) {
       process.stderr.write(
         "check-changelog: src/ touched but [skip-changelog] present in commit range; ok.\n",
@@ -134,10 +144,14 @@ function main(): number {
   }
 
   const unreleased = unreleasedTouched(args.base);
-  if (unreleased === null) return 2;
+  if (unreleased === null) {
+    return 2;
+  }
   if (!unreleased) {
     const messages = commitRangeMessages(args.base, SCRIPT);
-    if (messages === null) return 2;
+    if (messages === null) {
+      return 2;
+    }
     if (messages.includes("[skip-changelog]")) {
       process.stderr.write(
         "check-changelog: CHANGELOG.md touched but not [Unreleased]; " +

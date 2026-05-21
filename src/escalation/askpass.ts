@@ -5,6 +5,11 @@ import { EnvelopeValidationError, emitErrorLine, ProcessSpawnError } from "../co
 import type { AskRequest, AskResponse } from "./envelope.js";
 import { createAskResponse, parseAskResponse } from "./envelope.js";
 
+/** ms per second — used to render timeout values in user-facing deny reasons. */
+const MS_PER_SECOND = 1000;
+/** Cap on stderr tail included in the askpass-exit-non-zero deny reason. */
+const STDERR_TAIL_MAX_CHARS = 200;
+
 export interface CallAskpassOptions {
   readonly request: AskRequest;
   /** Override askpass binary path. Defaults to process.env.HOOK_KIT_ASKPASS. */
@@ -80,11 +85,13 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
   type RaceResult = { kind: "exit"; code: number } | { kind: "timeout" };
   const raceResult = await new Promise<RaceResult>((resolve) => {
     const timer =
-      timeoutMs !== undefined
-        ? setTimeout(() => resolve({ kind: "timeout" }), timeoutMs)
-        : undefined;
+      timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
     proc.exited.then((code) => {
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
       resolve({ kind: "exit", code });
     });
   });
@@ -96,13 +103,15 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
       // Process likely already dead — emit typed error for visibility.
       emitErrorLine(new ProcessSpawnError(`SIGKILL ${askpass}`, cause));
     }
+    // biome-ignore lint/complexity/noVoid: fire-and-forget stream cleanup; .catch already attached so the void is the explicit unhandled-rejection marker.
     void stdoutStream.cancel().catch((cause: unknown) => {
       emitErrorLine(new ProcessSpawnError("askpass stdout cancel", cause));
     });
+    // biome-ignore lint/complexity/noVoid: fire-and-forget stream cleanup; .catch already attached so the void is the explicit unhandled-rejection marker.
     void stderrStream.cancel().catch((cause: unknown) => {
       emitErrorLine(new ProcessSpawnError("askpass stderr cancel", cause));
     });
-    const seconds = timeoutMs !== undefined ? Math.round(timeoutMs / 1000) : 0;
+    const seconds = timeoutMs === undefined ? 0 : Math.round(timeoutMs / MS_PER_SECOND);
     return denied(
       opts.request.id,
       `[hook-kit] no decision in ${seconds}s. Original: ${opts.request.reason}`,
@@ -116,10 +125,10 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
   ]);
 
   if (exitCode !== 0) {
-    const tail = stderrText.trim().slice(0, 200);
+    const tail = stderrText.trim().slice(0, STDERR_TAIL_MAX_CHARS);
     return denied(
       opts.request.id,
-      `[hook-kit] askpass exited ${exitCode}${tail !== "" ? `: ${tail}` : ""}`,
+      `[hook-kit] askpass exited ${exitCode}${tail === "" ? "" : `: ${tail}`}`,
     );
   }
 

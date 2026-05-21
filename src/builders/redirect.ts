@@ -20,6 +20,7 @@ export function redirect(pathPattern?: RegExp): RedirectRuleBuilder {
 }
 
 class RedirectRuleBuilder {
+  // biome-ignore lint/style/noParameterProperties: TS constructor parameter property for fluent-DSL builder state; explicit field+constructor would double boilerplate.
   constructor(private readonly pathPattern: RegExp | undefined) {}
 
   deny(reason: string, label?: string): Rule {
@@ -44,12 +45,18 @@ class RedirectRuleBuilder {
       kind: "redirect",
       async evaluate(_event: HookEvent, ctx: EvalContext): Promise<Decision> {
         const ast = await ctx.getBashAst();
-        if (ast === null) return null;
+        if (ast === null) {
+          return null;
+        }
 
         for (const redir of findRedirects(ast, { ops: "write" })) {
-          if (pattern === undefined) return decision;
+          if (pattern === undefined) {
+            return decision;
+          }
           const target = wordToLit(redir.word);
-          if (target !== null && pattern.test(target)) return decision;
+          if (target !== null && pattern.test(target)) {
+            return decision;
+          }
         }
         return null;
       },

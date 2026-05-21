@@ -51,7 +51,7 @@ export function bashEvent(command: string, opts: EventOpts = {}): HookEvent {
  *  @stable @since 1.0.0 */
 export function writeEvent(filePath: string, content?: string, opts: EventOpts = {}): HookEvent {
   const toolInput: Record<string, unknown> =
-    content !== undefined ? { file_path: filePath, content } : { file_path: filePath };
+    content === undefined ? { file_path: filePath } : { file_path: filePath, content };
   return baseEvent("Write", toolInput, opts);
 }
 
@@ -65,8 +65,12 @@ export function editEvent(
   opts: EventOpts = {},
 ): HookEvent {
   const toolInput: Record<string, unknown> = { file_path: filePath };
-  if (oldStr !== undefined) toolInput.old_string = oldStr;
-  if (newStr !== undefined) toolInput.new_string = newStr;
+  if (oldStr !== undefined) {
+    toolInput.old_string = oldStr;
+  }
+  if (newStr !== undefined) {
+    toolInput.new_string = newStr;
+  }
   return baseEvent("Edit", toolInput, opts);
 }
 

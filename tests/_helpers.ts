@@ -31,12 +31,18 @@ export function captureStderr(): { restore: () => void; output: () => string } {
 /** Run `fn` with the env var set to `value` (or unset when `value` is undefined). */
 export function withEnv(key: string, value: string | undefined, fn: () => void): void {
   const prev = process.env[key];
-  if (value === undefined) delete process.env[key];
-  else process.env[key] = value;
+  if (value === undefined) {
+    delete process.env[key];
+  } else {
+    process.env[key] = value;
+  }
   try {
     fn();
   } finally {
-    if (prev === undefined) delete process.env[key];
-    else process.env[key] = prev;
+    if (prev === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = prev;
+    }
   }
 }

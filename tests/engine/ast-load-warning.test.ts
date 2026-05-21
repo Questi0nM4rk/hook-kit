@@ -18,6 +18,8 @@
 // surfaces every failure through the EvaluationOutcome.annotations channel
 // instead, so the latch is gone and these tests assert on annotations.
 
+// biome-ignore-all lint/performance/noAwaitInLoops: AST-load tests await per-iteration to verify the error annotation surfaces on every input, not just once-per-process.
+
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
 import { createModule } from "../../src/core/module.js";

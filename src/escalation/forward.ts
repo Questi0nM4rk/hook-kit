@@ -12,6 +12,11 @@ import {
   parseAskResponse,
 } from "./envelope.js";
 
+/** Default poll interval (ms) when waiting on the parent's decided/ file. */
+const DEFAULT_POLL_MS = 100;
+/** ms per second — used to render timeout values in user-facing deny reasons. */
+const MS_PER_SECOND = 1000;
+
 export interface ForwardOptions {
   readonly root?: string;
   /** Polling interval while waiting for the parent's decision. */
@@ -57,7 +62,7 @@ export async function forwardUp(
       id: requestId,
       decision: "harness-ask",
       reason: "[hook-kit] forwarded to harness — no parent in chain",
-      ...(opts.by !== undefined ? { by: opts.by } : {}),
+      ...(opts.by === undefined ? {} : { by: opts.by }),
     });
     const sourceDecided = join(sourcePaths.decidedDir, `${requestId}.json`);
     writeIfAbsent(sourceDecided, JSON.stringify(harnessResponse));
@@ -65,7 +70,7 @@ export async function forwardUp(
   }
 
   const parentPaths = ensureSession(parentSessionId, {
-    ...(opts.root !== undefined ? { root: opts.root } : {}),
+    ...(opts.root === undefined ? {} : { root: opts.root }),
   });
   const parentPending = join(parentPaths.pendingDir, `${requestId}.json`);
   const parentDecided = join(parentPaths.decidedDir, `${requestId}.json`);
@@ -73,7 +78,7 @@ export async function forwardUp(
   const forwardedEnvelope = { ...envelope, forwarded_from: sessionId };
   writeIfAbsent(parentPending, JSON.stringify(forwardedEnvelope));
 
-  const pollMs = opts.pollMs ?? 100;
+  const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
   const start = Date.now();
   while (true) {
     if (existsSync(parentDecided)) {
@@ -87,25 +92,28 @@ export async function forwardUp(
       const timeoutResponse = createAskResponse({
         id: requestId,
         decision: "deny",
-        reason: `[hook-kit forward] no parent decision in ${Math.round(opts.timeoutMs / 1000)}s`,
-        ...(opts.by !== undefined ? { by: opts.by } : {}),
+        reason: `[hook-kit forward] no parent decision in ${Math.round(opts.timeoutMs / MS_PER_SECOND)}s`,
+        ...(opts.by === undefined ? {} : { by: opts.by }),
       });
       const sourceDecided = join(sourcePaths.decidedDir, `${requestId}.json`);
       writeIfAbsent(sourceDecided, JSON.stringify(timeoutResponse));
       return { kind: "forwarded", response: timeoutResponse, parentSessionId };
     }
+    // biome-ignore lint/performance/noAwaitInLoops: poll-interval sleep; parallelizing would tight-loop the parent decided/ scan.
     await new Promise<void>((r) => setTimeout(r, pollMs));
   }
 }
 
 function readParentId(metaPath: string): string | undefined {
-  if (!existsSync(metaPath)) return undefined;
+  if (!existsSync(metaPath)) {
+    return;
+  }
   try {
     const meta = JSON.parse(readFileSync(metaPath, "utf8")) as SessionMeta;
     return meta.parentSessionId;
   } catch (cause) {
     emitErrorLine(new JsonParseError(metaPath, cause));
-    return undefined;
+    return;
   }
 }
 
@@ -117,7 +125,9 @@ function writeIfAbsent(path: string, data: string): void {
       err !== null && typeof err === "object" && "code" in err
         ? (err as { code?: unknown }).code
         : undefined;
-    if (code === "EEXIST") return; // Already exists — first-writer-wins.
+    if (code === "EEXIST") {
+      return; // Already exists — first-writer-wins.
+    }
     // Real I/O failure — forwarder cannot complete without this write. Emit
     // a typed error for operator visibility (0-silent-fails) and re-throw
     // wrapped so the top-level catch sees the class name, not a generic
