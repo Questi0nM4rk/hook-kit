@@ -3,6 +3,7 @@
 
 import type { StateStore } from "../core/types.js";
 
+/** @stable @since 1.0.0 */
 export class MemoryStore implements StateStore {
   private readonly data = new Map<string, unknown>();
 

@@ -23,7 +23,8 @@ import { bashEvent, editEvent, readEvent, writeEvent } from "./events.js";
 
 /** Pattern arg accepted by terminal-reason / annotation-message assertions.
  *  RegExp uses `.test()`; string uses `===` (NOT substring) — strict equality
- *  to match the same model as Jest's `.toBe()` / `.toEqual()`. */
+ *  to match the same model as Jest's `.toBe()` / `.toEqual()`.
+ *  @stable @since 1.0.0 */
 export type StringMatcher = RegExp | string;
 
 function matches(value: string, pattern: StringMatcher): boolean {
@@ -236,6 +237,7 @@ class AssertionRunner {
  *
  *   const out = await expectModule([modA, modB]).onCommand("git push").outcome();
  *   expect(out.annotations).toHaveLength(2);
+ * @stable @since 1.0.0
  */
 export function expectModule(module: HookModule | readonly HookModule[]): ExpectationBuilder {
   const mods = Array.isArray(module) ? (module as readonly HookModule[]) : [module as HookModule];
@@ -250,6 +252,7 @@ export function expectModule(module: HookModule | readonly HookModule[]): Expect
  *   await expectRule(cmd("rm").deny("blocked"))
  *     .onCommand("rm -rf /")
  *     .toDeny();
+ * @stable @since 1.0.0
  */
 export function expectRule(rule: Rule): ExpectationBuilder {
   const mod: HookModule = {

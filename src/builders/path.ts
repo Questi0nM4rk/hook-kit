@@ -14,6 +14,7 @@ type EventType = "write" | "read" | "both";
 const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
 const READ_TOOLS = new Set(["Read"]);
 
+/** @stable @since 1.0.0 */
 export function path(pattern: RegExp): PathRuleBuilder {
   return new PathRuleBuilder(pattern);
 }

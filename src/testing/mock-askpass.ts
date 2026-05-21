@@ -17,6 +17,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** @stable @since 1.0.0 */
 export interface MockAskpassResponse {
   /** What the askpass returns for every request. `"allow"` lets the
    *  command run; `"deny"` blocks it; `"harness-ask"` delegates upstream
@@ -32,6 +33,7 @@ export interface MockAskpassResponse {
   readonly decidedAt?: string;
 }
 
+/** @stable @since 1.0.0 */
 export interface MockAskpass {
   /** Absolute path to the generated executable script. Set
    *  `HOOK_KIT_ASKPASS` to this value, or spread the `env` field into a
@@ -62,6 +64,7 @@ export interface MockAskpass {
  * For repeated per-test cleanup, wire `cleanup()` into `afterEach`. For
  * complex multi-response scenarios (different decisions per request),
  * write a custom script — `mockAskpass` is for the common "always X" case.
+ * @stable @since 1.0.0
  */
 export function mockAskpass(response: MockAskpassResponse): MockAskpass {
   const decidedAt = response.decidedAt ?? "2026-01-01T00:00:00Z";

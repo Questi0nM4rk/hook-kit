@@ -8,6 +8,7 @@ import type { EvaluationOutcome, HookEvent, HookModule } from "./core/types.js";
 import { type EvaluateOptions, evaluate } from "./engine/index.js";
 import { emitVerbose, isVerbose } from "./engine/trace.js";
 
+/** @stable @since 1.0.0 */
 export type RunOptions = EvaluateOptions;
 
 /**
@@ -18,6 +19,7 @@ export type RunOptions = EvaluateOptions;
  *
  * When `HOOK_KIT_VERBOSE=1` is set, a single trace line is emitted to stderr
  * after evaluation: event, tool, session, module count, final outcome, time.
+ * @stable @since 1.0.0
  */
 export async function run(
   modules: readonly HookModule[],
