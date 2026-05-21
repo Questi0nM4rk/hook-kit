@@ -10,6 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # check-stable-exports needs the base ref reachable to diff against;
+          # fetch full history on PRs so origin/<base> resolves to a real commit.
+          fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -19,3 +23,11 @@ jobs:
         run: bun run lint
       - name: Test
         run: bun run test
+      - name: Check STABLE-export removals
+        # Skip on direct pushes to main — there's no PR base to diff against;
+        # the guard runs on every PR before merge.
+        if: github.event_name == 'pull_request'
+        env:
+          # Indirect via env so github.base_ref can't shell-inject the run step.
+          BASE_REF: ${{ github.base_ref }}
+        run: bun scripts/check-stable-exports.ts --base "origin/$BASE_REF"
