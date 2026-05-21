@@ -59,6 +59,20 @@ export default tseslint.config(
       // `noUnusedVariables` is broadly equivalent but non-type-aware; we keep both because the
       // type-aware ESLint variant catches a strict superset and the redundant biome catches
       // any drift if ESLint mis-parses a file. Both at error = first one to flag fails CI.
+      //
+      // ─── Async-correctness contract (TASK-T12, S3b) ──────────────────────────────────────
+      // These six rules are reaffirmed at "error" to document hook-kit's async-correctness
+      // contract; the strict-type-checked preset already enables them but explicit affirmation
+      // documents intent. Removing any of these (or relaxing to "off") would silently allow a
+      // class of bug that bit downstream consumers (ai-guardrails 0.2 → 0.3 migration: floating
+      // promise in broker shutdown swallowed an EBADF that should have produced a typed deny).
+      // CP-1: every entry is the error severity, never the soft severity (forbidden tier).
+      "@typescript-eslint/no-floating-promises": "error", // unawaited Promise = swallowed rejection = silent fail (0-silent-fails policy).
+      "@typescript-eslint/no-misused-promises": "error", // Promise passed where void expected (e.g. onClick, setTimeout) — fires-and-forgets without intent.
+      "@typescript-eslint/no-unnecessary-type-assertion": "error", // `as` that the type system already knows is redundant — risks masking a real type shift later.
+      "@typescript-eslint/prefer-promise-reject-errors": "error", // `Promise.reject("string")` loses stack + breaks typed error narrowing; reject Error instances only.
+      "@typescript-eslint/require-await": "error", // async-without-await = the caller expects a Promise but gets one resolved synchronously; signature lies about the contract.
+      "@typescript-eslint/no-non-null-assertion": "error", // `x!` discards the null branch without proof; either narrow first or use a typed throw. Bypassing nullability is exactly what HookKitError sites cannot afford.
     },
   },
 );
