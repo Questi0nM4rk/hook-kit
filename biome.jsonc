@@ -12,8 +12,9 @@
     "enabled": true,
     // CP-1: every group is `error` (blocks) or `off` with a one-line WHY. Never warn-severity.
     // String-shorthand "error" enables ALL rules in the group (recommended + non-recommended)
-    // at error severity. The previous explicit overrides (noUnusedVariables, noUnusedImports,
-    // useConst, useTemplate, noExplicitAny, noConsole) are subsumed by the group-level errors.
+    // at error severity. Per-rule disables live in the `overrides` block below — biome 2.x
+    // doesn't accept duplicate keys for both severity-string AND object-form on one group,
+    // so per-rule "off" overrides are factored into `overrides`.
     "rules": {
       "recommended": true,
       "a11y": "off", // server-side TS library; no HTML/JSX rendered.
@@ -26,6 +27,45 @@
       "suspicious": "error"
     }
   },
+  // Per-rule disables (with WHY) for rules from the all-at-error groups above. Each entry is
+  // a deliberate exception to the group-level error; new entries require a content-bearing reason.
+  "overrides": [
+    {
+      "includes": ["**"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            // engine/broker/CLI dispatch functions intentionally long; cohesion > arbitrary length cap.
+            "noExcessiveLinesPerFunction": "off"
+          },
+          "correctness": {
+            // Bun runtime: global process is canonical; node:process import is unnecessary indirection.
+            "noProcessGlobal": "off",
+            // Library targets Bun runtime; node:fs / node:os / node:path are canonical ESM imports.
+            "noNodejsModules": "off"
+          },
+          "performance": {
+            // Inline regex is legibility-positive in tests; perf gain trivial; revisit if regex moves into hot paths.
+            "useTopLevelRegex": "off"
+          },
+          "style": {
+            // Interop with external snake_case protocols (CC tool_input.*, broker envelope, ai-guardrails).
+            "useNamingConvention": "off",
+            // Noisy in test/CI scopes where literal fixtures are inline-evident; revisit in M3+ readability pass.
+            "noMagicNumbers": "off",
+            // CLI tool reads env intentionally; abstraction layer would add ceremony without value.
+            "noProcessEnv": "off",
+            // Interface-first file structure intentional; export ordering follows declaration order.
+            "useExportsLast": "off"
+          },
+          "suspicious": {
+            // Async signatures on engine entry points are part of stable API contract; future internal awaits expected.
+            "useAwait": "off"
+          }
+        }
+      }
+    }
+  ],
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -33,6 +73,8 @@
     "lineWidth": 100
   },
   "javascript": {
+    // Bun runtime globals + Node CJS-compat globals used in src/ and tests/ (resolves noUndeclaredVariables false-positives).
+    "globals": ["Bun", "process", "__dirname", "__filename"],
     "formatter": {
       "quoteStyle": "double",
       "trailingCommas": "all",
