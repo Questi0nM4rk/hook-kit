@@ -10,20 +10,20 @@
   },
   "linter": {
     "enabled": true,
+    // CP-1: every group is `error` (blocks) or `off` with a one-line WHY. Never warn-severity.
+    // String-shorthand "error" enables ALL rules in the group (recommended + non-recommended)
+    // at error severity. The previous explicit overrides (noUnusedVariables, noUnusedImports,
+    // useConst, useTemplate, noExplicitAny, noConsole) are subsumed by the group-level errors.
     "rules": {
       "recommended": true,
-      "correctness": {
-        "noUnusedVariables": "error",
-        "noUnusedImports": "error"
-      },
-      "style": {
-        "useConst": "error",
-        "useTemplate": "error"
-      },
-      "suspicious": {
-        "noExplicitAny": "error",
-        "noConsole": "error"
-      }
+      "a11y": "off", // server-side TS library; no HTML/JSX rendered.
+      "nursery": "off", // experimental biome rules; opt in per-rule when stable.
+      "complexity": "error",
+      "correctness": "error",
+      "performance": "error",
+      "security": "error",
+      "style": "error",
+      "suspicious": "error"
     }
   },
   "formatter": {
