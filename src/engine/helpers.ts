@@ -38,6 +38,7 @@ const FLAG_EXPANSIONS: ReadonlyMap<string, readonly string[]> = new Map([
  * plus their expansions and all alias equivalents, with full transitivity
  * through the alias graph. Duplicates are removed.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: alias-graph transitive expansion needs the full nested walk for stability; helper extraction would just move the loops.
 export function expandFlags(flags: readonly string[]): string[] {
   const result = new Set<string>();
 

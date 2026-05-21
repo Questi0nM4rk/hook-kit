@@ -4,6 +4,7 @@
 // downstream consumers writing rule tests. Keeps `runModule` /
 // `evaluateRule` from the main barrel as low-level escape hatches; this
 // subpath is the ergonomic primary lens.
+// biome-ignore-all lint/performance/noBarrelFile: subpath public API barrel for `@questi0nm4rk/hook-kit/testing`.
 
 // Event factories
 export { bashEvent, type EventOpts, editEvent, readEvent, writeEvent } from "./events.js";

@@ -31,6 +31,8 @@ import { hasParentListener } from "./listeners.js";
 
 const DEFAULT_ROOT = join(homedir(), ".cache", "hook-kit", "sessions");
 const DEFAULT_POLL_MS = 100;
+/** ms per second — used to render timeout values in user-facing deny reasons. */
+const MS_PER_SECOND = 1000;
 
 export interface BrokerPaths {
   readonly sessionDir: string;
@@ -77,7 +79,7 @@ export function ensureSession(
   if (!existsSync(paths.metaPath)) {
     const meta: SessionMeta = {
       sessionId,
-      ...(opts.parentSessionId !== undefined ? { parentSessionId: opts.parentSessionId } : {}),
+      ...(opts.parentSessionId === undefined ? {} : { parentSessionId: opts.parentSessionId }),
       startedAt: new Date().toISOString(),
       pid: process.pid,
     };
@@ -150,6 +152,7 @@ export interface BrokerAskpassOptions {
  * unaffected — the validator only fires when an `escalate` decision drives
  * the broker.
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: broker askpass dispatch — envelope parse + listener registration + poll + timeout + decision write all interlock; splitting loses the first-writer-wins ordering.
 export async function brokerAskpass(
   stdinText: string,
   opts: BrokerAskpassOptions = {},
@@ -175,7 +178,7 @@ export async function brokerAskpass(
   }
 
   const paths = ensureSession(request.sessionId, {
-    ...(request.parentSessionId !== undefined ? { parentSessionId: request.parentSessionId } : {}),
+    ...(request.parentSessionId === undefined ? {} : { parentSessionId: request.parentSessionId }),
     root,
   });
 
@@ -223,7 +226,7 @@ export async function brokerAskpass(
           kind: "decided",
           id: request.id,
           decision: response.decision,
-          ...(response.by !== undefined ? { by: response.by } : {}),
+          ...(response.by === undefined ? {} : { by: response.by }),
         });
         return response;
       } catch (cause) {
@@ -239,16 +242,19 @@ export async function brokerAskpass(
         break;
       }
     }
-    if (timeoutMs !== undefined && Date.now() - start >= timeoutMs) break;
+    if (timeoutMs !== undefined && Date.now() - start >= timeoutMs) {
+      break;
+    }
+    // biome-ignore lint/performance/noAwaitInLoops: poll-interval sleep; parallelizing would tight-loop the decided/ scan.
     await sleep(pollMs);
   }
 
   // We only get here on a) malformed decision file or b) opt-in timeout
   // expiry. Write our own deny so any race-late real writer loses cleanly.
   const reason =
-    timeoutMs !== undefined
-      ? `[hook-kit broker] no decision in ${Math.round(timeoutMs / 1000)}s. Original: ${request.reason}`
-      : `[hook-kit broker] decision file was malformed; original: ${request.reason}`;
+    timeoutMs === undefined
+      ? `[hook-kit broker] decision file was malformed; original: ${request.reason}`
+      : `[hook-kit broker] no decision in ${Math.round(timeoutMs / MS_PER_SECOND)}s. Original: ${request.reason}`;
   const autoDeny = createAskResponse({
     id: request.id,
     decision: "deny",
@@ -281,16 +287,24 @@ export interface ListSessionsOptions {
 /** Snapshot of all session ask channels currently on disk. */
 export function listSessions(opts: ListSessionsOptions = {}): SessionInfo[] {
   const root = opts.root ?? DEFAULT_ROOT;
-  if (!existsSync(root)) return [];
+  if (!existsSync(root)) {
+    return [];
+  }
   const sessions: SessionInfo[] = [];
   for (const entry of readdirSync(root)) {
     const dir = join(root, entry);
-    if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) continue;
+    if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
+      continue;
+    }
     const metaPath = join(dir, "meta.json");
-    if (!existsSync(metaPath)) continue;
+    if (!existsSync(metaPath)) {
+      continue;
+    }
     try {
       const meta = JSON.parse(readFileSync(metaPath, "utf8")) as SessionMeta;
-      if (opts.childrenOf !== undefined && meta.parentSessionId !== opts.childrenOf) continue;
+      if (opts.childrenOf !== undefined && meta.parentSessionId !== opts.childrenOf) {
+        continue;
+      }
       const pendingDir = join(dir, "pending");
       const pendingCount = existsSync(pendingDir) ? readdirSync(pendingDir).length : 0;
       sessions.push({ ...meta, pendingCount });
@@ -305,10 +319,14 @@ export function listSessions(opts: ListSessionsOptions = {}): SessionInfo[] {
 /** Snapshot of pending requests for a session. */
 export function listPending(sessionId: string, opts: { root?: string } = {}): AskRequest[] {
   const paths = brokerPaths(sessionId, opts.root ?? DEFAULT_ROOT);
-  if (!existsSync(paths.pendingDir)) return [];
+  if (!existsSync(paths.pendingDir)) {
+    return [];
+  }
   const out: AskRequest[] = [];
   for (const entry of readdirSync(paths.pendingDir)) {
-    if (!entry.endsWith(".json")) continue;
+    if (!entry.endsWith(".json")) {
+      continue;
+    }
     const entryPath = join(paths.pendingDir, entry);
     try {
       const raw = readFileSync(entryPath, "utf8");
@@ -332,6 +350,7 @@ export interface SubmitDecisionOptions {
  * written (first-writer-wins; the broker's auto-deny also goes through this
  * path so a late real submission loses cleanly).
  */
+// biome-ignore lint/complexity/useMaxParams: stable public API surface mirroring AskRequest fields (session/request/decision/reason) + opts; collapsing to one opts arg would break callers.
 export function submitDecision(
   sessionId: string,
   requestId: string,
@@ -347,8 +366,8 @@ export function submitDecision(
   const response = createAskResponse({
     id: requestId,
     decision,
-    ...(reason !== undefined ? { reason } : {}),
-    ...(opts.by !== undefined ? { by: opts.by } : {}),
+    ...(reason === undefined ? {} : { reason }),
+    ...(opts.by === undefined ? {} : { by: opts.by }),
   });
   return atomicWriteIfAbsent(decidedPath, JSON.stringify(response));
 }

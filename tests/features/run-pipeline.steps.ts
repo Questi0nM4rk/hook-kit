@@ -1,3 +1,5 @@
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: BDD step bodies (Given/When/Then) contain expect() calls; the BDD runner invokes them inside test() blocks at runtime, but biome only sees them at module scope.
+
 import { expect } from "bun:test";
 import { Given, Then, When } from "@questi0nm4rk/feats";
 import { rawAdapter } from "../../src/adapters/raw.js";
@@ -36,7 +38,9 @@ function writeEvent(filePath: string): HookEvent {
 }
 
 function asString(v: unknown): string {
-  if (typeof v !== "string") throw new Error(`expected string, got ${typeof v}`);
+  if (typeof v !== "string") {
+    throw new Error(`expected string, got ${typeof v}`);
+  }
   return v;
 }
 
@@ -47,12 +51,16 @@ Given<RunPipelineWorld>(
     const reason = asString(reasonArg);
     const parts = command.split(/\s+/).filter((p) => p.length > 0);
     const head = parts[0];
-    if (head === undefined) throw new Error("empty command");
+    if (head === undefined) {
+      throw new Error("empty command");
+    }
     const rest = parts.slice(1);
     const subs = rest.filter((p) => !p.startsWith("-"));
     const flags = rest.filter((p) => p.startsWith("-"));
     let builder = cmd(head, ...subs);
-    for (const flag of flags) builder = builder.withFlag(flag);
+    for (const flag of flags) {
+      builder = builder.withFlag(flag);
+    }
     world.modules = [
       createModule({ id: "m", name: "scenario", events: ["PreToolUse"], matchers: ["Bash"] }, [
         builder.deny(reason),

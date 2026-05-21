@@ -1,3 +1,6 @@
+// biome-ignore-all lint/style/noMagicNumbers: stateful tests use literal counter/threshold fixtures inline for state-transition assertions; named constants would obscure the test intent.
+// biome-ignore-all lint/performance/noAwaitInLoops: state-progression tests require sequential awaits to observe the counter ticking through each evaluate call.
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,7 +66,9 @@ describe("stateful() — cross-invocation persistence with TmpdirStore", () => {
     for (let i = 0; i < 3; i++) {
       const store = new TmpdirStore({ namespace, sessionId, root: workDir });
       const out = await evaluate(bashEvent("ls -la"), [repetitionModule(2)], { state: store });
-      if (i < 2) expect(out.annotations).toEqual([]);
+      if (i < 2) {
+        expect(out.annotations).toEqual([]);
+      }
     }
 
     // Fourth invocation: should fire because count = 4 > threshold 2.

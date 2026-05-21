@@ -76,10 +76,14 @@ function isAlive(pid: number): boolean {
 export function liveListeners(sessionId: string, opts: { root?: string } = {}): ListenerMarker[] {
   const paths = brokerPaths(sessionId, opts.root);
   const dir = join(paths.sessionDir, "listeners");
-  if (!existsSync(dir)) return [];
+  if (!existsSync(dir)) {
+    return [];
+  }
   const live: ListenerMarker[] = [];
   for (const entry of readdirSync(dir)) {
-    if (!entry.endsWith(".lock")) continue;
+    if (!entry.endsWith(".lock")) {
+      continue;
+    }
     const path = join(dir, entry);
     try {
       const raw = readFileSync(path, "utf8");
@@ -117,7 +121,9 @@ export function hasParentListener(sessionId: string, opts: { root?: string } = {
   let current: string | undefined = sessionId;
   while (current !== undefined && !visited.has(current)) {
     visited.add(current);
-    if (liveListeners(current, opts).length > 0) return true;
+    if (liveListeners(current, opts).length > 0) {
+      return true;
+    }
     current = readParentId(current, opts);
   }
   return false;
@@ -125,12 +131,14 @@ export function hasParentListener(sessionId: string, opts: { root?: string } = {
 
 function readParentId(sessionId: string, opts: { root?: string } = {}): string | undefined {
   const metaPath = brokerPaths(sessionId, opts.root).metaPath;
-  if (!existsSync(metaPath)) return undefined;
+  if (!existsSync(metaPath)) {
+    return;
+  }
   try {
     const meta = JSON.parse(readFileSync(metaPath, "utf8")) as SessionMeta;
     return meta.parentSessionId;
   } catch (cause) {
     emitErrorLine(new JsonParseError(metaPath, cause));
-    return undefined;
+    return;
   }
 }

@@ -38,6 +38,7 @@ afterEach(() => {
 function stageScript(name: string, body: string): string {
   const path = join(workDir, name);
   writeFileSync(path, body, "utf8");
+  // biome-ignore lint/style/noMagicNumbers: rwxr-xr-x literal file mode for executable askpass-script test fixture.
   chmodSync(path, 0o755);
   return path;
 }

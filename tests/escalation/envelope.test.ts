@@ -1,3 +1,5 @@
+// biome-ignore-all lint/style/noMagicNumbers: envelope tests pass literal pid/protocol-version fixtures for schema-validation assertions; named constants would obscure the field-mapping intent.
+
 import { describe, expect, test } from "bun:test";
 import { hostname } from "node:os";
 import {

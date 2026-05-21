@@ -138,11 +138,11 @@ export async function runModule(opts: RunModuleOptions): Promise<EvaluationOutco
     : [opts.module as HookModule];
   const event = opts.event ?? defaultBashEvent(opts.command ?? "");
   const evalOpts: EvaluateOptions = {
-    ...(opts.state !== undefined ? { state: opts.state } : {}),
-    ...(opts.recurseInlineShells !== undefined
-      ? { recurseInlineShells: opts.recurseInlineShells }
-      : {}),
-    ...(opts.shellAstOpts !== undefined ? { shellAstOpts: opts.shellAstOpts } : {}),
+    ...(opts.state === undefined ? {} : { state: opts.state }),
+    ...(opts.recurseInlineShells === undefined
+      ? {}
+      : { recurseInlineShells: opts.recurseInlineShells }),
+    ...(opts.shellAstOpts === undefined ? {} : { shellAstOpts: opts.shellAstOpts }),
   };
   return evaluate(event, modules, evalOpts);
 }
@@ -201,6 +201,7 @@ function keepOnlyErrors(anns: readonly Annotation[]): Annotation[] {
   return anns.filter((a) => a.kind === "error");
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: engine evaluator — module/rule iteration + decision merging + annotation accumulation + recursion bookkeeping form one transactional pipeline; splitting loses ordering invariants.
 async function evaluateInternal(
   event: HookEvent,
   modules: readonly HookModule[],
@@ -233,18 +234,25 @@ async function evaluateInternal(
   };
 
   for (const mod of modules) {
-    if (mod.enabled === false) continue;
-    if (!mod.events.includes(event.eventName)) continue;
+    if (mod.enabled === false) {
+      continue;
+    }
+    if (!mod.events.includes(event.eventName)) {
+      continue;
+    }
     if (mod.matchers && mod.matchers.length > 0) {
       const matched = mod.matchers.some((m) =>
         m.split("|").some((part) => part === event.toolName),
       );
-      if (!matched) continue;
+      if (!matched) {
+        continue;
+      }
     }
 
     for (const rule of mod.rules) {
       let decision: Decision;
       try {
+        // biome-ignore lint/performance/noAwaitInLoops: rules MUST execute sequentially — deny short-circuits, ask bundles, ordering is the merge-policy contract.
         decision = await rule.evaluate(event, ctx);
       } catch (cause) {
         // HookKitError thrown from a rule (e.g., FileReadError from content())
@@ -257,7 +265,9 @@ async function evaluateInternal(
         annotations.push(errorAnnotation(err));
         continue;
       }
-      if (decision === null) continue;
+      if (decision === null) {
+        continue;
+      }
 
       if (decision.kind === "deny") {
         drainContextErrors();
@@ -265,7 +275,9 @@ async function evaluateInternal(
         return { terminal: decision, annotations: keepOnlyErrors(annotations) };
       }
       if (decision.kind === "ask") {
-        if (terminal === null) terminal = decision;
+        if (terminal === null) {
+          terminal = decision;
+        }
         continue;
       }
       // warning / note / (rule-emitted error — type-allowed but engine never
@@ -295,9 +307,12 @@ async function evaluateInternal(
     const ast = await ctx.getBashAst();
     if (ast !== null) {
       for (const call of findCalls(ast)) {
+        // biome-ignore lint/performance/noAwaitInLoops: shell-ast deep-unwrap is sync-ish but typed async; chained-wrapper recursion needs per-call ordering for the depth cap.
         const chain = await unwrapDeepParsed(call, parse, ctx.shellAstOpts);
         const innerScript = chain.find((u) => u.kind === "wrapped-script");
-        if (innerScript === undefined || innerScript.kind !== "wrapped-script") continue;
+        if (innerScript === undefined || innerScript.kind !== "wrapped-script") {
+          continue;
+        }
         const synthetic: HookEvent = {
           ...event,
           toolInput: { ...event.toolInput, command: innerScript.script },
@@ -350,9 +365,11 @@ function buildEvalContext(
     ctx: {
       state,
       modules,
-      ...(shellAstOpts !== undefined ? { shellAstOpts } : {}),
+      ...(shellAstOpts === undefined ? {} : { shellAstOpts }),
       async getBashAst(): Promise<ShellFile | null> {
-        if (cached !== undefined) return cached;
+        if (cached !== undefined) {
+          return cached;
+        }
         if (event.toolName !== "Bash") {
           cached = null;
           return cached;
@@ -384,8 +401,11 @@ function buildEvalContext(
 
 const noopState: StateStore = {
   get: () => undefined,
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: noop StateStore stub — empty body is the implementation.
   set: () => {},
   has: () => false,
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: noop StateStore stub — empty body is the implementation.
   delete: () => {},
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: noop StateStore stub — empty body is the implementation.
   flush: () => {},
 };

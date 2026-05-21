@@ -6,7 +6,7 @@ import { runBuild } from "../../src/build/bundle.js";
 
 const BUILD_TIMEOUT_MS = 60_000;
 
-const HOOK_KIT_ROOT = resolve(__dirname, "..", "..");
+const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
 
 const FIXTURE_HOOKS_TS = `
 import { cmd, createModule } from "@questi0nm4rk/hook-kit";
@@ -48,7 +48,7 @@ function stageAskpass(
 ): string {
   // Heredoc avoids POSIX printf's implementation-defined `\"` handling
   // (dash on Ubuntu CI rejects what bash on developer laptops accepts).
-  const reasonField = reason !== undefined ? `,"reason":"${reason}"` : "";
+  const reasonField = reason === undefined ? "" : `,"reason":"${reason}"`;
   const body = `#!/bin/sh
 REQ=$(cat)
 ID=$(printf %s "$REQ" | grep -oE '"id":"[^"]*"' | head -1 | sed 's/"id":"//; s/"$//')
@@ -58,6 +58,7 @@ EOF
 `;
   const path = join(workDir, "askpass.sh");
   writeFileSync(path, body, "utf8");
+  // biome-ignore lint/style/noMagicNumbers: rwxr-xr-x literal file mode for executable askpass-script test fixture.
   chmodSync(path, 0o755);
   return path;
 }

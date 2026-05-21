@@ -25,8 +25,11 @@ export function partitionAnnotations(anns: readonly Annotation[]): {
   const others: NonErrorAnnotation[] = [];
   const errors: ErrorAnnotation[] = [];
   for (const a of anns) {
-    if (a.kind === "error") errors.push(a);
-    else others.push(a);
+    if (a.kind === "error") {
+      errors.push(a);
+    } else {
+      others.push(a);
+    }
   }
   return { others, errors };
 }

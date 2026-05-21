@@ -27,17 +27,25 @@ class ContentRuleBuilder {
       async evaluate(event: HookEvent): Promise<Decision> {
         // PostToolUse only — at PostToolUse the tool has already run, so the
         // file on disk reflects the final state.
-        if (event.eventName !== "PostToolUse") return null;
+        if (event.eventName !== "PostToolUse") {
+          return null;
+        }
 
         const filePath = extractFilePath(event.toolInput);
-        if (filePath === "") return null;
-        if (pathPattern !== undefined && !pathPattern.test(filePath)) return null;
+        if (filePath === "") {
+          return null;
+        }
+        if (pathPattern !== undefined && !pathPattern.test(filePath)) {
+          return null;
+        }
 
         // File vanished between the tool call and the PostToolUse hook — no
         // decision to make, no error to surface. Distinct from an unreadable
         // file that DOES exist (permissions, IO failure), which is a real
         // FileReadError.
-        if (!existsSync(filePath)) return null;
+        if (!existsSync(filePath)) {
+          return null;
+        }
         let body: string;
         try {
           body = readFileSync(filePath, "utf8");
@@ -57,7 +65,9 @@ class ContentRuleBuilder {
 function extractFilePath(input: Readonly<Record<string, unknown>>): string {
   const candidates = [input.file_path, input.notebook_path, input.path];
   for (const c of candidates) {
-    if (typeof c === "string" && c.length > 0) return c;
+    if (typeof c === "string" && c.length > 0) {
+      return c;
+    }
   }
   return "";
 }

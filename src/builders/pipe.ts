@@ -20,7 +20,9 @@ export function pipe(from: readonly string[], into: readonly string[]): PipeRule
 
 class PipeRuleBuilder {
   constructor(
+    // biome-ignore lint/style/noParameterProperties: TS constructor parameter property for fluent-DSL builder state; explicit field+constructor would double boilerplate.
     private readonly from: readonly string[],
+    // biome-ignore lint/style/noParameterProperties: TS constructor parameter property for fluent-DSL builder state; explicit field+constructor would double boilerplate.
     private readonly into: readonly string[],
   ) {}
 
@@ -47,14 +49,22 @@ class PipeRuleBuilder {
       kind: "pipe",
       async evaluate(_event: HookEvent, ctx: EvalContext): Promise<Decision> {
         const ast = await ctx.getBashAst();
-        if (ast === null) return null;
+        if (ast === null) {
+          return null;
+        }
 
         for (const node of findAll(ast, "BinaryCmd")) {
-          if (effectOf(node) !== "pipe") continue;
+          if (effectOf(node) !== "pipe") {
+            continue;
+          }
           const left = stmtToCmdName(node.x);
           const right = stmtToCmdName(node.y);
-          if (left === null || right === null) continue;
-          if (fromSet.has(left) && intoSet.has(right)) return decision;
+          if (left === null || right === null) {
+            continue;
+          }
+          if (fromSet.has(left) && intoSet.has(right)) {
+            return decision;
+          }
         }
         return null;
       },
@@ -64,9 +74,13 @@ class PipeRuleBuilder {
 
 function stmtToCmdName(stmt: Stmt): string | null {
   const cmd = stmt.cmd;
-  if (cmd === null || cmd.type !== "CallExpr") return null;
+  if (cmd === null || cmd.type !== "CallExpr") {
+    return null;
+  }
   const u = unwrapCall(cmd);
-  if (u === null) return null;
+  if (u === null) {
+    return null;
+  }
   // Shares the policy in `unwrappedName` (engine/helpers.ts) — same dispatch
   // as command.ts so a sudo-wrapped pipe target matches on u.cmd ("bash" in
   // `curl | sudo bash`) and a wrapped-script target matches on u.wrapper

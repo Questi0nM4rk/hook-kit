@@ -79,6 +79,7 @@ describe("mockState", () => {
   test("two mockState calls produce independent stores", () => {
     const a = mockState({ k: 1 });
     const b = mockState({ k: 2 });
+    // biome-ignore lint/style/noMagicNumbers: 99 is a sentinel value distinct from the seeded 1/2 to prove a.set doesn't leak into b.
     a.set("k", 99);
     expect(b.get("k")).toBe(2);
   });

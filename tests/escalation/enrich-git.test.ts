@@ -79,8 +79,11 @@ describe("gitEnrichmentEnabled", () => {
     try {
       expect(gitEnrichmentEnabled()).toBe(true);
     } finally {
-      if (prev === undefined) delete process.env.HOOK_KIT_ENRICH_GIT;
-      else process.env.HOOK_KIT_ENRICH_GIT = prev;
+      if (prev === undefined) {
+        delete process.env.HOOK_KIT_ENRICH_GIT;
+      } else {
+        process.env.HOOK_KIT_ENRICH_GIT = prev;
+      }
     }
   });
 
@@ -90,7 +93,9 @@ describe("gitEnrichmentEnabled", () => {
     try {
       expect(gitEnrichmentEnabled()).toBe(false);
     } finally {
-      if (prev !== undefined) process.env.HOOK_KIT_ENRICH_GIT = prev;
+      if (prev !== undefined) {
+        process.env.HOOK_KIT_ENRICH_GIT = prev;
+      }
     }
   });
 });

@@ -1,3 +1,5 @@
+// biome-ignore-all lint/style/noMagicNumbers: TUI render tests use inline literal terminal widths / ages / timestamps for legibility; extracting each to a named constant would obscure the test intent.
+
 import { describe, expect, test } from "bun:test";
 import { createAskRequest } from "../../src/escalation/envelope.js";
 import { type PendingRow, renderTui, type TuiState } from "../../src/escalation/watch-tui.js";
@@ -47,8 +49,8 @@ describe("renderTui — list mode", () => {
   });
 
   test("highlights only the selected row across multiple", () => {
-    const a = row("s1", "ls -la", NOW - 1_000);
-    const b = row("s2", "rm -rf /tmp/x", NOW - 5_000);
+    const a = row("s1", "ls -la", NOW - 1000);
+    const b = row("s2", "rm -rf /tmp/x", NOW - 5000);
     const out = strip(renderTui(listState([a, b], 1), 100, NOW));
     // The selected (second) row should carry the cursor; the first should not.
     const lines = out.split("\n");
@@ -147,12 +149,13 @@ describe("renderTui — detail pane", () => {
       harness: { name: "claude-code" },
       cwd: "/home/me/project",
       transcriptPath: "/tmp/cc/transcript.jsonl",
+      // biome-ignore lint/security/noSecrets: fake git sha for TUI rendering test; not a credential.
       git: { sha: "fc7f3411223344556677", branch: "main", dirty: true, remote: "git@x:o/r.git" },
-      pid: 41832,
+      pid: 41_832,
       host: "lab-01",
       user: "qs_m4rk",
     });
-    return { request: req, observedAt: NOW - 5_000 };
+    return { request: req, observedAt: NOW - 5000 };
   }
 
   test("shows harness, project, git, transcript, origin, expires, label, reason, command", () => {

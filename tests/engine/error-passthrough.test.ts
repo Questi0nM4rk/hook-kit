@@ -45,7 +45,9 @@ describe("engine — HookKitError thrown from rule passes through as the specifi
     const errors = outcome.annotations.filter((a) => a.kind === "error");
     expect(errors).toHaveLength(1);
     const err = errors[0];
-    if (err?.kind !== "error") throw new Error("expected error annotation");
+    if (err?.kind !== "error") {
+      throw new Error("expected error annotation");
+    }
     expect(err.errorCode).toBe("FileReadError");
     expect(err.message).toContain("/tmp/missing");
     // Rule did not return a decision — no terminal.
@@ -62,9 +64,12 @@ describe("engine — HookKitError thrown from rule passes through as the specifi
       const mod = createModule({ id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash"] }, [
         throwingRule(err),
       ]);
+      // biome-ignore lint/performance/noAwaitInLoops: table-driven test — each row exercises a distinct error class; parallelizing would lose per-case attribution on failure.
       const outcome = await runModule({ module: mod, command: "echo hi" });
       const ann = outcome.annotations.find((a) => a.kind === "error");
-      if (ann?.kind !== "error") throw new Error(`expected error annotation for ${code}`);
+      if (ann?.kind !== "error") {
+        throw new Error(`expected error annotation for ${code}`);
+      }
       expect(ann.errorCode).toBe(code);
     }
   });
@@ -80,7 +85,9 @@ describe("engine — HookKitError thrown from rule passes through as the specifi
     ]);
     const outcome = await runModule({ module: mod, command: "echo hi" });
     const ann = outcome.annotations.find((a) => a.kind === "error");
-    if (ann?.kind !== "error") throw new Error("expected error annotation");
+    if (ann?.kind !== "error") {
+      throw new Error("expected error annotation");
+    }
     expect(ann.errorCode).toBe("RuleEvaluationError");
     expect(ann.message).toContain("rule has a bug");
   });
@@ -120,7 +127,9 @@ describe("content() — readFileSync failure surfaces as FileReadError annotatio
       },
     });
     const ann = outcome.annotations.find((a) => a.kind === "error");
-    if (ann?.kind !== "error") throw new Error("expected error annotation");
+    if (ann?.kind !== "error") {
+      throw new Error("expected error annotation");
+    }
     expect(ann.errorCode).toBe("FileReadError");
     expect(ann.message).toContain(workDir);
     expect(outcome.terminal).toBeNull();
@@ -144,7 +153,9 @@ describe("engine flush — state.flush throwing HookKitError surfaces specific c
     ]);
     const outcome = await runModule({ module: mod, command: "echo hi", state: store });
     const ann = outcome.annotations.find((a) => a.kind === "error");
-    if (ann?.kind !== "error") throw new Error("expected error annotation from flush");
+    if (ann?.kind !== "error") {
+      throw new Error("expected error annotation from flush");
+    }
     // flush() throws FileWriteError; engine should pass it through unwrapped.
     expect(ann.errorCode).toBe("FileWriteError");
     expect(outcome.terminal).toBeNull();
