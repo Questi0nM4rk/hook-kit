@@ -28,6 +28,7 @@ import type {
   Terminal,
 } from "../core/types.js";
 
+/** @stable @since 1.0.0 */
 export interface EvaluateOptions {
   readonly state?: StateStore;
   /** Recurse into `bash -c "…"`, `eval "…"`, `exec "…"` so banned commands
@@ -82,6 +83,7 @@ export function __setMaxRecurseDepthForTests(d: number): void {
  * annotations / no rule fired). Annotations are dropped — tests that care
  * about annotations should use `evaluate()` or `runModule()` directly and
  * assert on `outcome.annotations`.
+ * @stable @since 1.0.0
  */
 export async function evaluateRule(
   event: HookEvent,
@@ -99,6 +101,7 @@ export async function evaluateRule(
   return outcome.terminal;
 }
 
+/** @stable @since 1.0.0 */
 export interface RunModuleOptions extends EvaluateOptions {
   /** Module(s) to evaluate. Pass a single HookModule for the common single-
    *  module test case; pass an array for multi-module integration tests. */
@@ -127,6 +130,7 @@ export interface RunModuleOptions extends EvaluateOptions {
  * Both `command` (shortcut) and `event` (full override) are optional — if
  * neither is given, the harness uses an empty Bash command event, which is
  * useful for testing event-name / matcher logic without a real command.
+ * @stable @since 1.0.0
  */
 export async function runModule(opts: RunModuleOptions): Promise<EvaluationOutcome> {
   const modules = Array.isArray(opts.module)
@@ -182,6 +186,7 @@ function defaultBashEvent(command: string): HookEvent {
  *   malformed user input), and state.flush failures (StateStoreError).
  *
  * See docs/SPEC.md § Engine for the full contract.
+ * @stable @since 1.0.0
  */
 export async function evaluate(
   event: HookEvent,

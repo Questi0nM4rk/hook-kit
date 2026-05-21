@@ -6,6 +6,7 @@
 
 import type { HookEvent } from "../core/types.js";
 
+/** @stable @since 1.0.0 */
 export interface EventOpts {
   readonly sessionId?: string;
   readonly cwd?: string;
@@ -39,13 +40,15 @@ function baseEvent(
 }
 
 /** Synthesize a Bash event for `command`. Mirrors what the shell wrapper
- *  produces. */
+ *  produces.
+ *  @stable @since 1.0.0 */
 export function bashEvent(command: string, opts: EventOpts = {}): HookEvent {
   return baseEvent("Bash", { command }, opts);
 }
 
 /** Synthesize a Write event for `filePath` with optional `content`. Mirrors
- *  the cc-tools adapter's input shape. */
+ *  the cc-tools adapter's input shape.
+ *  @stable @since 1.0.0 */
 export function writeEvent(filePath: string, content?: string, opts: EventOpts = {}): HookEvent {
   const toolInput: Record<string, unknown> =
     content !== undefined ? { file_path: filePath, content } : { file_path: filePath };
@@ -53,7 +56,8 @@ export function writeEvent(filePath: string, content?: string, opts: EventOpts =
 }
 
 /** Synthesize an Edit event. Both `oldStr` and `newStr` are optional so
- *  tests can probe partial-input rule behavior. */
+ *  tests can probe partial-input rule behavior.
+ *  @stable @since 1.0.0 */
 export function editEvent(
   filePath: string,
   oldStr?: string,
@@ -66,7 +70,8 @@ export function editEvent(
   return baseEvent("Edit", toolInput, opts);
 }
 
-/** Synthesize a Read event for `filePath`. */
+/** Synthesize a Read event for `filePath`.
+ *  @stable @since 1.0.0 */
 export function readEvent(filePath: string, opts: EventOpts = {}): HookEvent {
   return baseEvent("Read", { file_path: filePath }, opts);
 }

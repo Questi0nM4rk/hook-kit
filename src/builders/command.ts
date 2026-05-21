@@ -19,6 +19,7 @@ import {
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 import { expandFlags, hasFlag, unwrappedName } from "../engine/helpers.js";
 
+/** @stable @since 1.0.0 */
 export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
   return new CommandRuleBuilder(command, sub);
 }

@@ -7,6 +7,7 @@ import type { Decision, HookEvent, Rule } from "../core/types.js";
 
 export type ContentValidator = (filePath: string, body: string) => Decision | Promise<Decision>;
 
+/** @stable @since 1.0.0 */
 export function content(): ContentRuleBuilder {
   return new ContentRuleBuilder();
 }

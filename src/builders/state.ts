@@ -3,6 +3,7 @@
 
 import type { Decision, EvalContext, HookEvent, Rule, StateStore } from "../core/types.js";
 
+/** @stable @since 1.0.0 */
 export function stateful(
   id: string,
   fn: (event: HookEvent, state: StateStore) => Decision | Promise<Decision>,

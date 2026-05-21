@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { emitErrorLine, FileReadError, FileWriteError, JsonParseError } from "../core/errors.js";
 import type { StateStore } from "../core/types.js";
 
+/** @stable @since 1.0.0 */
 export interface TmpdirStoreOptions {
   /** Logical namespace for the file path (e.g., plugin id). */
   readonly namespace: string;
@@ -28,6 +29,7 @@ export interface TmpdirStoreOptions {
  *     channel; we surface to stderr so the loss is still visible.)
  *   - `flush()` throws `FileWriteError` on persistence failure. The engine
  *     catches and emits an `error` annotation.
+ * @stable @since 1.0.0
  */
 export class TmpdirStore implements StateStore {
   private readonly file: string;

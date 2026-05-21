@@ -32,6 +32,7 @@ import type { HookKitErrorCode } from "./errors.js";
 // rule's evaluate()). They wrap a typed HookKitError caught at the engine
 // boundary — see src/core/errors.ts. The wrapper renders them to stderr.
 
+/** @stable @since 1.0.0 */
 export type Annotation =
   | { readonly kind: "warning"; readonly message: string; readonly label?: string }
   | { readonly kind: "note"; readonly message: string; readonly label?: string }
@@ -42,15 +43,18 @@ export type Annotation =
       readonly label?: string;
     };
 
+/** @stable @since 1.0.0 */
 export type Terminal =
   | { readonly kind: "deny"; readonly reason: string; readonly label?: string }
   | { readonly kind: "ask"; readonly reason: string; readonly label?: string };
 
-/** What a single rule returns. `null` = no opinion (don't fire). */
+/** What a single rule returns. `null` = no opinion (don't fire).
+ *  @stable @since 1.0.0 */
 export type Decision = Terminal | Annotation | null;
 
 /** What the engine returns: a chosen terminal (or none) plus every annotation
- *  that fired across all rules. */
+ *  that fired across all rules.
+ *  @stable @since 1.0.0 */
 export interface EvaluationOutcome {
   readonly terminal: Terminal | null;
   readonly annotations: readonly Annotation[];
@@ -58,6 +62,7 @@ export interface EvaluationOutcome {
 
 // === Events ===
 
+/** @stable @since 1.0.0 */
 export interface HookEvent {
   readonly eventName: string;
   readonly sessionId: string;
@@ -68,6 +73,7 @@ export interface HookEvent {
   readonly raw: Readonly<Record<string, unknown>>;
 }
 
+/** @stable @since 1.0.0 */
 export type ToolEvent =
   | { readonly type: "bash"; readonly command: string }
   | { readonly type: "write"; readonly path: string; readonly content?: string }
@@ -86,11 +92,13 @@ export type ToolEvent =
 
 // === Rules ===
 
+/** @stable @since 1.0.0 */
 export interface Rule {
   readonly kind: string;
   evaluate(event: HookEvent, ctx: EvalContext): Decision | Promise<Decision>;
 }
 
+/** @stable @since 1.0.0 */
 export interface EvalContext {
   readonly state: StateStore;
   readonly modules: readonly HookModule[];
@@ -114,6 +122,7 @@ export interface EvalContext {
 
 // === Modules ===
 
+/** @stable @since 1.0.0 */
 export interface HookModule {
   readonly id: string;
   readonly name: string;
@@ -125,6 +134,7 @@ export interface HookModule {
 
 // === State ===
 
+/** @stable @since 1.0.0 */
 export interface StateStore {
   get(key: string): unknown;
   set(key: string, value: unknown): void;

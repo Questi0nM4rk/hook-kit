@@ -27,7 +27,8 @@ const HookInputSchema = z.object({
 });
 
 /** What the adapter would write/exit, separated from the side effects so
- *  tests can assert against a value without mocking process.* . */
+ *  tests can assert against a value without mocking process.* .
+ *  @stable @since 1.0.0 */
 export interface CcOutput {
   readonly stdout: string;
   readonly stderr: string;
@@ -66,6 +67,7 @@ function withLabel(message: string, label?: string): string {
  *
  * `error` annotations are routed to stderr regardless of terminal — they
  * never enter additionalContext or the askpass envelope.
+ * @stable @since 1.0.0
  */
 export function decideCcOutput(outcome: EvaluationOutcome, event: HookEvent): CcOutput {
   const { others, errors } = partitionAnnotations(outcome.annotations);
@@ -91,6 +93,7 @@ export function decideCcOutput(outcome: EvaluationOutcome, event: HookEvent): Cc
   return appendErrorsToStderr(base, errors);
 }
 
+/** @stable @since 1.0.0 */
 export interface ResolveCcOutputOptions {
   /** Override the askpass binary path (defaults to env $HOOK_KIT_ASKPASS). */
   readonly askpassPath?: string;
@@ -117,6 +120,7 @@ export interface ResolveCcOutputOptions {
  *   - null      → annotations alone → additionalContext, exit 0
  *
  * `error` annotations always route to stderr regardless of terminal.
+ * @stable @since 1.0.0
  */
 export async function resolveCcOutput(
   outcome: EvaluationOutcome,
@@ -241,6 +245,7 @@ function denyOutput(reason: string, eventName: string): CcOutput {
  * `HookEvent.raw` carries the original parsed JSON (pre-Zod) so custom
  * rules can read extra fields the harness layered on top of the
  * documented schema.
+ * @stable @since 1.0.0
  */
 export function parseHookInput(rawText: string): HookEvent {
   const trimmed = rawText.trim();
@@ -272,6 +277,7 @@ async function readAllStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** @stable @since 1.0.0 */
 export const claudeCodeAdapter: ProtocolAdapter = {
   async readInput(): Promise<HookEvent> {
     const raw = await readAllStdin();

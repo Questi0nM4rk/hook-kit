@@ -13,7 +13,8 @@ import {
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 
 /** Match write-redirects (cmd > path, cmd >> path, etc.) whose target matches
- *  `pathPattern`. Pass `undefined` to match any write-redirect target. */
+ *  `pathPattern`. Pass `undefined` to match any write-redirect target.
+ *  @stable @since 1.0.0 */
 export function redirect(pathPattern?: RegExp): RedirectRuleBuilder {
   return new RedirectRuleBuilder(pathPattern);
 }

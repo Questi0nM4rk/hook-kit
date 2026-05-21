@@ -18,7 +18,8 @@
 
 /** Stable string identifier for each typed-error class. Used as the
  *  `errorCode` field on `error` annotations so consumers (UI, log shipping,
- *  test assertions) can route by class without doing instanceof checks. */
+ *  test assertions) can route by class without doing instanceof checks.
+ *  @stable @since 1.0.0 */
 export type HookKitErrorCode =
   | "FileReadError"
   | "FileWriteError"
@@ -29,6 +30,7 @@ export type HookKitErrorCode =
   | "RuleEvaluationError"
   | "StateStoreError";
 
+/** @stable @since 1.0.0 */
 export abstract class HookKitError extends Error {
   abstract readonly code: HookKitErrorCode;
   readonly context: Readonly<Record<string, unknown>>;
@@ -44,7 +46,8 @@ export abstract class HookKitError extends Error {
 }
 
 /** Filesystem read failure (readFileSync, access checks). Fail-open at the
- *  rule level — the rule contributes no decision, error annotation surfaces. */
+ *  rule level — the rule contributes no decision, error annotation surfaces.
+ *  @stable @since 1.0.0 */
 export class FileReadError extends HookKitError {
   readonly code = "FileReadError";
   constructor(path: string, cause: unknown) {
@@ -53,7 +56,8 @@ export class FileReadError extends HookKitError {
 }
 
 /** Filesystem write/remove failure (writeFileSync, rmSync). State persistence
- *  failures fall here; the in-process value is still set, only persistence lost. */
+ *  failures fall here; the in-process value is still set, only persistence lost.
+ *  @stable @since 1.0.0 */
 export class FileWriteError extends HookKitError {
   readonly code = "FileWriteError";
   constructor(path: string, cause: unknown) {
@@ -63,7 +67,8 @@ export class FileWriteError extends HookKitError {
 
 /** JSON.parse failure on a file we control (state store, listener metadata,
  *  audit log). Distinct from EnvelopeValidationError which covers Zod
- *  validation of structured IPC payloads. */
+ *  validation of structured IPC payloads.
+ *  @stable @since 1.0.0 */
 export class JsonParseError extends HookKitError {
   readonly code = "JsonParseError";
   constructor(path: string, cause: unknown) {
@@ -73,7 +78,8 @@ export class JsonParseError extends HookKitError {
 
 /** Zod schema validation failure on a broker / askpass IPC envelope. Triggers
  *  fail-CLOSED at security boundaries — caller synthesizes a deny alongside
- *  the error annotation. */
+ *  the error annotation.
+ *  @stable @since 1.0.0 */
 export class EnvelopeValidationError extends HookKitError {
   readonly code = "EnvelopeValidationError";
   constructor(source: string, cause: unknown) {
@@ -88,7 +94,8 @@ export class EnvelopeValidationError extends HookKitError {
 /** shell-ast parse / WASM-runtime error on a command input. ParseSyntaxError
  *  for malformed user input is NOT wrapped — that's expected and stays silent
  *  (the user typed garbage; let bash reject it). This class is for unexpected
- *  parser failures: WASM load, runtime panics, etc. */
+ *  parser failures: WASM load, runtime panics, etc.
+ *  @stable @since 1.0.0 */
 export class ShellAstParseError extends HookKitError {
   readonly code = "ShellAstParseError";
   constructor(input: string, cause: unknown) {
@@ -100,7 +107,8 @@ export class ShellAstParseError extends HookKitError {
   }
 }
 
-/** Bun.spawn or process control failure (askpass invocation, git enrichment). */
+/** Bun.spawn or process control failure (askpass invocation, git enrichment).
+ *  @stable @since 1.0.0 */
 export class ProcessSpawnError extends HookKitError {
   readonly code = "ProcessSpawnError";
   constructor(command: string, cause: unknown) {
@@ -111,7 +119,8 @@ export class ProcessSpawnError extends HookKitError {
 /** A rule's evaluate() threw something that wasn't a HookKitError — the rule
  *  itself has a bug (TypeError, ReferenceError, etc.). HookKitErrors thrown
  *  from rules are passed through unwrapped so the specific class shows up
- *  in the annotation. */
+ *  in the annotation.
+ *  @stable @since 1.0.0 */
 export class RuleEvaluationError extends HookKitError {
   readonly code = "RuleEvaluationError";
   constructor(ruleKind: string, cause: unknown) {
@@ -123,7 +132,8 @@ export class RuleEvaluationError extends HookKitError {
   }
 }
 
-/** State store operation failure (get / set / flush on backing storage). */
+/** State store operation failure (get / set / flush on backing storage).
+ *  @stable @since 1.0.0 */
 export class StateStoreError extends HookKitError {
   readonly code = "StateStoreError";
   constructor(operation: string, key: string | undefined, cause: unknown) {

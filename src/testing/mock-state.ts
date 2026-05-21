@@ -7,6 +7,7 @@
 import type { StateStore } from "../core/types.js";
 import { MemoryStore } from "../state/memory-store.js";
 
+/** @stable @since 1.0.0 */
 export interface MockStateOpts {
   /** Custom flush behavior. Default no-op (matches MemoryStore). Throw from
    *  this fn to test the engine's `StateStoreError` annotation path. */
@@ -23,6 +24,7 @@ export interface MockStateOpts {
  *   expect(state.get("deletions:count")).toBe(6);  // rule incremented
  *
  * Each call returns a fresh store — no shared state between mockState() calls.
+ * @stable @since 1.0.0
  */
 export function mockState(
   initial: Record<string, unknown> = {},

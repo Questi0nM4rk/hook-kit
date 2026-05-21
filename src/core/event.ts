@@ -1,5 +1,9 @@
 import type { HookEvent, ToolEvent } from "./types.js";
 
+/** Narrow a raw `HookEvent` into a discriminated `ToolEvent` so consumers can
+ *  pattern-match on the tool kind without re-deriving the toolName→toolInput
+ *  mapping every time.
+ *  @stable @since 1.0.0 */
 export function toToolEvent(event: HookEvent): ToolEvent {
   switch (event.toolName) {
     case "Bash":
