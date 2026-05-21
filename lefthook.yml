@@ -1,5 +1,5 @@
 # hook-kit pre-commit + commit-msg hooks. See docs/SPEC.md / lessons L4 (no paragraphs in config headers).
-# gitleaks is a system tool (not npm). Install: `yay -S gitleaks` (Arch) / `brew install gitleaks` (mac) / github releases.
+# gitleaks/codespell are system tools (not npm). Install: gitleaks via `yay -S gitleaks` (Arch) / `brew install gitleaks` (mac) / github releases; codespell via `pipx install codespell` (recommended) or `pip install --user codespell`.
 # No gitleaks.toml baseline: default ruleset is fine — add a baseline only if false positives appear.
 pre-commit:
   commands:
@@ -14,6 +14,13 @@ pre-commit:
     gitleaks:
       run: gitleaks protect --staged --no-banner
       fail_text: "Potential secrets detected"
+      priority: 2
+
+    codespell:
+      glob: "*.{ts,md,txt,yaml,yml,toml,json,py,go,rs}"
+      exclude: '(node_modules/.*|dist/.*|\.claude/.*|docs/plans/.*|docs/specs/.*|bun\.lock)'
+      run: codespell --check-filenames {staged_files}
+      fail_text: "Spell errors found"
       priority: 2
 
 commit-msg:

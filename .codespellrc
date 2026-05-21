@@ -1,0 +1,7 @@
+# hook-kit codespell config. ignore-words-list grows as false positives surface; each entry needs a one-line WHY.
+# unparseable — valid English variant ("cannot be parsed"); codespell suggests "unparsable" but both are widely used.
+# absout — variable name (absolute output path) in src/build/bundle.ts; not a typo.
+[codespell]
+skip = ./node_modules,./dist,./bun.lock,./.claude,./docs/plans,./docs/specs,./tests/build,./.git
+ignore-words-list = unparseable,absout
+quiet-level = 3
