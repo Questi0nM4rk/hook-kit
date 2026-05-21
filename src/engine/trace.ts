@@ -26,13 +26,13 @@ export function traceLine(
 
   // Render the terminal (if any) with its label + reason.
   let body: string;
-  if (terminal !== null) {
-    const label = terminal.label !== undefined ? ` label=${terminal.label}` : "";
-    const reason = terminal.reason !== "" ? ` reason=${JSON.stringify(terminal.reason)}` : "";
-    body = `${terminal.kind}${label}${reason}`;
-  } else {
+  if (terminal === null) {
     // Annotation-only outcome — pick a synthetic kind so operators can grep.
     body = "annotate";
+  } else {
+    const label = terminal.label === undefined ? "" : ` label=${terminal.label}`;
+    const reason = terminal.reason === "" ? "" : ` reason=${JSON.stringify(terminal.reason)}`;
+    body = `${terminal.kind}${label}${reason}`;
   }
 
   if (annotations.length > 0) {
@@ -49,6 +49,8 @@ export function emitVerbose(
   modulesConsidered: number,
   durationMs: number,
 ): void {
-  if (!isVerbose()) return;
+  if (!isVerbose()) {
+    return;
+  }
   process.stderr.write(traceLine(event, outcome, modulesConsidered, durationMs));
 }

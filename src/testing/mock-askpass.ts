@@ -17,6 +17,9 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+/** rwxr-xr-x — owner-rwx, group/other-rx; required for the askpass script to execute. */
+const EXECUTABLE_MODE = 0o755;
+
 /** @stable @since 1.0.0 */
 export interface MockAskpassResponse {
   /** What the askpass returns for every request. `"allow"` lets the
@@ -69,7 +72,7 @@ export interface MockAskpass {
 export function mockAskpass(response: MockAskpassResponse): MockAskpass {
   const decidedAt = response.decidedAt ?? "2026-01-01T00:00:00Z";
   const by = response.by ?? "mockAskpass";
-  const reasonField = response.reason !== undefined ? `,"reason":"${response.reason}"` : "";
+  const reasonField = response.reason === undefined ? "" : `,"reason":"${response.reason}"`;
   const byField = `,"by":"${by}"`;
 
   const scriptBody = `#!/bin/sh
@@ -83,7 +86,7 @@ EOF
   const workDir = mkdtempSync(join(tmpdir(), "hook-kit-mockaskpass-"));
   const path = join(workDir, "mock-askpass.sh");
   writeFileSync(path, scriptBody, "utf8");
-  chmodSync(path, 0o755);
+  chmodSync(path, EXECUTABLE_MODE);
 
   return {
     path,

@@ -1,3 +1,5 @@
+// biome-ignore-all lint/style/noMagicNumbers: broker tests use literal pollMs / timeoutMs fixtures inline for control-flow clarity; named constants would obscure timing intent.
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

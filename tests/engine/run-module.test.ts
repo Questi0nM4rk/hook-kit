@@ -81,7 +81,9 @@ describe("runModule — test harness", () => {
     const errors = outcome.annotations.filter((a) => a.kind === "error");
     expect(errors).toHaveLength(1);
     const err = errors[0];
-    if (err?.kind !== "error") throw new Error("expected error annotation");
+    if (err?.kind !== "error") {
+      throw new Error("expected error annotation");
+    }
     expect(err.errorCode).toBe("RuleEvaluationError");
     expect(err.message).toContain("rule bug");
     // No terminal because the rule didn't reach its decision branch.

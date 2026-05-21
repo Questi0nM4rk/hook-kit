@@ -64,56 +64,119 @@ const COL_REQID = 10;
 const COL_AGE = 6;
 const COL_TOOL = 8;
 
+// ─────────────────── Layout / time / input constants ──────────────────
+const MS_PER_SECOND = 1000;
+const SECONDS_PER_MINUTE = 60;
+const MINUTES_PER_HOUR = 60;
+/** Short-sha length for git refs shown in the detail pane. */
+const GIT_SHORT_SHA_LEN = 7;
+/** Minimum value column width before truncation; protects narrow terminals. */
+const MIN_VALUE_COL_WIDTH = 8;
+/** Label column gutter: " label: " = 11 chars; gutter padding is 4 chars. */
+const LABEL_GUTTER_PAD = 4;
+/** Spacers between row columns in the list view (one space + one separator). */
+const LIST_ROW_GUTTER = 2;
+/** Padding lines so the prompt area is anchored at the bottom of the screen. */
+const MIN_RENDER_LINES = 30;
+/** Fallback terminal width when stdout.columns is unavailable (test harness). */
+const FALLBACK_TERM_WIDTH = 100;
+/** Status-message auto-clear interval after an action. */
+const STATUS_REFRESH_MS = 1500;
+/** Default poll interval for stdin reads in the IO loop. */
+const DEFAULT_POLL_MS = 250;
+/** ASCII control-character threshold (everything below SP is a control). */
+const ASCII_CTRL_THRESHOLD = 0x20;
+
 function fmtAge(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.floor(m / 60);
+  const s = Math.floor(ms / MS_PER_SECOND);
+  if (s < SECONDS_PER_MINUTE) {
+    return `${s}s`;
+  }
+  const m = Math.floor(s / SECONDS_PER_MINUTE);
+  if (m < MINUTES_PER_HOUR) {
+    return `${m}m`;
+  }
+  const h = Math.floor(m / MINUTES_PER_HOUR);
   return `${h}h`;
 }
 
 function truncate(s: string, max: number): string {
-  if (s.length <= max) return s;
-  if (max <= 1) return "…";
+  if (s.length <= max) {
+    return s;
+  }
+  if (max <= 1) {
+    return "…";
+  }
   return `${s.slice(0, max - 1)}…`;
 }
 
 function fmtDetails(req: AskRequest): string {
   const input = req.toolInput as Record<string, unknown>;
   const command = typeof input.command === "string" ? input.command : undefined;
-  if (command !== undefined) return command;
-  const filePath =
-    typeof input.file_path === "string"
-      ? input.file_path
-      : typeof input.notebook_path === "string"
-        ? input.notebook_path
-        : typeof input.path === "string"
-          ? input.path
-          : undefined;
-  if (filePath !== undefined) return filePath;
+  if (command !== undefined) {
+    return command;
+  }
+  const filePath = pickFirstString(input, ["file_path", "notebook_path", "path"]);
+  if (filePath !== undefined) {
+    return filePath;
+  }
   return JSON.stringify(req.toolInput);
+}
+
+/** First string-valued entry in `src` for the given keys, in order; undefined if none match. */
+function pickFirstString(
+  src: Record<string, unknown>,
+  keys: readonly string[],
+): string | undefined {
+  for (const k of keys) {
+    const v = src[k];
+    if (typeof v === "string") {
+      return v;
+    }
+  }
+  return;
+}
+
+/** Prompt-footer color per DecideAction (allow=green, deny=red, escalate=yellow). */
+function actionColor(action: DecideAction): string {
+  if (action === "allow") {
+    return fg.green;
+  }
+  if (action === "deny") {
+    return fg.red;
+  }
+  return fg.yellow;
 }
 
 function fmtGit(g: NonNullable<AskRequest["git"]>): string {
   const parts: string[] = [];
-  if (g.branch !== undefined) parts.push(g.branch);
-  if (g.dirty === true) parts.push("(dirty)");
-  parts.push(`@ ${g.sha.slice(0, 7)}`);
-  if (g.remote !== undefined) parts.push(`origin: ${g.remote}`);
+  if (g.branch !== undefined) {
+    parts.push(g.branch);
+  }
+  if (g.dirty === true) {
+    parts.push("(dirty)");
+  }
+  parts.push(`@ ${g.sha.slice(0, GIT_SHORT_SHA_LEN)}`);
+  if (g.remote !== undefined) {
+    parts.push(`origin: ${g.remote}`);
+  }
   return parts.join(" ");
 }
 
 function fmtExpires(iso: string, now: number): string {
   const expires = Date.parse(iso);
-  if (Number.isNaN(expires)) return iso;
+  if (Number.isNaN(expires)) {
+    return iso;
+  }
   const ms = expires - now;
-  if (ms <= 0) return "expired";
+  if (ms <= 0) {
+    return "expired";
+  }
   return `in ${fmtAge(ms)}`;
 }
 
 function fmtHarness(h: AskRequest["harness"]): string {
-  return h.version !== undefined ? `${h.name} ${h.version}` : h.name;
+  return h.version === undefined ? h.name : `${h.name} ${h.version}`;
 }
 
 /** Render a multi-line detail pane for the selected request. Empty list when
@@ -123,22 +186,24 @@ function renderDetail(req: AskRequest, w: number, now: number): string[] {
   const title = `┌─ details: ${req.id} `;
   lines.push(`${fg.gray}${title}${"─".repeat(Math.max(0, w - title.length))}${fg.reset}`);
 
-  const fields: Array<[string, string | undefined]> = [
+  const fields: [string, string | undefined][] = [
     ["harness", fmtHarness(req.harness)],
-    ["project", req.cwd !== "" ? req.cwd : undefined],
-    ["git", req.git !== undefined ? fmtGit(req.git) : undefined],
-    ["transcript", req.transcriptPath !== "" ? req.transcriptPath : undefined],
+    ["project", req.cwd === "" ? undefined : req.cwd],
+    ["git", req.git === undefined ? undefined : fmtGit(req.git)],
+    ["transcript", req.transcriptPath === "" ? undefined : req.transcriptPath],
     ["origin", `pid ${req.pid} @ ${req.host} (${req.user})`],
     ["expires", fmtExpires(req.expiresAt, now)],
     ["label", req.label],
-    ["reason", req.reason !== "" ? req.reason : undefined],
+    ["reason", req.reason === "" ? undefined : req.reason],
     ["command", fmtDetails(req)],
   ];
 
   const labelWidth = 11;
-  const valueBudget = Math.max(8, w - 4 - labelWidth);
+  const valueBudget = Math.max(MIN_VALUE_COL_WIDTH, w - LABEL_GUTTER_PAD - labelWidth);
   for (const [name, value] of fields) {
-    if (value === undefined) continue;
+    if (value === undefined) {
+      continue;
+    }
     const label = `${name}:`.padEnd(labelWidth);
     lines.push(
       `${fg.gray}│${fg.reset} ${fg.dim}${label}${fg.reset} ${truncate(value, valueBudget)}`,
@@ -175,6 +240,7 @@ function statusColor(level: NonNullable<TuiState["statusMessage"]>["level"]): st
   }
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: TUI render — header + row list + detail pane + footer/prompt are sequential layers; splitting fragments the single-frame contract.
 export function renderTui(state: TuiState, terminalWidth: number, now: number): string {
   const lines: string[] = [];
   const w = Math.max(60, terminalWidth);
@@ -204,9 +270,14 @@ export function renderTui(state: TuiState, terminalWidth: number, now: number): 
   } else {
     for (let i = 0; i < state.rows.length; i++) {
       const row = state.rows[i];
-      if (row === undefined) continue;
+      if (row === undefined) {
+        continue;
+      }
       const age = fmtAge(now - row.observedAt);
-      const detailsBudget = Math.max(8, w - (COL_SESSION + COL_REQID + COL_AGE + COL_TOOL + 2 + 8));
+      const detailsBudget = Math.max(
+        MIN_VALUE_COL_WIDTH,
+        w - (COL_SESSION + COL_REQID + COL_AGE + COL_TOOL + LIST_ROW_GUTTER + MIN_VALUE_COL_WIDTH),
+      );
       const cells = [
         truncate(row.request.sessionId, COL_SESSION).padEnd(COL_SESSION),
         truncate(row.request.id, COL_REQID).padEnd(COL_REQID),
@@ -228,17 +299,18 @@ export function renderTui(state: TuiState, terminalWidth: number, now: number): 
   }
 
   // ─ Padding so the prompt area is anchored
-  while (lines.length < 30) lines.push("");
+  while (lines.length < MIN_RENDER_LINES) {
+    lines.push("");
+  }
 
   // ─ Footer / prompt
   if (state.mode.kind === "prompt") {
     const action = state.mode.action.toUpperCase();
-    const color =
-      state.mode.action === "allow" ? fg.green : state.mode.action === "deny" ? fg.red : fg.yellow;
+    const color = actionColor(state.mode.action);
     const target =
-      selected !== undefined
-        ? `${selected.request.id} (${selected.request.toolName})`
-        : "<no selection>";
+      selected === undefined
+        ? "<no selection>"
+        : `${selected.request.id} (${selected.request.toolName})`;
     lines.push(
       `${color}${fg.bold}${action}${fg.reset}  reason for ${target} — Enter to submit, Esc to cancel`,
     );
@@ -252,10 +324,10 @@ export function renderTui(state: TuiState, terminalWidth: number, now: number): 
       `${fg.cyan}q${fg.reset}uit`,
     ].join("  ·  ");
     lines.push(help);
-    if (state.statusMessage !== undefined) {
-      lines.push(`${statusColor(state.statusMessage.level)}${state.statusMessage.text}${fg.reset}`);
-    } else {
+    if (state.statusMessage === undefined) {
       lines.push("");
+    } else {
+      lines.push(`${statusColor(state.statusMessage.level)}${state.statusMessage.text}${fg.reset}`);
     }
   }
 
@@ -287,9 +359,9 @@ interface MutableState {
 function refreshRows(state: MutableState, opts: RunWatchTuiOptions): void {
   const filter = opts.sessionFilter;
   const sessions =
-    filter !== undefined
-      ? [{ sessionId: filter }]
-      : listSessions(opts.childrenOf !== undefined ? { childrenOf: opts.childrenOf } : {});
+    filter === undefined
+      ? listSessions(opts.childrenOf === undefined ? {} : { childrenOf: opts.childrenOf })
+      : [{ sessionId: filter }];
   const seenRowIds = new Set<string>();
   const newRows: PendingRow[] = [];
   for (const s of sessions) {
@@ -317,11 +389,14 @@ function refreshRows(state: MutableState, opts: RunWatchTuiOptions): void {
 
 function commit(state: MutableState, action: DecideAction, reason: string): void {
   const row = state.rows[state.selectedIndex];
-  if (row === undefined) return;
+  if (row === undefined) {
+    return;
+  }
   if (action === "escalate-up") {
+    // biome-ignore lint/complexity/noVoid: fire-and-forget escalate-up; status updates asynchronously via the .then handler.
     void forwardUp(row.request.sessionId, row.request.id).then((result) => {
       state.statusMessage = {
-        text: `escalate-up ${row.request.id} → ${result.kind}${result.parentSessionId !== undefined ? ` (parent ${result.parentSessionId})` : ""}`,
+        text: `escalate-up ${row.request.id} → ${result.kind}${result.parentSessionId === undefined ? "" : ` (parent ${result.parentSessionId})`}`,
         level: result.kind === "missing-pending" ? "error" : "ok",
       };
     });
@@ -335,7 +410,7 @@ function commit(state: MutableState, action: DecideAction, reason: string): void
     row.request.sessionId,
     row.request.id,
     action,
-    reason !== "" ? reason : undefined,
+    reason === "" ? undefined : reason,
     {
       by: `tui:pid${process.pid}`,
     },
@@ -363,16 +438,20 @@ export async function runWatchTui(opts: RunWatchTuiOptions = {}): Promise<void> 
   const stdin = process.stdin;
 
   const cleanup = (): void => {
-    for (const fn of state.attachedSessions.values()) fn();
+    for (const fn of state.attachedSessions.values()) {
+      fn();
+    }
     state.attachedSessions.clear();
     stdout.write(`${SHOW_CURSOR}${ALT_BUFFER_OFF}`);
-    if (stdin.isTTY) stdin.setRawMode(false);
+    if (stdin.isTTY) {
+      stdin.setRawMode(false);
+    }
     stdin.removeListener("data", onData);
   };
 
   const render = (): void => {
     refreshRows(state, opts);
-    const width = stdout.columns ?? 100;
+    const width = stdout.columns ?? FALLBACK_TERM_WIDTH;
     const frame = renderTui(toReadonly(state), width, Date.now());
     stdout.write(`${CLEAR_SCREEN}${frame}`);
   };
@@ -392,7 +471,7 @@ export async function runWatchTui(opts: RunWatchTuiOptions = {}): Promise<void> 
           state.statusMessage = undefined;
           render();
         }
-      }, 1500);
+      }, STATUS_REFRESH_MS);
     }
   };
 
@@ -405,15 +484,18 @@ export async function runWatchTui(opts: RunWatchTuiOptions = {}): Promise<void> 
     process.exit(0);
   });
 
-  if (stdin.isTTY) stdin.setRawMode(true);
+  if (stdin.isTTY) {
+    stdin.setRawMode(true);
+  }
   stdin.resume();
   stdin.on("data", onData);
   stdout.write(`${ALT_BUFFER_ON}${HIDE_CURSOR}`);
 
-  const pollMs = opts.pollMs ?? 250;
+  const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
   const interval = setInterval(render, pollMs);
   render();
   // Run forever — exit via SIGINT/SIGTERM/cleanup above.
+  // biome-ignore lint/suspicious/noEmptyBlockStatements: never-resolving promise blocks the event loop until signal-triggered cleanup tears down.
   await new Promise(() => {});
   clearInterval(interval);
 }
@@ -425,7 +507,7 @@ function toReadonly(s: MutableState): TuiState {
     mode: s.mode,
     listenerCount: s.listenerCount,
   };
-  return s.statusMessage !== undefined ? { ...base, statusMessage: s.statusMessage } : base;
+  return s.statusMessage === undefined ? base : { ...base, statusMessage: s.statusMessage };
 }
 
 function handleListKey(state: MutableState, data: string): void {
@@ -444,7 +526,9 @@ function handleListKey(state: MutableState, data: string): void {
     return;
   }
   // Decision modes
-  if (state.rows.length === 0) return;
+  if (state.rows.length === 0) {
+    return;
+  }
   if (data === "a") {
     state.mode = { kind: "prompt", action: "allow", reasonBuffer: "" };
     state.statusMessage = undefined;
@@ -463,7 +547,9 @@ function handleListKey(state: MutableState, data: string): void {
 }
 
 function handlePromptKey(state: MutableState, data: string): void {
-  if (state.mode.kind !== "prompt") return;
+  if (state.mode.kind !== "prompt") {
+    return;
+  }
   // Esc → cancel
   if (data === "\x1b") {
     state.mode = { kind: "list" };
@@ -487,7 +573,9 @@ function handlePromptKey(state: MutableState, data: string): void {
     return;
   }
   // Ignore other control sequences
-  if (data.charCodeAt(0) < 0x20) return;
+  if (data.charCodeAt(0) < ASCII_CTRL_THRESHOLD) {
+    return;
+  }
   state.mode = {
     kind: "prompt",
     action: state.mode.action,

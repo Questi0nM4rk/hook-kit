@@ -22,6 +22,7 @@ export function path(pattern: RegExp): PathRuleBuilder {
 class PathRuleBuilder {
   private eventType: EventType = "both";
 
+  // biome-ignore lint/style/noParameterProperties: TS constructor parameter property for fluent-DSL builder state; explicit field+constructor would double boilerplate.
   constructor(private readonly pattern: RegExp) {}
 
   onWrite(): this {
@@ -57,12 +58,20 @@ class PathRuleBuilder {
       evaluate(event: HookEvent): Decision {
         const isWrite = WRITE_TOOLS.has(event.toolName);
         const isRead = READ_TOOLS.has(event.toolName);
-        if (!isWrite && !isRead) return null;
-        if (eventType === "write" && !isWrite) return null;
-        if (eventType === "read" && !isRead) return null;
+        if (!(isWrite || isRead)) {
+          return null;
+        }
+        if (eventType === "write" && !isWrite) {
+          return null;
+        }
+        if (eventType === "read" && !isRead) {
+          return null;
+        }
 
         const filePath = extractFilePath(event.toolInput);
-        if (filePath === "") return null;
+        if (filePath === "") {
+          return null;
+        }
 
         return pattern.test(filePath) ? decision : null;
       },
@@ -73,7 +82,9 @@ class PathRuleBuilder {
 function extractFilePath(input: Readonly<Record<string, unknown>>): string {
   const candidates = [input.file_path, input.notebook_path, input.path];
   for (const c of candidates) {
-    if (typeof c === "string" && c.length > 0) return c;
+    if (typeof c === "string" && c.length > 0) {
+      return c;
+    }
   }
   return "";
 }

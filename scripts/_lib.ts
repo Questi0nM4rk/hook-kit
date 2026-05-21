@@ -78,6 +78,8 @@ export function findUnreleasedBlock(lines: readonly string[]): readonly [number,
       return [start, i];
     }
   }
-  if (start < 0) return null;
+  if (start < 0) {
+    return null;
+  }
   return [start, lines.length];
 }

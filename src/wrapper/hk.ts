@@ -66,20 +66,28 @@ interface ParsedArgs {
 }
 
 function parseArgs(argv: readonly string[]): ParsedArgs {
-  if (argv.length === 0) return { mode: "help" };
+  if (argv.length === 0) {
+    return { mode: "help" };
+  }
   const first = argv[0];
-  if (first === "--help" || first === "-h") return { mode: "help" };
-  if (first === "--version" || first === "-v") return { mode: "version" };
+  if (first === "--help" || first === "-h") {
+    return { mode: "help" };
+  }
+  if (first === "--version" || first === "-v") {
+    return { mode: "version" };
+  }
   if (first === "-c") {
     const command = argv[1];
-    if (command === undefined)
+    if (command === undefined) {
       return { mode: "error", errorMessage: "hk: -c requires a command string\n" };
+    }
     return { mode: "bash-c", command };
   }
   if (first === "--") {
     const rest = argv.slice(1);
-    if (rest.length === 0)
+    if (rest.length === 0) {
       return { mode: "error", errorMessage: "hk: -- requires at least one argv element\n" };
+    }
     return { mode: "argv", argv: rest };
   }
   return {
@@ -114,6 +122,7 @@ async function execCommand(
  * stdout/stderr/exit-code convention, then execs on approval.
  * @stable @since 1.0.0
  */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: shell-wrapper entrypoint — WASM warm + argv parse + evaluate + decision render + exec all funnel through one function to preserve the exit-code/stream contract; splitting risks the contract.
 export async function runShell(
   modules: readonly HookModule[],
   opts: RunShellOptions = {},

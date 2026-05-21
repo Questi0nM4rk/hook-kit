@@ -101,6 +101,7 @@ describe("content() — basic", () => {
     const file = join(workDir, "x.md");
     writeFileSync(file, "# header\nshort", "utf8");
     const rule = content().validate((_p, body) =>
+      // biome-ignore lint/style/noMagicNumbers: 100-char threshold is the literal validator parameter under test.
       body.length < 100 ? warning("could be longer") : null,
     );
     const anns = await runOnFileAnnotations("Write", file, rule);

@@ -101,11 +101,15 @@ export class ShellAstParseError extends HookKitError {
   constructor(input: string, cause: unknown) {
     super(
       `shell-ast failed to parse input (${describeCause(cause)})`,
-      { input: input.slice(0, 200) },
+      { input: input.slice(0, INPUT_PREVIEW_MAX_CHARS) },
       cause,
     );
   }
 }
+
+/** Cap on the input preview stored on ShellAstParseError.context.input — long
+ * payloads bloat error annotations and serialized logs. */
+const INPUT_PREVIEW_MAX_CHARS = 200;
 
 /** Bun.spawn or process control failure (askpass invocation, git enrichment).
  *  @stable @since 1.0.0 */
@@ -137,7 +141,7 @@ export class RuleEvaluationError extends HookKitError {
 export class StateStoreError extends HookKitError {
   readonly code = "StateStoreError";
   constructor(operation: string, key: string | undefined, cause: unknown) {
-    const where = key !== undefined ? ` for key "${key}"` : "";
+    const where = key === undefined ? "" : ` for key "${key}"`;
     super(
       `state store ${operation} failed${where} (${describeCause(cause)})`,
       { operation, key },
@@ -147,7 +151,9 @@ export class StateStoreError extends HookKitError {
 }
 
 function describeCause(cause: unknown): string {
-  if (cause instanceof Error) return `${cause.name}: ${cause.message}`;
+  if (cause instanceof Error) {
+    return `${cause.name}: ${cause.message}`;
+  }
   return String(cause);
 }
 

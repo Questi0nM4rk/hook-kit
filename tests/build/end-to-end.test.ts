@@ -8,7 +8,7 @@ import { runBuild } from "../../src/build/bundle.js";
 // bytecode binary. 60s gives generous slack for cold caches.
 const BUILD_TIMEOUT_MS = 60_000;
 
-const HOOK_KIT_ROOT = resolve(__dirname, "..", "..");
+const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
 
 const FIXTURE_HOOKS_TS = `
 import { cmd, createModule } from "@questi0nm4rk/hook-kit";

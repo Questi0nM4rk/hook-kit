@@ -89,6 +89,7 @@ describe("inline-shell recursion", () => {
         "inspection depth",
       );
     } finally {
+      // biome-ignore lint/style/noMagicNumbers: 5 = default MAX_RECURSE_DEPTH restored after the bounded-recursion test.
       __setMaxRecurseDepthForTests(5);
     }
   });

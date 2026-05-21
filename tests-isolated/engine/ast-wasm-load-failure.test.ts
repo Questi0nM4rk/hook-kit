@@ -21,6 +21,7 @@
 //   3. Iron Law 4: rules still contribute null (no terminal) under infra failure
 
 import { describe, expect, mock, test } from "bun:test";
+// biome-ignore lint/performance/noNamespaceImport: namespace import needed to spread the real module into mock.module()'s factory return.
 import * as realShellAst from "@questi0nm4rk/shell-ast";
 import { cmd } from "../../src/builders/command.js";
 import { createModule } from "../../src/core/module.js";
@@ -53,7 +54,9 @@ describe("engine — WasmLoadError surfaces as ShellAstParseError annotation", (
     // dedup'd to once-per-process via a module-level latch; the 0.5 design
     // surfaces every failure so a long-running session doesn't go dark
     // after the first message.
+    // biome-ignore lint/style/noMagicNumbers: 3 iterations to verify per-event error annotation (not once-per-process latch); count is the assertion shape.
     for (let i = 0; i < 3; i++) {
+      // biome-ignore lint/performance/noAwaitInLoops: each iteration verifies the error annotation surfaces per-event, not once-per-process; sequential await is the assertion shape.
       const outcome = await evaluate(bashEvent("rm -rf /"), [denyRm]);
       const errors = outcome.annotations.filter((a) => a.kind === "error");
       expect(errors).toHaveLength(1);

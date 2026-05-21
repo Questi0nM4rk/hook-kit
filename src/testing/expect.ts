@@ -1,3 +1,5 @@
+// biome-ignore-all lint/style/noParameterProperties: fluent-runner classes use TS constructor parameter properties to keep stage transitions readable; explicit field+constructor adds boilerplate per stage.
+
 // expectModule / expectRule — fluent runner for asserting module behavior
 // against synthesized events. Two-stage builder:
 //
@@ -32,12 +34,16 @@ function matches(value: string, pattern: StringMatcher): boolean {
 }
 
 function formatAnnotations(anns: readonly Annotation[]): string {
-  if (anns.length === 0) return "(none)";
+  if (anns.length === 0) {
+    return "(none)";
+  }
   return anns.map((a) => `${a.kind}: "${a.message}"`).join(" | ");
 }
 
 function describeTerminal(out: EvaluationOutcome): string {
-  if (out.terminal === null) return "no terminal (would run)";
+  if (out.terminal === null) {
+    return "no terminal (would run)";
+  }
   return `${out.terminal.kind}: "${out.terminal.reason}"`;
 }
 
@@ -118,11 +124,11 @@ class ExpectationBuilder {
 
   private buildOpts(): EvaluateOptions {
     const opts: EvaluateOptions = {
-      ...(this.state !== undefined ? { state: this.state } : {}),
-      ...(this.shellAstOpts !== undefined ? { shellAstOpts: this.shellAstOpts } : {}),
-      ...(this.recurseInlineShells !== undefined
-        ? { recurseInlineShells: this.recurseInlineShells }
-        : {}),
+      ...(this.state === undefined ? {} : { state: this.state }),
+      ...(this.shellAstOpts === undefined ? {} : { shellAstOpts: this.shellAstOpts }),
+      ...(this.recurseInlineShells === undefined
+        ? {}
+        : { recurseInlineShells: this.recurseInlineShells }),
     };
     return opts;
   }

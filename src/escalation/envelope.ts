@@ -124,10 +124,10 @@ export function createAskRequest(opts: CreateAskOptions): AskRequest {
   // Conditionally include optional fields so exactOptionalPropertyTypes is happy.
   return {
     ...base,
-    ...(opts.parentSessionId !== undefined ? { parentSessionId: opts.parentSessionId } : {}),
-    ...(opts.label !== undefined ? { label: opts.label } : {}),
-    ...(opts.annotations !== undefined ? { annotations: opts.annotations } : {}),
-    ...(opts.git !== undefined ? { git: opts.git } : {}),
+    ...(opts.parentSessionId === undefined ? {} : { parentSessionId: opts.parentSessionId }),
+    ...(opts.label === undefined ? {} : { label: opts.label }),
+    ...(opts.annotations === undefined ? {} : { annotations: opts.annotations }),
+    ...(opts.git === undefined ? {} : { git: opts.git }),
   };
 }
 
@@ -153,8 +153,8 @@ export function createAskResponse(opts: CreateResponseOptions): AskResponse {
     id: opts.id,
     decision: opts.decision,
     decidedAt: new Date().toISOString(),
-    ...(opts.reason !== undefined ? { reason: opts.reason } : {}),
-    ...(opts.by !== undefined ? { by: opts.by } : {}),
+    ...(opts.reason === undefined ? {} : { reason: opts.reason }),
+    ...(opts.by === undefined ? {} : { by: opts.by }),
   };
 }
 

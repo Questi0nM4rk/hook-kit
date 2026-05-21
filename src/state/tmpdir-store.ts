@@ -59,7 +59,9 @@ export class TmpdirStore implements StateStore {
 
   flush(): void {
     const obj: Record<string, unknown> = {};
-    for (const [k, v] of this.data) obj[k] = v;
+    for (const [k, v] of this.data) {
+      obj[k] = v;
+    }
     try {
       writeFileSync(this.file, JSON.stringify(obj), "utf8");
     } catch (cause) {
@@ -69,7 +71,9 @@ export class TmpdirStore implements StateStore {
 }
 
 function loadOrEmpty(file: string): Map<string, unknown> {
-  if (!existsSync(file)) return new Map();
+  if (!existsSync(file)) {
+    return new Map();
+  }
   let raw: string;
   try {
     raw = readFileSync(file, "utf8");
@@ -84,6 +88,8 @@ function loadOrEmpty(file: string): Map<string, unknown> {
     emitErrorLine(new JsonParseError(file, cause));
     return new Map();
   }
-  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return new Map();
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return new Map();
+  }
   return new Map(Object.entries(parsed as Record<string, unknown>));
 }

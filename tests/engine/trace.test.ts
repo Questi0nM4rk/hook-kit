@@ -2,6 +2,7 @@
 // the shell-wrapper path because trace logic lived inside run.ts only.
 // trace.ts is now shared; both run() and runShell() delegate to emitVerbose,
 // so testing the trace module covers both call sites.
+// biome-ignore-all lint/style/noMagicNumbers: trace tests pass literal duration/count fixtures to emitVerbose for output-format assertions; named constants would obscure the test intent.
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Annotation, EvaluationOutcome, HookEvent, Terminal } from "../../src/core/types.js";
@@ -96,6 +97,7 @@ describe("engine/trace — emitVerbose()", () => {
     withEnv("HOOK_KIT_VERBOSE", "1", () => {
       emitVerbose(makeEvent(), SILENT, 1, 4);
     });
+    // biome-ignore lint/security/noSecrets: literal event-name string for trace-output assertion; not a credential.
     expect(captured.output()).toContain("[hook-kit] event=PreToolUse");
     expect(captured.output()).toContain("→ null time=4ms");
   });

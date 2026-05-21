@@ -95,11 +95,17 @@ describe("run() — HOOK_KIT_VERBOSE tracing", () => {
 
   function withEnv(key: string, value: string | undefined, fn: () => Promise<void>): Promise<void> {
     const prev = process.env[key];
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
     return fn().finally(() => {
-      if (prev === undefined) delete process.env[key];
-      else process.env[key] = prev;
+      if (prev === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = prev;
+      }
     });
   }
 
@@ -121,6 +127,7 @@ describe("run() — HOOK_KIT_VERBOSE tracing", () => {
     }
     const out = cap.output();
     expect(out).toContain("[hook-kit]");
+    // biome-ignore lint/security/noSecrets: literal event-name string for trace-output assertion; not a credential.
     expect(out).toContain("event=PreToolUse");
     expect(out).toContain("tool=Bash");
     expect(out).toContain("session=s1");

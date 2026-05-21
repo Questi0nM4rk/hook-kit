@@ -124,7 +124,9 @@ export function generateHooksJson(
 ): HooksJson {
   const hooks: Record<string, HookEntry[]> = {};
   for (const mod of modules) {
-    if (mod.enabled === false) continue;
+    if (mod.enabled === false) {
+      continue;
+    }
     const matcher = mod.matchers?.join("|") ?? "";
     for (const event of mod.events) {
       const list = hooks[event] ?? [];

@@ -63,7 +63,9 @@ describe("expandFlags", () => {
   });
 
   test("does not touch parameterized flag values like --field=x", () => {
+    // biome-ignore lint/security/noSecrets: test fixture string for shell-AST flag parsing; not a credential.
     const out = expandFlags(["--field=event=COMMENT"]);
+    // biome-ignore lint/security/noSecrets: test fixture string for shell-AST flag parsing; not a credential.
     expect(out).toEqual(["--field=event=COMMENT"]);
   });
 });

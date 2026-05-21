@@ -34,7 +34,9 @@ export function mockState(
   for (const [key, value] of Object.entries(initial)) {
     store.set(key, value);
   }
-  if (opts.flushFn === undefined) return store;
+  if (opts.flushFn === undefined) {
+    return store;
+  }
   // Wrap the no-op flush with the injected fn. All other methods delegate.
   // The async wrap is intentional: a sync-throw from `flushFn` surfaces as a
   // rejected promise, mirroring the engine's `await state.flush()` site so

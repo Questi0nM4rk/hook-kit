@@ -9,6 +9,7 @@
 //
 // One build per test file (slow), N inputs per build (fast). beforeAll +
 // afterAll share the compiled binary across all assertions.
+// biome-ignore-all lint/suspicious/noMisplacedAssertion: assertion helpers (expectEscalate/expectDeny) factor repeated expect-blocks for the table-driven adversarial battery; each call site is inside a test().
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
@@ -17,7 +18,7 @@ import { join, resolve } from "node:path";
 import { runBuild } from "../../src/build/bundle.js";
 
 const BUILD_TIMEOUT_MS = 120_000;
-const HOOK_KIT_ROOT = resolve(__dirname, "..", "..");
+const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
 const EXAMPLE_ROOT = resolve(HOOK_KIT_ROOT, "examples", "ai-guardrails");
 
 // Use distinct sentinels per case so a leaked dispatch (rule regression)
@@ -351,7 +352,7 @@ describe("edge cases — engine robustness", () => {
   });
 
   test("large benign input (10K stmts) parses and passes through", async () => {
-    const big = Array.from({ length: 10000 }, () => "true").join("; ");
+    const big = Array.from({ length: 10_000 }, () => "true").join("; ");
     const r = await runHk(stagedBin, big);
     expect(r.exit).toBe(0);
     expect(r.stdout).not.toContain("needs review");

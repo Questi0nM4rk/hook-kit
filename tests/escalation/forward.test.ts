@@ -1,3 +1,5 @@
+// biome-ignore-all lint/style/noMagicNumbers: forward tests use literal pollMs/timeoutMs fixtures inline for control-flow clarity; named constants would obscure timing intent.
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,11 +20,11 @@ afterEach(() => {
 function stagePending(sessionId: string, parentSessionId?: string) {
   ensureSession(sessionId, {
     root: workDir,
-    ...(parentSessionId !== undefined ? { parentSessionId } : {}),
+    ...(parentSessionId === undefined ? {} : { parentSessionId }),
   });
   const req = createAskRequest({
     sessionId,
-    ...(parentSessionId !== undefined ? { parentSessionId } : {}),
+    ...(parentSessionId === undefined ? {} : { parentSessionId }),
     toolName: "Bash",
     toolInput: { command: "ls" },
     reason: "test",

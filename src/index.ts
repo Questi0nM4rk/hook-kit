@@ -1,5 +1,6 @@
 // @questi0nm4rk/hook-kit — framework for building compiled hook binaries
 // See docs/SPEC.md for architecture
+// biome-ignore-all lint/performance/noBarrelFile: src/index.ts is the public API barrel — the entire point of the file.
 
 // Adapter interface + raw adapter (for library/test use)
 export { type RawAdapter, type RawAdapterState, rawAdapter } from "./adapters/raw.js";

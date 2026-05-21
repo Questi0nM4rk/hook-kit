@@ -46,13 +46,15 @@ function joinNonErrorAnnotations(annotations: readonly NonErrorAnnotation[]): st
  *  — they're hook-infra failures, not rule output the agent should see.
  *  They go to stderr so the operator sees them in their terminal. */
 function appendErrorsToStderr(out: CcOutput, errors: readonly ErrorAnnotation[]): CcOutput {
-  if (errors.length === 0) return out;
+  if (errors.length === 0) {
+    return out;
+  }
   const lines = errors.map((e) => `${formatErrorAnnotation(e)}\n`).join("");
   return { ...out, stderr: out.stderr + lines };
 }
 
 function withLabel(message: string, label?: string): string {
-  return label !== undefined ? `${label} ${message}` : message;
+  return label === undefined ? message : `${label} ${message}`;
 }
 
 /**
@@ -144,20 +146,24 @@ export async function resolveCcOutput(
     harness: HARNESS,
     cwd: event.cwd,
     transcriptPath: event.transcriptPath,
-    ...(ask.label !== undefined ? { label: ask.label } : {}),
-    ...(annotationsBlock !== undefined ? { annotations: annotationsBlock } : {}),
-    ...(git !== undefined ? { git } : {}),
+    ...(ask.label === undefined ? {} : { label: ask.label }),
+    ...(annotationsBlock === undefined ? {} : { annotations: annotationsBlock }),
+    ...(git === undefined ? {} : { git }),
   });
   const askOpts: { askpassPath?: string; timeoutMs?: number } = {};
-  if (opts.askpassPath !== undefined) askOpts.askpassPath = opts.askpassPath;
-  if (opts.timeoutMs !== undefined) askOpts.timeoutMs = opts.timeoutMs;
+  if (opts.askpassPath !== undefined) {
+    askOpts.askpassPath = opts.askpassPath;
+  }
+  if (opts.timeoutMs !== undefined) {
+    askOpts.timeoutMs = opts.timeoutMs;
+  }
   const response = await callAskpass({ request, ...askOpts });
 
   let base: CcOutput;
   if (response.decision === "allow") {
     // Approved by broker — silent allow, with non-error annotations surfaced
     // to CC so the agent can still see them above its tool output.
-    base = annotationsBlock !== undefined ? annotationsOutput(others, event.eventName) : EMPTY;
+    base = annotationsBlock === undefined ? EMPTY : annotationsOutput(others, event.eventName);
   } else if (response.decision === "harness-ask") {
     base = harnessAskOutput(ask, others, event);
   } else {
@@ -285,8 +291,12 @@ export const claudeCodeAdapter: ProtocolAdapter = {
   },
   async writeOutput(outcome: EvaluationOutcome, event: HookEvent): Promise<void> {
     const out = await resolveCcOutput(outcome, event);
-    if (out.stdout !== "") process.stdout.write(out.stdout);
-    if (out.stderr !== "") process.stderr.write(out.stderr);
+    if (out.stdout !== "") {
+      process.stdout.write(out.stdout);
+    }
+    if (out.stderr !== "") {
+      process.stderr.write(out.stderr);
+    }
     process.exit(out.exitCode);
   },
   handleError(_error: unknown): void {

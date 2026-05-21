@@ -80,25 +80,30 @@ function parseExports(source: string): Set<string> {
   const names = new Set<string>();
 
   // Strip block comments + line comments to avoid matching inside JSDoc.
-  const stripped = source
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const stripped = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
   // Match `export { ... } from "..."` and `export { ... }` (including multi-line).
   const namedExportRe = /export\s*(?:type\s*)?\{([^}]+)\}/g;
   let match: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: canonical /g regex iteration over `stripped`; assignment-in-while is the documented MDN pattern.
   while ((match = namedExportRe.exec(stripped)) !== null) {
     const inner = match[1];
-    if (inner === undefined) continue;
+    if (inner === undefined) {
+      continue;
+    }
     for (const raw of inner.split(",")) {
       // Each member can be `Foo`, `type Foo`, `Foo as Bar`, or `type Foo as Bar`.
       // Strip the `type` modifier; the rebind target (after `as`) is the
       // public name; if no rebind, the source name is public.
       const cleaned = raw.trim().replace(/^type\s+/, "");
-      if (cleaned === "") continue;
+      if (cleaned === "") {
+        continue;
+      }
       const parts = cleaned.split(/\s+as\s+/);
       const publicName = (parts[1] ?? parts[0] ?? "").trim();
-      if (publicName !== "") names.add(publicName);
+      if (publicName !== "") {
+        names.add(publicName);
+      }
     }
   }
 
@@ -107,9 +112,12 @@ function parseExports(source: string): Set<string> {
   // case a future change adds direct declaration-site exports to the barrel.
   const declExportRe =
     /export\s+(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+([A-Za-z_$][\w$]*)/g;
+  // biome-ignore lint/suspicious/noAssignInExpressions: canonical /g regex iteration over `stripped`; assignment-in-while is the documented MDN pattern.
   while ((match = declExportRe.exec(stripped)) !== null) {
     const name = match[1];
-    if (name !== undefined) names.add(name);
+    if (name !== undefined) {
+      names.add(name);
+    }
   }
 
   return names;
@@ -121,12 +129,15 @@ function hasBreakingChangeFooter(messagesText: string): boolean {
   return /^BREAKING[-\s]CHANGE:/im.test(messagesText);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: CI script dispatch — argv parsing + git diff + report writing form one cohesive entrypoint; splitting reduces traceability.
 function main(): number {
   const args = parseArgs(process.argv.slice(2));
   const path = "src/index.ts";
 
   const currentSource = readHeadFile(path, SCRIPT);
-  if (currentSource === null) return 2;
+  if (currentSource === null) {
+    return 2;
+  }
 
   const baseSource = readFileAtRef(args.base, path, SCRIPT);
   if (baseSource === null) {
@@ -142,13 +153,17 @@ function main(): number {
 
   const removed: string[] = [];
   for (const name of baseExports) {
-    if (!currentExports.has(name)) removed.push(name);
+    if (!currentExports.has(name)) {
+      removed.push(name);
+    }
   }
   removed.sort();
 
   const added: string[] = [];
   for (const name of currentExports) {
-    if (!baseExports.has(name)) added.push(name);
+    if (!baseExports.has(name)) {
+      added.push(name);
+    }
   }
   added.sort();
 
@@ -162,14 +177,18 @@ function main(): number {
   }
 
   if (removed.length === 0) {
-    if (!args.quiet) process.stderr.write("check-stable-exports: no removals; ok\n");
+    if (!args.quiet) {
+      process.stderr.write("check-stable-exports: no removals; ok\n");
+    }
     return 0;
   }
 
   process.stderr.write(`  removed (${removed.length}):  ${removed.join(", ")}\n`);
 
   const messages = commitRangeMessages(args.base, SCRIPT);
-  if (messages === null) return 2;
+  if (messages === null) {
+    return 2;
+  }
 
   if (hasBreakingChangeFooter(messages)) {
     process.stderr.write(

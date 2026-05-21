@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { runBuild } from "../../src/build/bundle.js";
 
 const BUILD_TIMEOUT_MS = 90_000;
-const HOOK_KIT_ROOT = resolve(__dirname, "..", "..");
+const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
 const EXAMPLE_ROOT = resolve(HOOK_KIT_ROOT, "examples", "ai-guardrails");
 
 function stageExample(): { dir: string; entry: string; cleanup: () => void } {
@@ -199,6 +199,7 @@ describe("examples/ai-guardrails — shell wrapper binary (hk)", () => {
       try {
         await runBuild({ entrypoint: entry, out, adapter: "shell" });
         const r = await runHk(out, "exit 42");
+        // biome-ignore lint/style/noMagicNumbers: 42 is the literal exit code under test (forwarded from inner exec); shouldn't be aliased.
         expect(r.exit).toBe(42);
       } finally {
         cleanup();

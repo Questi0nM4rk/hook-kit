@@ -81,6 +81,7 @@ describe("EvalContext.getBashAst", () => {
         spyRule((ast) => captured.push(ast)),
       ]),
     ]);
+    // biome-ignore lint/style/noMagicNumbers: 3 = the spyRule count above; assertion shape mirrors the fixture.
     expect(captured.length).toBe(3);
     expect(captured[0]).toBe(captured[1]);
     expect(captured[1]).toBe(captured[2]);

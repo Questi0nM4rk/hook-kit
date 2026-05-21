@@ -14,11 +14,13 @@ async function runGit(cwd: string, args: readonly string[]): Promise<string | un
       stderr: "pipe",
     });
     const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-    if (exitCode !== 0) return undefined;
+    if (exitCode !== 0) {
+      return;
+    }
     return stdout.trim();
   } catch (cause) {
     emitErrorLine(new ProcessSpawnError(`git ${args.join(" ")}`, cause));
-    return undefined;
+    return;
   }
 }
 
@@ -29,7 +31,9 @@ async function runGit(cwd: string, args: readonly string[]): Promise<string | un
  */
 export async function enrichGit(cwd: string): Promise<GitInfo | undefined> {
   const sha = await runGit(cwd, ["rev-parse", "HEAD"]);
-  if (sha === undefined) return undefined;
+  if (sha === undefined) {
+    return;
+  }
 
   const [branch, status, remote] = await Promise.all([
     runGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]),
@@ -40,7 +44,7 @@ export async function enrichGit(cwd: string): Promise<GitInfo | undefined> {
   return {
     sha,
     ...(branch !== undefined && branch !== "HEAD" ? { branch } : {}),
-    ...(status !== undefined ? { dirty: status.length > 0 } : {}),
+    ...(status === undefined ? {} : { dirty: status.length > 0 }),
     ...(remote !== undefined && remote !== "" ? { remote } : {}),
   };
 }

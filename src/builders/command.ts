@@ -1,5 +1,6 @@
 // cmd() builder — shell-ast based command matching
 // See docs/SPEC.md § Rule Builders for semantics
+// biome-ignore-all lint/style/noParameterProperties: builder classes use TS constructor parameter properties for fluent-DSL state initialization; explicit field+constructor would double boilerplate per chainable.
 
 import type { CallExprNode, ResolvedArg } from "@questi0nm4rk/shell-ast";
 import {
@@ -36,6 +37,7 @@ class CommandRuleBuilder {
   private anyOfFlags: string[][] = [];
   private flagPredicates: FlagPredicate[] = [];
 
+  // biome-ignore lint/complexity/useMaxParams: builder constructor mirrors the cmd() chainable predicate surface (cmd/sub/flags/noFlags/argPatterns/argIncludes/ddash/strictPath); collapsing to an opts-object would force allocations on every cmd() call.
   constructor(
     private readonly command: string,
     private readonly sub: readonly string[],
@@ -43,7 +45,7 @@ class CommandRuleBuilder {
     private noFlags: string[] = [],
     private argMatchPatterns: RegExp[] = [],
     private argIncludeValues: string[] = [],
-    private requireDdash: boolean = false,
+    private requireDdash = false,
     // Auto-detect path-mode from the cmd-arg shape: a "/" anywhere flips to
     // exact match by default. Lets `cmd("/usr/bin/git")` fire on the exact
     // invocation without `.matchExact()` boilerplate. For bare names the
@@ -237,15 +239,22 @@ class CommandRuleBuilder {
     };
     return {
       kind: "command",
+      // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: cmd() evaluator runs the full match-or-skip pipeline (AST walk → unwrap → strict/basename → sub → flags → noFlags → argMatch → argIncludes → flagValues → ddash) per call; ordering matters for short-circuit and decomposing reduces cohesion.
       async evaluate(_event: HookEvent, ctx: EvalContext): Promise<Decision> {
         const ast = await ctx.getBashAst();
-        if (ast === null) return null;
+        if (ast === null) {
+          return null;
+        }
 
         for (const call of findCalls(ast)) {
           const u = unwrapCall(call, ctx.shellAstOpts);
-          if (u === null) continue;
+          if (u === null) {
+            continue;
+          }
           // See `unwrappedName` in engine/helpers.ts for the dispatch policy.
-          if (unwrappedName(u, cfg.strictPath) !== cfg.command) continue;
+          if (unwrappedName(u, cfg.strictPath) !== cfg.command) {
+            continue;
+          }
 
           // Match subcommands by position
           let subOk = true;
@@ -255,22 +264,34 @@ class CommandRuleBuilder {
               break;
             }
           }
-          if (!subOk) continue;
+          if (!subOk) {
+            continue;
+          }
 
           // Flag predicates (alias-aware)
           const expanded = expandFlags(u.flags);
-          if (!cfg.flags.every((f) => hasFlag(expanded, f))) continue;
-          if (cfg.noFlags.some((f) => hasFlag(expanded, f))) continue;
-          if (!cfg.anyOfFlags.every((group) => group.some((f) => hasFlag(expanded, f)))) continue;
+          if (!cfg.flags.every((f) => hasFlag(expanded, f))) {
+            continue;
+          }
+          if (cfg.noFlags.some((f) => hasFlag(expanded, f))) {
+            continue;
+          }
+          if (!cfg.anyOfFlags.every((group) => group.some((f) => hasFlag(expanded, f)))) {
+            continue;
+          }
 
           // Arg predicates
-          if (!cfg.argIncludeValues.every((v) => u.args.includes(v))) continue;
+          if (!cfg.argIncludeValues.every((v) => u.args.includes(v))) {
+            continue;
+          }
           if (!cfg.argMatchPatterns.every((p) => u.args.some((a) => isResolved(a) && p.test(a)))) {
             continue;
           }
 
           // POSIX `--` end-of-options separator (e.g. git checkout -- file)
-          if (cfg.requireDdash && !hasDdash(call)) continue;
+          if (cfg.requireDdash && !hasDdash(call)) {
+            continue;
+          }
 
           // Flag-value predicates. Per-flag `tokensAfter` cache avoids
           // re-walking call.args when multiple predicates target the same

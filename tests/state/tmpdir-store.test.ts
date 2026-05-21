@@ -32,10 +32,12 @@ describe("TmpdirStore — basic operations", () => {
 
   test("supports JSON-serializable values", () => {
     const s = new TmpdirStore({ namespace: "ns", sessionId: "s1", root: workDir });
+    // biome-ignore lint/style/noMagicNumbers: 42 is the literal value under round-trip serialization test.
     s.set("count", 42);
     s.set("flags", ["a", "b"]);
     s.set("obj", { x: 1, y: { z: "nested" } });
 
+    // biome-ignore lint/style/noMagicNumbers: 42 is the literal value under round-trip serialization test.
     expect(s.get("count")).toBe(42);
     expect(s.get("flags")).toEqual(["a", "b"]);
     expect(s.get("obj")).toEqual({ x: 1, y: { z: "nested" } });

@@ -28,7 +28,7 @@ import { join, resolve } from "node:path";
 import { runBuild } from "../../src/build/bundle.js";
 
 const BUILD_TIMEOUT_MS = 120_000;
-const HOOK_KIT_ROOT = resolve(__dirname, "..", "..");
+const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
 
 const HOOKS_FIXTURE = `\
 import { cmd, createModule } from "@questi0nm4rk/hook-kit";
@@ -137,6 +137,7 @@ describe("annotations-only path — emit + separator + exec", () => {
     expect(lines[1]).toBe("[ls-note] note: output may be paginated by your shell");
     expect(lines[2]).toBe("---");
     // The remaining lines are `ls /tmp` output — non-empty by definition.
+    // biome-ignore lint/style/noMagicNumbers: index 3 = first line of exec output after the 3-line annotation header (warning + note + ---).
     expect(lines.slice(3).join("\n").trim().length).toBeGreaterThan(0);
   });
 

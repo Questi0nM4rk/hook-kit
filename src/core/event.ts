@@ -18,9 +18,15 @@ export function toToolEvent(event: HookEvent): ToolEvent {
       const oldStr = strOpt(event.toolInput, "old_string");
       const newStr = strOpt(event.toolInput, "new_string");
       const base = { type: "edit" as const, path };
-      if (oldStr !== undefined && newStr !== undefined) return { ...base, oldStr, newStr };
-      if (oldStr !== undefined) return { ...base, oldStr };
-      if (newStr !== undefined) return { ...base, newStr };
+      if (oldStr !== undefined && newStr !== undefined) {
+        return { ...base, oldStr, newStr };
+      }
+      if (oldStr !== undefined) {
+        return { ...base, oldStr };
+      }
+      if (newStr !== undefined) {
+        return { ...base, newStr };
+      }
       return base;
     }
     case "Read":

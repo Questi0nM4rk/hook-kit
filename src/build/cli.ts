@@ -76,7 +76,9 @@ Misc:
 
 function getArg(argv: readonly string[], flag: string): string | undefined {
   const i = argv.indexOf(flag);
-  if (i === -1) return undefined;
+  if (i === -1) {
+    return;
+  }
   return argv[i + 1];
 }
 
@@ -135,13 +137,17 @@ async function buildCommand(argv: readonly string[]): Promise<number> {
     const hooksJsonPath = getArg(argv, "--hooks-json");
     if (hooksJsonPath !== undefined) {
       const code = await writeHooksJson(argv, entrypoint, out, hooksJsonPath);
-      if (code !== 0) return code;
+      if (code !== 0) {
+        return code;
+      }
     }
     return 0;
   } catch (err) {
     if (err instanceof BuildError) {
       writeErr(`hook-kit build: ${err.message}\n`);
-      if (err.stderr !== "") writeErr(err.stderr);
+      if (err.stderr !== "") {
+        writeErr(err.stderr);
+      }
       return 1;
     }
     const message = err instanceof Error ? err.message : String(err);
@@ -219,7 +225,7 @@ async function listCommand(argv: readonly string[]): Promise<number> {
     writeErr("(no active sessions)\n");
   } else {
     for (const s of sessions) {
-      const lineage = s.parentSessionId !== undefined ? ` ← ${s.parentSessionId}` : "";
+      const lineage = s.parentSessionId === undefined ? "" : ` ← ${s.parentSessionId}`;
       process.stdout.write(
         `${s.sessionId}${lineage}  pid=${s.pid}  pending=${s.pendingCount}  started=${s.startedAt}\n`,
       );
@@ -239,32 +245,41 @@ async function subscribeCommand(argv: readonly string[]): Promise<number> {
   // for unbounded (all sessions), we attach lazily as sessions appear.
   const cleanups = new Map<string, () => void>();
   const ensureMarker = (sessionId: string): void => {
-    if (cleanups.has(sessionId)) return;
+    if (cleanups.has(sessionId)) {
+      return;
+    }
     cleanups.set(sessionId, registerListener(sessionId, "subscribe"));
   };
   const onExit = (): void => {
-    for (const c of cleanups.values()) c();
+    for (const c of cleanups.values()) {
+      c();
+    }
     cleanups.clear();
     process.exit(0);
   };
   process.on("SIGINT", onExit);
   process.on("SIGTERM", onExit);
 
-  if (sessionFilter !== undefined) ensureMarker(sessionFilter);
+  if (sessionFilter !== undefined) {
+    ensureMarker(sessionFilter);
+  }
 
   while (true) {
     const sessions =
-      sessionFilter !== undefined
-        ? [{ sessionId: sessionFilter }]
-        : listSessions(optional("childrenOf", childrenOf));
+      sessionFilter === undefined
+        ? listSessions(optional("childrenOf", childrenOf))
+        : [{ sessionId: sessionFilter }];
     for (const s of sessions) {
       ensureMarker(s.sessionId);
       for (const req of listPending(s.sessionId)) {
-        if (seen.has(req.id)) continue;
+        if (seen.has(req.id)) {
+          continue;
+        }
         seen.add(req.id);
         process.stdout.write(`${JSON.stringify(req)}\n`);
       }
     }
+    // biome-ignore lint/performance/noAwaitInLoops: poll-interval sleep; parallelizing would tight-loop the directory scan.
     await new Promise<void>((r) => setTimeout(r, pollMs));
   }
 }
@@ -311,6 +326,7 @@ async function decideEscalateUp(
   by: string | undefined,
 ): Promise<number> {
   const result = await forwardUp(session, requestId, optional("by", by));
+  // biome-ignore lint/style/useDefaultSwitchClause: `result.kind` is a discriminated union; TS exhaustiveness check covers all cases at compile time.
   switch (result.kind) {
     case "missing-pending":
       writeErr(
