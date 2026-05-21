@@ -72,9 +72,9 @@ export function findUnreleasedBlock(lines: readonly string[]): readonly [number,
   let start = -1;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
-    if (/^## \[Unreleased\]/.test(line)) {
+    if (line.startsWith("## [Unreleased]")) {
       start = i;
-    } else if (start >= 0 && /^## \[/.test(line)) {
+    } else if (start >= 0 && line.startsWith("## [")) {
       return [start, i];
     }
   }

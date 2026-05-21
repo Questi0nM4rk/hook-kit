@@ -45,7 +45,13 @@ function stagePlugin(): { dir: string; entry: string; cleanup: () => void } {
   mkdirSync(srcDir, { recursive: true });
   const entry = join(srcDir, "hooks.ts");
   writeFileSync(entry, FIXTURE_HOOKS_TS, "utf8");
-  return { dir, entry, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  return {
+    dir,
+    entry,
+    cleanup: () => {
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }
 
 describe("hook-kit build — end to end", () => {

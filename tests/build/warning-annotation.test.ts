@@ -113,7 +113,9 @@ beforeAll(async () => {
   mkdirSync(join(dir, "dist"), { recursive: true });
   await runBuild({ entrypoint: join(dir, "src", "hooks.ts"), out: bin, adapter: "shell" });
   stagedBin = bin;
-  cleanup = () => rmSync(dir, { recursive: true, force: true });
+  cleanup = () => {
+    rmSync(dir, { recursive: true, force: true });
+  };
 }, BUILD_TIMEOUT_MS);
 
 afterAll(() => {
