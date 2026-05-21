@@ -7,7 +7,9 @@ pre-commit:
     biome-fix:
       glob: "*.{ts,tsx,js,jsx}"
       exclude: '(node_modules/.*|dist/.*|\.claude/.*|docs/plans/.*|docs/specs/.*)'
-      run: biome check --write {staged_files} && git add {staged_files}
+      # bunx ensures the project-pinned @biomejs/biome (2.4.15) runs, not /usr/bin/biome (system).
+      # System biome may not know rules / config keys that the pinned version uses.
+      run: bunx --bun biome check --write {staged_files} && git add {staged_files}
       stage_fixed: true
       priority: 1
 
