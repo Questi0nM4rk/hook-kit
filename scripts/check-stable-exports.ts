@@ -21,8 +21,9 @@
  *   bun scripts/check-stable-exports.ts --quiet          # suppress added-export list
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { commitRangeMessages, readFileAtRef, readHeadFile } from "./_lib.js";
+
+const SCRIPT = "check-stable-exports";
 
 interface Args {
   readonly base: string;
@@ -64,33 +65,17 @@ Exits 2 on argument or git plumbing errors.
 `);
 }
 
-/** Run `git <args>` without spawning a shell. Bun.spawnSync invokes the
- *  binary directly via posix_spawn; argv elements are passed verbatim, so
- *  no shell metacharacter interpretation. */
-function git(args: readonly string[]): { stdout: string; stderr: string; exitCode: number } {
-  const result = Bun.spawnSync(["git", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return {
-    stdout: result.stdout?.toString("utf8") ?? "",
-    stderr: result.stderr?.toString("utf8") ?? "",
-    exitCode: result.exitCode ?? 1,
-  };
-}
-
-/** Extract every named export from a TypeScript barrel module's source text.
- *  Returns the set of identifiers as they appear in `export { ... }` clauses
- *  AND in `export <type|interface|class|function|const> NAME` declarations.
+/** Extract every named export from a barrel module's source text.
  *
- *  Limitations:
- *  - Doesn't follow re-exports transitively (it lists what `index.ts` says,
- *    not the underlying file's full surface).
- *  - Stripped-down regex parse, not a TS AST walk — sufficient for the
- *    single barrel file `src/index.ts` which uses only `export { ... } from`
- *    forms. Failing-loud if we ever add declaration-site exports (function
- *    foo() {} in the barrel itself), so the regex would miss them and the
- *    diff would warn falsely. Acceptable for the 1.0.0 cut. */
+ *  Captures both `export { ... } from` re-export clauses AND declaration-site
+ *  exports (`export function foo`, `export const bar`, etc.). Doesn't follow
+ *  re-exports transitively — lists what `src/index.ts` literally says, not
+ *  the underlying file's full surface.
+ *
+ *  Designed for barrel-file shape. Do not reuse on arbitrary TS — the
+ *  comment-strip pass doesn't excise string-literal contents, so a string
+ *  containing `export { Foo }` could false-match. `src/index.ts` is a pure
+ *  re-export barrel with no string literals; safe there. */
 function parseExports(source: string): Set<string> {
   const names = new Set<string>();
 
@@ -130,35 +115,6 @@ function parseExports(source: string): Set<string> {
   return names;
 }
 
-function readBaseFile(base: string, path: string): string | null {
-  const r = git(["show", `${base}:${path}`]);
-  if (r.exitCode !== 0) {
-    process.stderr.write(`check-stable-exports: failed to read ${base}:${path}\n${r.stderr}`);
-    return null;
-  }
-  return r.stdout;
-}
-
-function readHeadFile(path: string): string | null {
-  const abs = resolve(process.cwd(), path);
-  if (!existsSync(abs)) {
-    process.stderr.write(`check-stable-exports: ${path} not found in working tree\n`);
-    return null;
-  }
-  return readFileSync(abs, "utf8");
-}
-
-function commitRangeMessages(base: string): { ok: boolean; text: string } {
-  const r = git(["log", "--format=%B%n--commit-end--", `${base}..HEAD`]);
-  if (r.exitCode !== 0) {
-    process.stderr.write(
-      `check-stable-exports: failed to read commits from ${base}..HEAD\n${r.stderr}`,
-    );
-    return { ok: false, text: "" };
-  }
-  return { ok: true, text: r.stdout };
-}
-
 function hasBreakingChangeFooter(messagesText: string): boolean {
   // Conventional-commits "BREAKING CHANGE:" footer or "BREAKING-CHANGE:".
   // Match at line start (footer position) but be lenient about exact case.
@@ -169,10 +125,10 @@ function main(): number {
   const args = parseArgs(process.argv.slice(2));
   const path = "src/index.ts";
 
-  const currentSource = readHeadFile(path);
+  const currentSource = readHeadFile(path, SCRIPT);
   if (currentSource === null) return 2;
 
-  const baseSource = readBaseFile(args.base, path);
+  const baseSource = readFileAtRef(args.base, path, SCRIPT);
   if (baseSource === null) {
     process.stderr.write(
       `check-stable-exports: cannot diff against ${args.base}; ` +
@@ -212,10 +168,10 @@ function main(): number {
 
   process.stderr.write(`  removed (${removed.length}):  ${removed.join(", ")}\n`);
 
-  const { ok, text } = commitRangeMessages(args.base);
-  if (!ok) return 2;
+  const messages = commitRangeMessages(args.base, SCRIPT);
+  if (messages === null) return 2;
 
-  if (hasBreakingChangeFooter(text)) {
+  if (hasBreakingChangeFooter(messages)) {
     process.stderr.write(
       "check-stable-exports: STABLE exports were removed, but BREAKING CHANGE: " +
         "footer is present in the commit range. Major-bump intent acknowledged; ok.\n",

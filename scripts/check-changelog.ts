@@ -24,6 +24,16 @@
  *   bun scripts/check-changelog.ts --base v0.8.0    # diff against another ref
  */
 
+import {
+  commitRangeMessages,
+  findUnreleasedBlock,
+  git,
+  readFileAtRef,
+  readHeadFile,
+} from "./_lib.js";
+
+const SCRIPT = "check-changelog";
+
 interface Args {
   readonly base: string;
 }
@@ -56,107 +66,37 @@ Exits 2 on argument or git plumbing errors.
   return { base };
 }
 
-/** Bun.spawnSync(['git', ...]) — no shell, argv passed verbatim. */
-function git(args: readonly string[]): { stdout: string; stderr: string; exitCode: number } {
-  const result = Bun.spawnSync(["git", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  return {
-    stdout: result.stdout?.toString("utf8") ?? "",
-    stderr: result.stderr?.toString("utf8") ?? "",
-    exitCode: result.exitCode ?? 1,
-  };
-}
-
 function changedFiles(base: string): string[] | null {
   const r = git(["diff", "--name-only", `${base}..HEAD`]);
   if (r.exitCode !== 0) {
-    process.stderr.write(`check-changelog: git diff failed against ${base}\n${r.stderr}`);
+    process.stderr.write(`${SCRIPT}: git diff failed against ${base}\n${r.stderr}`);
     return null;
   }
   return r.stdout.split("\n").filter((line) => line.length > 0);
 }
 
-function commitRangeMessages(base: string): string | null {
-  const r = git(["log", "--format=%B%n--commit-end--", `${base}..HEAD`]);
-  if (r.exitCode !== 0) {
-    process.stderr.write(`check-changelog: git log failed against ${base}\n${r.stderr}`);
-    return null;
-  }
-  return r.stdout;
-}
-
-/** Does the change to CHANGELOG.md in the diff range touch the `[Unreleased]`
- *  section specifically (not just an entry under a tagged version)? */
+/** True if the `[Unreleased]` section differs between `<base>:CHANGELOG.md`
+ *  and the current working-tree CHANGELOG.md. If the section is missing
+ *  from one side, treat that asymmetry as a touch. */
 function unreleasedTouched(base: string): boolean | null {
-  const r = git(["diff", `${base}..HEAD`, "--", "CHANGELOG.md"]);
-  if (r.exitCode !== 0) {
-    process.stderr.write(`check-changelog: git diff CHANGELOG.md failed\n${r.stderr}`);
-    return null;
-  }
-  if (r.stdout.length === 0) return false;
-
-  // Walk the unified diff; track the section the current line belongs to.
-  // A line belongs to "[Unreleased]" when the most recent header above it
-  // (in the FILE state implied by + or context lines) matches /^## \[Unreleased\]/.
-  // For simplicity, declare the section touched if EITHER:
-  //   - any +/- line is in the [Unreleased] block of the new (post-diff) file, OR
-  //   - the [Unreleased] header line itself moves or its body otherwise mutates.
-  // We approximate by reading the post-diff file and checking if the diff
-  // introduced any added line that falls before the next `## [` header below
-  // [Unreleased].
-  //
-  // The simplest robust approach: scan the diff hunk headers + body. If any
-  // hunk body line is `+` AND it falls between a `## [Unreleased]` and the next
-  // `## [` line in the post-image, count it as touched. We approximate this by
-  // checking the FULL post-image CHANGELOG and the diff text together.
-  const post = git(["show", `HEAD:CHANGELOG.md`]);
-  if (post.exitCode !== 0) return false;
-  const lines = post.stdout.split("\n");
-  let unreleasedStart = -1;
-  let unreleasedEnd = lines.length;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i] ?? "";
-    if (/^## \[Unreleased\]/.test(line)) {
-      unreleasedStart = i;
-    } else if (unreleasedStart >= 0 && /^## \[/.test(line)) {
-      unreleasedEnd = i;
-      break;
-    }
-  }
-  if (unreleasedStart < 0) {
-    process.stderr.write(
-      "check-changelog: CHANGELOG.md has no '## [Unreleased]' section; please add one.\n",
-    );
+  const headSource = readHeadFile("CHANGELOG.md", SCRIPT);
+  if (headSource === null) return null;
+  const headBlock = findUnreleasedBlock(headSource.split("\n"));
+  if (headBlock === null) {
+    process.stderr.write(`${SCRIPT}: CHANGELOG.md has no '## [Unreleased]' section; please add one.\n`);
     return false;
   }
-  // Compare the [Unreleased] block in base vs HEAD. If they differ at all, it
-  // was touched.
-  const baseShow = git(["show", `${base}:CHANGELOG.md`]);
-  if (baseShow.exitCode !== 0) {
-    // Base has no CHANGELOG.md — treat any addition as touched.
-    return unreleasedEnd > unreleasedStart + 1;
+
+  const baseSource = readFileAtRef(base, "CHANGELOG.md", SCRIPT);
+  if (baseSource === null) {
+    return headBlock[1] > headBlock[0] + 1;
   }
-  const baseLines = baseShow.stdout.split("\n");
-  let baseStart = -1;
-  let baseEnd = baseLines.length;
-  for (let i = 0; i < baseLines.length; i++) {
-    const line = baseLines[i] ?? "";
-    if (/^## \[Unreleased\]/.test(line)) {
-      baseStart = i;
-    } else if (baseStart >= 0 && /^## \[/.test(line)) {
-      baseEnd = i;
-      break;
-    }
-  }
-  if (baseStart < 0) {
-    // Base had no unreleased section; HEAD does — that's a touch.
-    return true;
-  }
-  const baseBlock = baseLines.slice(baseStart, baseEnd).join("\n");
-  const headBlock = lines.slice(unreleasedStart, unreleasedEnd).join("\n");
-  return baseBlock !== headBlock;
+  const baseLines = baseSource.split("\n");
+  const baseBlock = findUnreleasedBlock(baseLines);
+  if (baseBlock === null) return true;
+
+  const headLines = headSource.split("\n");
+  return baseLines.slice(...baseBlock).join("\n") !== headLines.slice(...headBlock).join("\n");
 }
 
 function main(): number {
@@ -174,7 +114,7 @@ function main(): number {
   }
 
   if (!changelogTouched) {
-    const messages = commitRangeMessages(args.base);
+    const messages = commitRangeMessages(args.base, SCRIPT);
     if (messages === null) return 2;
     if (messages.includes("[skip-changelog]")) {
       process.stderr.write(
@@ -196,7 +136,7 @@ function main(): number {
   const unreleased = unreleasedTouched(args.base);
   if (unreleased === null) return 2;
   if (!unreleased) {
-    const messages = commitRangeMessages(args.base);
+    const messages = commitRangeMessages(args.base, SCRIPT);
     if (messages === null) return 2;
     if (messages.includes("[skip-changelog]")) {
       process.stderr.write(
