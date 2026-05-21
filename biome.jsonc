@@ -53,8 +53,6 @@
           "style": {
             // Interop with external snake_case protocols (CC tool_input.*, broker envelope, ai-guardrails).
             "useNamingConvention": "off",
-            // Noisy in test/CI scopes where literal fixtures are inline-evident; revisit in M3+ readability pass.
-            "noMagicNumbers": "off",
             // CLI tool reads env intentionally; abstraction layer would add ceremony without value.
             "noProcessEnv": "off",
             // Interface-first file structure intentional; export ordering follows declaration order.
