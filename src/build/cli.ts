@@ -216,6 +216,7 @@ async function brokerCommand(argv: readonly string[]): Promise<number> {
   return 0;
 }
 
+// eslint-disable-next-line @typescript-eslint/require-await -- async signature is part of the uniform `*Command(argv): Promise<number>` shape every subcommand returns; the switch dispatcher (line ~380) treats all commands homogeneously. Sibling commands (broker, build, subscribe, decide, watch) all do real async I/O.
 async function listCommand(argv: readonly string[]): Promise<number> {
   const childrenOf = getArg(argv, "--children-of");
   const sessions = listSessions(optional("childrenOf", childrenOf));
