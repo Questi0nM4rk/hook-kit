@@ -269,7 +269,8 @@ async function subscribeCommand(argv: readonly string[]): Promise<number> {
     ensureMarker(sessionFilter);
   }
 
-  while (true) {
+  // Infinite poll loop; broken by process signal handlers above (onExit).
+  for (;;) {
     const sessions =
       sessionFilter === undefined
         ? listSessions(optional("childrenOf", childrenOf))
@@ -399,7 +400,7 @@ async function main(argv: readonly string[]): Promise<number> {
 if (import.meta.main) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
-    (err) => {
+    (err: unknown) => {
       writeErr(`hook-kit: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`);
       process.exit(1);
     },

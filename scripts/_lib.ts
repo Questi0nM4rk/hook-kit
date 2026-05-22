@@ -22,9 +22,9 @@ export interface GitResult {
 export function git(args: readonly string[]): GitResult {
   const result = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
   return {
-    stdout: result.stdout?.toString("utf8") ?? "",
-    stderr: result.stderr?.toString("utf8") ?? "",
-    exitCode: result.exitCode ?? 1,
+    stdout: result.stdout.toString("utf8"),
+    stderr: result.stderr.toString("utf8"),
+    exitCode: result.exitCode,
   };
 }
 

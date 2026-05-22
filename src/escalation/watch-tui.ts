@@ -451,6 +451,7 @@ export async function runWatchTui(opts: RunWatchTuiOptions = {}): Promise<void> 
 
   const render = (): void => {
     refreshRows(state, opts);
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Node's WriteStream.columns types as `number` but is actually undefined on non-TTY stdout (e.g. piped output); the FALLBACK_TERM_WIDTH is load-bearing at runtime.
     const width = stdout.columns ?? FALLBACK_TERM_WIDTH;
     const frame = renderTui(toReadonly(state), width, Date.now());
     stdout.write(`${CLEAR_SCREEN}${frame}`);
@@ -494,9 +495,12 @@ export async function runWatchTui(opts: RunWatchTuiOptions = {}): Promise<void> 
   const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
   const interval = setInterval(render, pollMs);
   render();
-  // Run forever — exit via SIGINT/SIGTERM/cleanup above.
-  // biome-ignore lint/suspicious/noEmptyBlockStatements: never-resolving promise blocks the event loop until signal-triggered cleanup tears down.
-  await new Promise(() => {});
+  // Run forever — exit via SIGINT/SIGTERM/cleanup above. The never-resolving
+  // Promise body is the mechanism; providing any resolution would defeat the
+  // run-forever semantics. Inline comment satisfies both linters.
+  await new Promise(() => {
+    /* intentionally never resolves */
+  });
   clearInterval(interval);
 }
 

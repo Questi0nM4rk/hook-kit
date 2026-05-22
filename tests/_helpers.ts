@@ -60,6 +60,7 @@ export function parseCcStdout(stdout: string): CcStdoutJson {
 export function withEnv(key: string, value: string | undefined, fn: () => void): void {
   const prev = process.env[key];
   if (value === undefined) {
+    // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- process.env IS the dynamic-key API; `delete process.env[k]` is the canonical unset and Reflect.deleteProperty wouldn't trigger Node's getenv() invalidation either.
     delete process.env[key];
   } else {
     process.env[key] = value;
@@ -68,6 +69,7 @@ export function withEnv(key: string, value: string | undefined, fn: () => void):
     fn();
   } finally {
     if (prev === undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- process.env IS the dynamic-key API; restoring "unset" requires delete.
       delete process.env[key];
     } else {
       process.env[key] = prev;

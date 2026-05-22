@@ -73,6 +73,19 @@ export default tseslint.config(
       "@typescript-eslint/prefer-promise-reject-errors": "error", // `Promise.reject("string")` loses stack + breaks typed error narrowing; reject Error instances only.
       "@typescript-eslint/require-await": "error", // async-without-await = the caller expects a Promise but gets one resolved synchronously; signature lies about the contract.
       "@typescript-eslint/no-non-null-assertion": "error", // `x!` discards the null branch without proof; either narrow first or use a typed throw. Bypassing nullability is exactly what HookKitError sites cannot afford.
+
+      // `_`-prefix convention for deliberately-unused params (Iron-Law-4 handlers,
+      // interface-required positional args). Matches the broader ecosystem
+      // convention; biome's noUnusedFunctionParameters honors the same pattern.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        {
+          argsIgnorePattern: "^_",
+          varsIgnorePattern: "^_",
+          caughtErrorsIgnorePattern: "^_",
+          destructuredArrayIgnorePattern: "^_",
+        },
+      ],
     },
   },
 );

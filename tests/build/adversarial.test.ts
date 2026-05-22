@@ -63,7 +63,8 @@ function expectSilentPassthrough(r: HkResult, expectedStdout?: string): void {
 }
 
 let stagedBin: string;
-let cleanup: () => void;
+// Defensive: beforeAll could throw before the assignment, leaving cleanup undefined.
+let cleanup: (() => void) | undefined;
 
 beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), "hook-kit-adv-"));

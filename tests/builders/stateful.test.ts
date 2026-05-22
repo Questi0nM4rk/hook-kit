@@ -41,8 +41,8 @@ function repetitionModule(threshold: number): HookModule {
     matchers: ["Bash"],
     rules: [
       stateful("repetition", (event, state) => {
-        const key = `cmd:${(event.toolInput.command as string) ?? ""}`;
-        const count = ((state.get(key) as number) ?? 0) + 1;
+        const key = `cmd:${(event.toolInput.command as string | undefined) ?? ""}`;
+        const count = ((state.get(key) as number | undefined) ?? 0) + 1;
         state.set(key, count);
         if (count > threshold) {
           return warning(`repeated ${String(count)} times — break the loop`);

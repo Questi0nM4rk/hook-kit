@@ -97,12 +97,14 @@ describe("run() — HOOK_KIT_VERBOSE tracing", () => {
   function withEnv(key: string, value: string | undefined, fn: () => Promise<void>): Promise<void> {
     const prev = process.env[key];
     if (value === undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- process.env IS the dynamic-key API; canonical env-unset pattern.
       delete process.env[key];
     } else {
       process.env[key] = value;
     }
     return fn().finally(() => {
       if (prev === undefined) {
+        // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- process.env IS the dynamic-key API; canonical env-unset pattern.
         delete process.env[key];
       } else {
         process.env[key] = prev;
