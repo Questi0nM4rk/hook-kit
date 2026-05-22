@@ -10,9 +10,20 @@
 // DecisionObserver wiring in one shot.
 //
 // Mirrors the staging shape of tests/build/example-ai-guardrails.test.ts.
+// Unlike that file (one stage + compile per test), this suite hoists the
+// expensive compile into beforeAll because all 6 cases assert against the
+// same binary — the wire format is deterministic per-input, not stateful.
 
-import { describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -115,123 +126,85 @@ function eventJson(command: string): string {
 }
 
 describe("examples/adapter-template — compiled-binary wire format", () => {
-  test(
-    "DENY: rm -rf /tmp/x -> exit 2, stderr '[template-demo] denied:', stdout empty",
-    async () => {
-      const staged = stageTemplate();
-      try {
-        await compile(staged);
-        const r = await runBin(staged.binPath, eventJson("rm -rf /tmp/x"));
-        expect(r.exit).toBe(2);
-        expect(r.stderr).toContain("[template-demo] denied: destructive rm -rf");
-        expect(r.stdout).toBe("");
-      } finally {
-        staged.cleanup();
-      }
-    },
-    BUILD_TIMEOUT_MS,
-  );
+  let staged: Staged;
 
-  test(
-    "ASK: git push --force -> exit 1, stdout '[template-demo] needs review:'",
-    async () => {
-      const staged = stageTemplate();
-      try {
-        await compile(staged);
-        const r = await runBin(staged.binPath, eventJson("git push --force origin main"));
-        expect(r.exit).toBe(1);
-        expect(r.stdout).toContain("[template-demo] needs review: force-push needs review");
-        expect(r.stderr).toBe("");
-      } finally {
-        staged.cleanup();
-      }
-    },
-    BUILD_TIMEOUT_MS,
-  );
+  beforeAll(async () => {
+    staged = stageTemplate();
+    await compile(staged);
+  }, BUILD_TIMEOUT_MS);
 
-  test(
-    "CLEAN: benign command -> exit 0, no output",
-    async () => {
-      const staged = stageTemplate();
-      try {
-        await compile(staged);
-        const r = await runBin(staged.binPath, eventJson("ls /tmp"));
-        expect(r.exit).toBe(0);
-        expect(r.stdout).toBe("");
-        expect(r.stderr).toBe("");
-      } finally {
-        staged.cleanup();
-      }
-    },
-    BUILD_TIMEOUT_MS,
-  );
+  afterAll(() => {
+    staged.cleanup();
+  });
 
-  test(
-    "ANNOTATION-ONLY: rm /tmp/x (no -rf) -> exit 0, stdout '[template-demo] warning:'",
-    async () => {
-      const staged = stageTemplate();
-      try {
-        await compile(staged);
-        const r = await runBin(staged.binPath, eventJson("rm /tmp/x"));
-        expect(r.exit).toBe(0);
-        expect(r.stdout).toContain("[template-demo] warning: rm without -rf still deletes files");
-        expect(r.stderr).toBe("");
-      } finally {
-        staged.cleanup();
-      }
-    },
-    BUILD_TIMEOUT_MS,
-  );
+  test("DENY: rm -rf /tmp/x -> exit 2, stderr '[template-demo] denied:', stdout empty", async () => {
+    const r = await runBin(staged.binPath, eventJson("rm -rf /tmp/x"));
+    expect(r.exit).toBe(2);
+    expect(r.stderr).toContain("[template-demo] denied: destructive rm -rf");
+    expect(r.stdout).toBe("");
+  });
 
-  test(
-    "BAD INPUT: malformed JSON on stdin -> non-zero exit, '[template-demo] fatal:' on stderr",
-    async () => {
-      const staged = stageTemplate();
-      try {
-        await compile(staged);
-        const r = await runBin(staged.binPath, "not json {{");
-        expect(r.exit).not.toBe(0);
-        expect(r.stderr).toContain("[template-demo] fatal:");
-        expect(r.stderr).toContain("not JSON");
-      } finally {
-        staged.cleanup();
-      }
-    },
-    BUILD_TIMEOUT_MS,
-  );
+  test("ASK: git push --force -> exit 1, stdout '[template-demo] needs review:'", async () => {
+    const r = await runBin(staged.binPath, eventJson("git push --force origin main"));
+    expect(r.exit).toBe(1);
+    expect(r.stdout).toContain("[template-demo] needs review: force-push needs review");
+    expect(r.stderr).toBe("");
+  });
 
-  test(
-    "OBSERVER: TEMPLATE_OBSERVER_LOG receives one JSONL DecisionEventRecord on deny",
-    async () => {
-      const staged = stageTemplate();
-      try {
-        await compile(staged);
-        const logPath = join(staged.dir, "observer.jsonl");
-        const r = await runBin(staged.binPath, eventJson("rm -rf /tmp/x"), {
-          TEMPLATE_OBSERVER_LOG: logPath,
-        });
-        expect(r.exit).toBe(2);
+  test("CLEAN: benign command -> exit 0, no output", async () => {
+    const r = await runBin(staged.binPath, eventJson("ls /tmp"));
+    expect(r.exit).toBe(0);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toBe("");
+  });
 
-        const log = readFileSync(logPath, "utf8").trim();
-        // Exactly one record for the deny terminal.
-        const lines = log.split("\n").filter((l) => l !== "");
-        expect(lines.length).toBe(1);
-        const record = JSON.parse(lines[0] ?? "") as Record<string, unknown>;
-        expect(record.decision).toBe("deny");
-        expect(record.ruleId).toBe("demo-destructive-rm:command:0");
-        expect(record.ruleKind).toBe("command");
-        expect(record.reason).toBe("destructive rm -rf");
-        expect(record.label).toBe("[template-demo]");
-        const event = record.event as Record<string, unknown>;
-        expect(event.eventName).toBe("PreToolUse");
-        expect(event.toolName).toBe("Bash");
-        // toolInputHash is sha256 hex = 64 chars.
-        expect(typeof event.toolInputHash).toBe("string");
-        expect((event.toolInputHash as string).length).toBe(SHA256_HEX_LEN);
-      } finally {
-        staged.cleanup();
+  test("ANNOTATION-ONLY: rm /tmp/x (no -rf) -> exit 0, stdout '[template-demo] warning:'", async () => {
+    const r = await runBin(staged.binPath, eventJson("rm /tmp/x"));
+    expect(r.exit).toBe(0);
+    expect(r.stdout).toContain("[template-demo] warning: rm without -rf still deletes files");
+    expect(r.stderr).toBe("");
+  });
+
+  test("BAD INPUT: malformed JSON on stdin -> non-zero exit, '[template-demo] fatal:' on stderr", async () => {
+    const r = await runBin(staged.binPath, "not json {{");
+    expect(r.exit).not.toBe(0);
+    expect(r.stderr).toContain("[template-demo] fatal:");
+    expect(r.stderr).toContain("not JSON");
+  });
+
+  test("OBSERVER: TEMPLATE_OBSERVER_LOG receives one JSONL DecisionEventRecord on deny", async () => {
+    // Per-test log path so concurrent / re-run tests don't see each other's
+    // records. afterEach-style cleanup folded into a try/finally here so the
+    // assertion lifetime owns the file.
+    const logPath = join(staged.dir, "observer-deny.jsonl");
+    try {
+      const r = await runBin(staged.binPath, eventJson("rm -rf /tmp/x"), {
+        TEMPLATE_OBSERVER_LOG: logPath,
+      });
+      expect(r.exit).toBe(2);
+
+      const log = readFileSync(logPath, "utf8").trim();
+      // Exactly one record for the deny terminal.
+      const lines = log.split("\n").filter((l) => l !== "");
+      expect(lines.length).toBe(1);
+      const record = JSON.parse(lines[0] ?? "") as Record<string, unknown>;
+      expect(record.decision).toBe("deny");
+      expect(record.ruleId).toBe("demo-destructive-rm:command:0");
+      expect(record.ruleKind).toBe("command");
+      expect(record.reason).toBe("destructive rm -rf");
+      expect(record.label).toBe("[template-demo]");
+      const event = record.event as Record<string, unknown>;
+      expect(event.eventName).toBe("PreToolUse");
+      expect(event.toolName).toBe("Bash");
+      // toolInputHash is sha256 hex = 64 chars.
+      expect(typeof event.toolInputHash).toBe("string");
+      expect((event.toolInputHash as string).length).toBe(SHA256_HEX_LEN);
+    } finally {
+      try {
+        unlinkSync(logPath);
+      } catch {
+        // file may not exist if the binary never reached observer wiring; safe to ignore.
       }
-    },
-    BUILD_TIMEOUT_MS,
-  );
+    }
+  });
 });

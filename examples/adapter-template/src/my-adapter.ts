@@ -1,41 +1,12 @@
 // Custom ProtocolAdapter — fork-and-modify scaffold.
 // Spec: docs/ADAPTERS.md (in @questi0nm4rk/hook-kit). Anti-patterns + error
 // boundaries live there. The demo modules in `hooks.ts` are stubs; the
-// adapter itself is the artifact downstream forks. Replace `MyHarnessInput`
-// + `parseInput` to match whatever wire format your harness speaks.
+// adapter itself is the artifact downstream forks. Wire-format-specific
+// parsing lives in `./parse-input.ts` — that's the file README step 1
+// tells consumers to edit first.
 
 import type { EvaluationOutcome, HookEvent, ProtocolAdapter } from "@questi0nm4rk/hook-kit";
-
-/**
- * Demo harness wire format. Each event is one JSON object on stdin:
- *
- *   {"event":"PreToolUse","session":"s1","cwd":"/x","transcript":"/x/t.jsonl",
- *    "tool":"Bash","input":{"command":"rm -rf /tmp/x"}}
- *
- * A real adapter parses whatever the upstream harness sends (Cursor's RPC,
- * MCP elicitation, a Unix socket, etc.). Define the shape and validate.
- */
-interface MyHarnessInput {
-  readonly event: string;
-  readonly session: string;
-  readonly cwd: string;
-  readonly transcript: string;
-  readonly tool: string;
-  readonly input: Record<string, unknown>;
-}
-
-/** Thrown by `readInput` when stdin is empty / unparseable. The engine routes
- *  this to `handleError`. Zero-silent-fails: never return a synthetic event.
- *  Downstream consumers can subclass hook-kit's `HookKitError` here if they
- *  want their typed errors threaded into the engine's error annotations —
- *  for read-input failures the engine calls handleError directly so a plain
- *  Error works just as well. */
-export class MyAdapterInputError extends Error {
-  constructor(message: string, cause?: unknown) {
-    super(message, cause === undefined ? undefined : { cause });
-    this.name = "MyAdapterInputError";
-  }
-}
+import { parseInput } from "./parse-input.js";
 
 /** Streams the adapter writes to / reads from. Constructor-injected so tests
  *  can pass mocks; `main.ts` wires the real `process.*` handles. */
@@ -57,50 +28,15 @@ export interface MyAdapterOptions {
 
 const DEFAULT_LABEL = "[template-demo]";
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function parseInput(rawText: string): HookEvent {
-  const trimmed = rawText.trim();
-  if (trimmed === "") {
-    throw new MyAdapterInputError("empty stdin");
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(trimmed);
-  } catch (cause) {
-    throw new MyAdapterInputError("stdin is not JSON", cause);
-  }
-  if (!isPlainObject(json)) {
-    throw new MyAdapterInputError("stdin JSON is not an object");
-  }
-  const o = json as Partial<MyHarnessInput>;
-  if (
-    typeof o.event !== "string" ||
-    typeof o.session !== "string" ||
-    typeof o.cwd !== "string" ||
-    typeof o.transcript !== "string" ||
-    typeof o.tool !== "string" ||
-    !isPlainObject(o.input)
-  ) {
-    throw new MyAdapterInputError("stdin JSON missing required fields");
-  }
-  return {
-    eventName: o.event,
-    sessionId: o.session,
-    cwd: o.cwd,
-    transcriptPath: o.transcript,
-    toolName: o.tool,
-    toolInput: o.input,
-    raw: json as Readonly<Record<string, unknown>>,
-  };
-}
-
 async function readAllStdin(stdin: AsyncIterable<Uint8Array | string>): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of stdin) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : Buffer.from(chunk));
+    // Buffer.isBuffer fast-path avoids re-allocating when the iterator
+    // already yields Buffer (Bun's `process.stdin`). For everything else
+    // (Uint8Array from tests' TextEncoder, or string), `Buffer.from(chunk)`
+    // handles both shapes — DO NOT `Buffer.from(String(chunk))` because
+    // String(Uint8Array) returns the comma-joined bytes, not text.
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString("utf8");
 }

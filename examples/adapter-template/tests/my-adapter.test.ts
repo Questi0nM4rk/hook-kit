@@ -6,7 +6,8 @@
 
 import { describe, expect, test } from "bun:test";
 import type { Annotation, EvaluationOutcome, HookEvent, Terminal } from "@questi0nm4rk/hook-kit";
-import { type AdapterStreams, createMyAdapter, MyAdapterInputError } from "../src/my-adapter.js";
+import { type AdapterStreams, createMyAdapter } from "../src/my-adapter.js";
+import { MyAdapterInputError } from "../src/parse-input.js";
 
 interface CapturedStreams extends AdapterStreams {
   readonly stdoutBuf: string[];
