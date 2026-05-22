@@ -40,7 +40,9 @@ export interface CcOutput {
 const EMPTY: CcOutput = { stdout: "", stderr: "", exitCode: 0 };
 
 function joinNonErrorAnnotations(annotations: readonly NonErrorAnnotation[]): string {
-  return annotations.map(formatNonErrorAnnotation).join("\n");
+  // Explicit arrow — Array.map's `(element, index)` would otherwise pass
+  // the index as the formatter's optional `defaultLabel` parameter.
+  return annotations.map((a) => formatNonErrorAnnotation(a)).join("\n");
 }
 
 /** Concatenate error-annotation lines onto an existing CcOutput's stderr.

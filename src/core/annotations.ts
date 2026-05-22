@@ -34,10 +34,21 @@ export function partitionAnnotations(anns: readonly Annotation[]): {
   return { others, errors };
 }
 
-export function formatNonErrorAnnotation(a: NonErrorAnnotation): string {
-  return `${a.label ?? "[hook-kit]"} ${a.kind}: ${a.message}`;
+/** Format a `warning` / `note` annotation as a single line WITHOUT a trailing
+ *  newline. `defaultLabel` is the fallback prefix when the annotation itself
+ *  carries no `label` — hook-kit's wrapper and CC adapter use `"[hook-kit]"`;
+ *  custom adapters (e.g. examples/adapter-template) pass their own default.
+ *  @stable @since 1.0.0 */
+export function formatNonErrorAnnotation(
+  a: NonErrorAnnotation,
+  defaultLabel = "[hook-kit]",
+): string {
+  return `${a.label ?? defaultLabel} ${a.kind}: ${a.message}`;
 }
 
-export function formatErrorAnnotation(a: ErrorAnnotation): string {
-  return `${a.label ?? "[hook-kit]"} error: ${a.errorCode}: ${a.message}`;
+/** Format an `error` annotation as a single line WITHOUT a trailing newline.
+ *  See `formatNonErrorAnnotation` for the `defaultLabel` contract.
+ *  @stable @since 1.0.0 */
+export function formatErrorAnnotation(a: ErrorAnnotation, defaultLabel = "[hook-kit]"): string {
+  return `${a.label ?? defaultLabel} error: ${a.errorCode}: ${a.message}`;
 }

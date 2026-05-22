@@ -29,6 +29,12 @@ const SCRIPT = "check-coverage";
 // header to stdout but the coverage TABLE (which we parse) AND the
 // pass/fail summary go to stderr — capture both, pass them through to the
 // terminal, parse stderr for the `All files` aggregate row.
+//
+// NB: `bun run test` ALSO runs tests-isolated/ and examples/adapter-template/tests/
+// in their own bun-test processes (process isolation per oven-sh/bun#14516).
+// Those are deliberately NOT measured here — isolated tests use mock.module
+// and example tests cover non-src/ code. The coverage floor only applies to
+// the src/ surface exercised by tests/.
 const proc = Bun.spawnSync(["bun", "test", "tests/", "--coverage"], {
   stdout: "pipe",
   stderr: "pipe",

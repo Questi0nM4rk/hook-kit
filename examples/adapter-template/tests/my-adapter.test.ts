@@ -5,7 +5,8 @@
 // hook-kit root) and validates the wire-format contract end-to-end.
 
 import { describe, expect, test } from "bun:test";
-import type { Annotation, EvaluationOutcome, HookEvent, Terminal } from "@questi0nm4rk/hook-kit";
+import type { Annotation, EvaluationOutcome, Terminal } from "@questi0nm4rk/hook-kit";
+import { bashEvent } from "@questi0nm4rk/hook-kit/testing";
 import { type AdapterStreams, createMyAdapter } from "../src/my-adapter.js";
 import { MyAdapterInputError } from "../src/parse-input.js";
 
@@ -47,18 +48,6 @@ function captureStreams(input: string): CapturedStreams {
     set exitCode(v: number | null) {
       state.exitCode = v;
     },
-  };
-}
-
-function fakeEvent(): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command: "echo hi" },
-    raw: {},
   };
 }
 
@@ -142,7 +131,7 @@ describe("createMyAdapter — writeOutput", () => {
 
     adapter.writeOutput(
       outcome({ kind: "deny", reason: "destructive rm -rf", label: "[template-demo]" }),
-      fakeEvent(),
+      bashEvent("echo hi"),
     );
 
     expect(streams.exitCode).toBe(2);
@@ -156,7 +145,7 @@ describe("createMyAdapter — writeOutput", () => {
 
     adapter.writeOutput(
       outcome({ kind: "ask", reason: "force-push needs review", label: "[template-demo]" }),
-      fakeEvent(),
+      bashEvent("echo hi"),
     );
 
     expect(streams.exitCode).toBe(1);
@@ -178,7 +167,7 @@ describe("createMyAdapter — writeOutput", () => {
           label: "[template-demo]",
         },
       ]),
-      fakeEvent(),
+      bashEvent("echo hi"),
     );
 
     expect(streams.exitCode).toBe(0);
@@ -192,7 +181,7 @@ describe("createMyAdapter — writeOutput", () => {
     const streams = captureStreams("");
     const adapter = createMyAdapter({ streams });
 
-    adapter.writeOutput(outcome(null), fakeEvent());
+    adapter.writeOutput(outcome(null), bashEvent("echo hi"));
 
     expect(streams.exitCode).toBe(0);
     expect(streams.stdoutBuf.join("")).toBe("");
@@ -212,7 +201,7 @@ describe("createMyAdapter — writeOutput", () => {
           label: "[template-demo]",
         },
       ]),
-      fakeEvent(),
+      bashEvent("echo hi"),
     );
 
     expect(streams.exitCode).toBe(0);
@@ -234,7 +223,7 @@ describe("createMyAdapter — writeOutput", () => {
           label: "[template-demo]",
         },
       ]),
-      fakeEvent(),
+      bashEvent("echo hi"),
     );
 
     expect(streams.exitCode).toBe(2);
@@ -249,7 +238,7 @@ describe("createMyAdapter — writeOutput", () => {
 
     adapter.writeOutput(
       outcome({ kind: "ask", reason: "needs review", label: "[rule-specific]" }),
-      fakeEvent(),
+      bashEvent("echo hi"),
     );
 
     expect(streams.stdoutBuf.join("")).toBe("[rule-specific] needs review: needs review\n");
@@ -259,7 +248,7 @@ describe("createMyAdapter — writeOutput", () => {
     const streams = captureStreams("");
     const adapter = createMyAdapter({ streams, label: "[my-default]" });
 
-    adapter.writeOutput(outcome({ kind: "deny", reason: "no label here" }), fakeEvent());
+    adapter.writeOutput(outcome({ kind: "deny", reason: "no label here" }), bashEvent("echo hi"));
 
     expect(streams.stderrBuf.join("")).toBe("[my-default] denied: no label here\n");
   });
