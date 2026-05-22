@@ -1,6 +1,7 @@
 // evaluate() — core evaluation loop
 // See docs/SPEC.md § Engine for the full contract
 
+import { createHash } from "node:crypto";
 import {
   findCalls,
   ParseSyntaxError,
@@ -12,6 +13,7 @@ import {
 import { ask as askDecision, errorAnnotation } from "../core/decision.js";
 import {
   HookKitError,
+  ObserverError,
   RuleEvaluationError,
   ShellAstParseError,
   StateStoreError,
@@ -19,6 +21,7 @@ import {
 import type {
   Annotation,
   Decision,
+  DecisionEventRecord,
   DecisionObserver,
   EvalContext,
   EvaluationOutcome,
@@ -210,6 +213,77 @@ function keepOnlyErrors(anns: readonly Annotation[]): Annotation[] {
   return anns.filter((a) => a.kind === "error");
 }
 
+/** sha256-hex digest of `JSON.stringify(toolInput)`. 64 hex chars. Used to
+ *  populate `DecisionEventRecord.event.toolInputHash`. Engine policy: the raw
+ *  `toolInput` is NOT logged by default; observers correlate with the harness
+ *  call via this hash + timestamp + sessionId. */
+function hashToolInput(toolInput: Readonly<Record<string, unknown>>): string {
+  return createHash("sha256").update(JSON.stringify(toolInput)).digest("hex");
+}
+
+interface BuildRecordArgs {
+  readonly event: HookEvent;
+  readonly toolInputHash: string;
+  readonly ruleId: string;
+  readonly ruleKind: string;
+  readonly decision: DecisionEventRecord["decision"];
+  readonly reason: string;
+  readonly label?: string;
+  readonly timingMs: number;
+}
+
+/** Build a DecisionEventRecord for a decision the engine just emitted.
+ *  `timingMs` is the per-rule bracket — `0` for engine-emitted errors with no
+ *  associated rule timing (e.g., pre-loop validation, state-flush failures).
+ *  `toolInputHash` is passed in pre-computed (cached per evaluation by the
+ *  caller) so this helper stays O(1). */
+function buildRecord(args: BuildRecordArgs): DecisionEventRecord {
+  const base: Omit<DecisionEventRecord, "label"> = {
+    timestamp: Date.now(),
+    ruleId: args.ruleId,
+    ruleKind: args.ruleKind,
+    decision: args.decision,
+    reason: args.reason,
+    event: {
+      eventName: args.event.eventName,
+      toolName: args.event.toolName,
+      cwd: args.event.cwd,
+      sessionId: args.event.sessionId,
+      toolInputHash: args.toolInputHash,
+    },
+    timingMs: args.timingMs,
+  };
+  return args.label === undefined ? base : { ...base, label: args.label };
+}
+
+/** Fire every registered observer with the record, in array order. Observer
+ *  throws are caught and surfaced as `error` annotations on the outcome —
+ *  the calling site keeps running and subsequent observers in the same array
+ *  still fire. Per-observer throws DO NOT short-circuit the loop: an observer
+ *  that throws is logged, then iteration continues to the next observer. The
+ *  decision itself is unaffected (fail-open at the observer boundary). */
+function notifyObservers(
+  observers: readonly DecisionObserver[],
+  record: DecisionEventRecord,
+  annotations: Annotation[],
+): void {
+  for (let i = 0; i < observers.length; i++) {
+    const observer = observers[i];
+    if (observer === undefined) {
+      // Defensive: readonly array index is `T | undefined` under strict
+      // noUncheckedIndexedAccess; observers we own are dense so this branch
+      // is unreachable in practice. Skip silently rather than throwing —
+      // observer plumbing must never destabilize the engine.
+      continue;
+    }
+    try {
+      observer.onDecision(record);
+    } catch (cause) {
+      annotations.push(errorAnnotation(new ObserverError(i, cause)));
+    }
+  }
+}
+
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: engine evaluator — module/rule iteration + decision merging + annotation accumulation + recursion bookkeeping form one transactional pipeline; splitting loses ordering invariants.
 async function evaluateInternal(
   event: HookEvent,
@@ -222,6 +296,21 @@ async function evaluateInternal(
 
   const state = opts.state ?? noopState;
   const { ctx, drainErrors } = buildEvalContext(event, state, modules, opts.shellAstOpts);
+
+  // Observer machinery — short-circuit when nobody's listening so the default
+  // path stays zero-overhead (no hash, no Date.now, no performance.now). Per
+  // TASK-020 the per-rule timing bracket is also skipped under this gate.
+  const observers = opts.observers;
+  const observersActive = observers !== undefined && observers.length > 0;
+  // Compute the toolInputHash lazily and cache it per evaluation (TASK-018):
+  // multiple decisions in the same evaluation share the same input → compute
+  // once, reuse for every record built in this frame. Recursive frames have
+  // their own synthetic event and compute their own hash.
+  let toolInputHashCache: string | undefined;
+  const getToolInputHash = (): string => {
+    toolInputHashCache ??= hashToolInput(event.toolInput);
+    return toolInputHashCache;
+  };
 
   const flushState = async (): Promise<void> => {
     try {
@@ -258,8 +347,19 @@ async function evaluateInternal(
       }
     }
 
-    for (const rule of mod.rules) {
+    for (let ruleIndex = 0; ruleIndex < mod.rules.length; ruleIndex++) {
+      const rule = mod.rules[ruleIndex];
+      if (rule === undefined) {
+        // Defensive index check — readonly Rule[] under noUncheckedIndexedAccess
+        // is `Rule | undefined`. Engine-owned arrays are dense so unreachable.
+        continue;
+      }
+      // Build the ruleId once per rule (cheap; only spent when observers fire).
+      const ruleId = `${mod.id}:${rule.kind}:${String(ruleIndex)}`;
       let decision: Decision;
+      // Per-rule timing bracket (TASK-017). Skipped when no observers are
+      // registered to keep the default path zero-overhead.
+      const ruleStart = observersActive ? performance.now() : 0;
       try {
         // biome-ignore lint/performance/noAwaitInLoops: rules MUST execute sequentially — deny short-circuits, ask bundles, ordering is the merge-policy contract.
         decision = await rule.evaluate(event, ctx);
@@ -272,18 +372,67 @@ async function evaluateInternal(
         const err =
           cause instanceof HookKitError ? cause : new RuleEvaluationError(rule.kind, cause);
         annotations.push(errorAnnotation(err));
+        if (observersActive) {
+          const timingMs = performance.now() - ruleStart;
+          notifyObservers(
+            observers,
+            buildRecord({
+              event,
+              toolInputHash: getToolInputHash(),
+              ruleId,
+              ruleKind: rule.kind,
+              decision: "error",
+              reason: err.message,
+              timingMs,
+            }),
+            annotations,
+          );
+        }
         continue;
       }
+      const timingMs = observersActive ? performance.now() - ruleStart : 0;
       if (decision === null) {
         continue;
       }
 
       if (decision.kind === "deny") {
+        if (observersActive) {
+          notifyObservers(
+            observers,
+            buildRecord({
+              event,
+              toolInputHash: getToolInputHash(),
+              ruleId,
+              ruleKind: rule.kind,
+              decision: "deny",
+              reason: decision.reason,
+              ...(decision.label === undefined ? {} : { label: decision.label }),
+              timingMs,
+            }),
+            annotations,
+          );
+        }
         drainContextErrors();
         await flushState();
         return { terminal: decision, annotations: keepOnlyErrors(annotations) };
       }
       if (decision.kind === "ask") {
+        if (observersActive) {
+          notifyObservers(
+            observers,
+            buildRecord({
+              event,
+              toolInputHash: getToolInputHash(),
+              ruleId,
+              ruleKind: rule.kind,
+              decision: "ask",
+              reason: decision.reason,
+              ...(decision.label === undefined ? {} : { label: decision.label }),
+              timingMs,
+            }),
+            annotations,
+          );
+        }
         terminal ??= decision;
         continue;
       }
