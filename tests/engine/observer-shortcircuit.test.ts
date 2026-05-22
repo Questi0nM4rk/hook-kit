@@ -83,9 +83,11 @@ describe("observer — short-circuit when no observers registered", () => {
   });
 
   test("annotation-only outcome preserved under both observer states", async () => {
-    // Pre-TASK-016: annotation observer firing isn't wired yet, so the
-    // observers array sees no records for warning/note decisions. The
-    // OUTCOME shape must still be identical.
+    // Observer records are delivered via callback, not on the outcome —
+    // so the outcome shape must be byte-identical regardless of observer
+    // presence. (TASK-016 wires observers for annotations; observer firing
+    // never mutates outcome.annotations beyond appending error annotations
+    // for observer throws, which we exclude here by using a noop observer.)
     const mod = moduleWith([
       { kind: "w", evaluate: () => warning("be careful") },
       { kind: "n", evaluate: () => note("heads up") },
