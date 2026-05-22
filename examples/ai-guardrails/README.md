@@ -46,6 +46,7 @@ Two binaries:
 - **`dist/hk-cc-tools`** — Claude Code tool-call adapter. Catches `Edit`,
   `Write`, `NotebookEdit`, `Read` events that bypass the shell. Wire via
   `hooks.json`:
+
   ```json
   {
     "hooks": {
