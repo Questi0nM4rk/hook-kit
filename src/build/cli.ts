@@ -232,7 +232,7 @@ async function listCommand(argv: readonly string[]): Promise<number> {
     for (const s of sessions) {
       const lineage = s.parentSessionId === undefined ? "" : ` ← ${s.parentSessionId}`;
       process.stdout.write(
-        `${s.sessionId}${lineage}  pid=${s.pid}  pending=${s.pendingCount}  started=${s.startedAt}\n`,
+        `${s.sessionId}${lineage}  pid=${String(s.pid)}  pending=${String(s.pendingCount)}  started=${s.startedAt}\n`,
       );
     }
   }
@@ -345,7 +345,7 @@ async function decideEscalateUp(
       return 0;
     case "forwarded":
       writeErr(
-        `hook-kit: ${requestId} decided as ${result.response?.decision} (parent ${result.parentSessionId})\n`,
+        `hook-kit: ${requestId} decided as ${String(result.response?.decision)} (parent ${String(result.parentSessionId)})\n`,
       );
       return 0;
   }
@@ -391,7 +391,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "watch":
       return watchCommand(rest);
     default:
-      writeErr(`hook-kit: unknown command '${sub}'\n${HELP}`);
+      writeErr(`hook-kit: unknown command '${String(sub)}'\n${HELP}`);
       return 1;
   }
 }

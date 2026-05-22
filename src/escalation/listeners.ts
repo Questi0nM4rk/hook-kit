@@ -39,7 +39,7 @@ export function registerListener(
     sessionId,
     startedAt: new Date().toISOString(),
   };
-  const path = join(listenersDir, `${process.pid}.lock`);
+  const path = join(listenersDir, `${String(process.pid)}.lock`);
   writeFileSync(path, JSON.stringify(marker), { mode: 0o600 });
   return () => {
     try {

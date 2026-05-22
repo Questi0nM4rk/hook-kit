@@ -127,7 +127,7 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
     const seconds = timeoutMs === undefined ? 0 : Math.round(timeoutMs / MS_PER_SECOND);
     return denied(
       opts.request.id,
-      `[hook-kit] no decision in ${seconds}s. Original: ${opts.request.reason}`,
+      `[hook-kit] no decision in ${String(seconds)}s. Original: ${opts.request.reason}`,
     );
   }
 
@@ -141,7 +141,7 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
     const tail = stderrText.trim().slice(0, STDERR_TAIL_MAX_CHARS);
     return denied(
       opts.request.id,
-      `[hook-kit] askpass exited ${exitCode}${tail === "" ? "" : `: ${tail}`}`,
+      `[hook-kit] askpass exited ${String(exitCode)}${tail === "" ? "" : `: ${tail}`}`,
     );
   }
 

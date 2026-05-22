@@ -44,7 +44,7 @@ function parseArgs(argv: readonly string[]): Args {
       printHelp();
       process.exit(0);
     } else {
-      process.stderr.write(`check-stable-exports: unrecognized arg '${a}'\n`);
+      process.stderr.write(`check-stable-exports: unrecognized arg '${String(a)}'\n`);
       printHelp();
       process.exit(2);
     }
@@ -169,10 +169,10 @@ function main(): number {
 
   if (!args.quiet) {
     process.stderr.write(`check-stable-exports: comparing ${args.base}..HEAD\n`);
-    process.stderr.write(`  base exports:     ${baseExports.size}\n`);
-    process.stderr.write(`  current exports:  ${currentExports.size}\n`);
+    process.stderr.write(`  base exports:     ${String(baseExports.size)}\n`);
+    process.stderr.write(`  current exports:  ${String(currentExports.size)}\n`);
     if (added.length > 0) {
-      process.stderr.write(`  added (${added.length}):    ${added.join(", ")}\n`);
+      process.stderr.write(`  added (${String(added.length)}):    ${added.join(", ")}\n`);
     }
   }
 
@@ -183,7 +183,7 @@ function main(): number {
     return 0;
   }
 
-  process.stderr.write(`  removed (${removed.length}):  ${removed.join(", ")}\n`);
+  process.stderr.write(`  removed (${String(removed.length)}):  ${removed.join(", ")}\n`);
 
   const messages = commitRangeMessages(args.base, SCRIPT);
   if (messages === null) {

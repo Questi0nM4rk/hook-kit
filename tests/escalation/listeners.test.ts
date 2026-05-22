@@ -52,7 +52,7 @@ describe("liveListeners", () => {
     // process on standard Linux).
     const fakePid = 999_999_999;
     writeFileSync(
-      join(dir, `${fakePid}.lock`),
+      join(dir, `${String(fakePid)}.lock`),
       JSON.stringify({
         pid: fakePid,
         mode: "subscribe",

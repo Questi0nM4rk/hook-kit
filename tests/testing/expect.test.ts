@@ -125,7 +125,7 @@ describe("expectModule chained setup", () => {
       const n = (s.get("deletes:count") as number) + 1;
       s.set("deletes:count", n);
       if (n >= 2) {
-        return warning(`hit ${n}`);
+        return warning(`hit ${String(n)}`);
       }
       return null;
     });
