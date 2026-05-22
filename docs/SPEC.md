@@ -675,6 +675,8 @@ interface DecisionEventRecord {
 
 `event.toolInputHash` is the sha256-hex digest of `JSON.stringify(event.toolInput)`, exactly 64 lowercase hex characters. The raw `toolInput` is NOT included in the record — only its hash. This is the default-safe stance: observers correlate decisions with the harness call via the hash + `timestamp` + `sessionId` triplet, but the kit does not push potentially-sensitive command text into log infrastructure on the consumer's behalf.
 
+The hash is computed as `crypto.createHash('sha256').update(JSON.stringify(toolInput)).digest('hex')` — no key sorting, no normalization, no field selection. Consumers needing byte-identical hashes from their correlation store must use the same construction. The construction is pinned by the 1.0 STABLE contract; any change to the algorithm or normalization is a breaking change subject to the deprecation cycle in `docs/STABILITY.md`.
+
 Consumers that need the raw `toolInput` (e.g., for audit logs they fully control) must capture it via their own pre-evaluate path — e.g., a wrapper around `evaluate()` that records `event.toolInput` to their own store keyed by `toolInputHash` + `sessionId`, then the observer correlates back to that store.
 
 The hash is cached per evaluation: all observer records emitted from a single `evaluate()` invocation (including ones produced by inline-shell recursion's outer frame) share the same hash without recomputing. Recursive inner frames have their own synthetic event and compute their own hash.

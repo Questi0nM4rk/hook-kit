@@ -186,13 +186,9 @@ export interface DecisionEventRecord {
   readonly timingMs: number;
 }
 
-/** Programmatic hook invoked per terminal decision and per annotation. The
- *  contract: synchronous (engine awaits no Promise from this callback);
- *  invoked in the order observers appear in `EvaluateOptions.observers`;
- *  observer throws are caught and surfaced as an `error` annotation on the
- *  outcome — the decision still proceeds and subsequent observers in the
- *  same array still fire. For async sinks, observers should enqueue and
- *  flush out-of-band. See docs/SPEC.md § Observability for the full contract.
+/** Programmatic hook invoked per terminal decision and per annotation. Sync;
+ *  throws are caught and surfaced as `error` annotations. See docs/SPEC.md
+ *  § Observability for the full contract.
  *  @stable @since 1.0.0 */
 export interface DecisionObserver {
   onDecision(record: DecisionEventRecord): void;
