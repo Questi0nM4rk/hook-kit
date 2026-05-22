@@ -41,3 +41,16 @@ jobs:
         # Runs on every push/PR -- no base ref needed; --all scans the full
         # tree (CI has no staged set to drive the per-file lefthook variant).
         run: bun scripts/check-suppress-comments.ts --all
+
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run semgrep
+        # --config auto = semgrep registry default ruleset (security + ecosystem).
+        # --error makes any finding fail the job (CP-1: no warn, only error).
+        # Excludes mirror the lefthook hook-scope spirit: skip tests/fixtures/docs/examples.
+        run: |
+          pip install semgrep
+          semgrep --config auto --error --exclude tests/ --exclude tests-isolated/ --exclude examples/ --exclude docs/
