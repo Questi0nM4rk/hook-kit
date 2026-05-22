@@ -171,4 +171,10 @@ export function createAskResponse(opts: CreateResponseOptions): AskResponse {
   };
 }
 
-export { PROTOCOL_VERSION };
+// PROTOCOL_VERSION is part of the public escalation contract (see docs/ESCALATION.md).
+// AskRequestSchema + AskResponseSchema are @internal — exported for the
+// schema-snapshot test in tests/escalation/envelope-schema.test.ts. NOT part of
+// the public API. Do not import the schema objects from outside the test suite;
+// the Zod shape is captured in docs/ESCALATION.md § Envelope schema and the
+// per-field semantics are the consumer-facing contract.
+export { AskRequestSchema, AskResponseSchema, PROTOCOL_VERSION };
