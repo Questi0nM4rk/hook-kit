@@ -17,5 +17,12 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "tests", "tests-isolated", "scripts", "examples/adapter-template"]
+  "include": [
+    "src",
+    "tests",
+    "tests-isolated",
+    "scripts",
+    "examples/adapter-template",
+    "examples/escalation-listener-stdout"
+  ]
 }
