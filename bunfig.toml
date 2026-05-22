@@ -1,0 +1,8 @@
+# Bun runtime config. Test-runner section emits coverage by default; floor
+# enforcement lives in scripts/check-coverage.ts because Bun's native
+# [test] coverageThreshold key is not enforced in 1.3.x — see oven-sh/bun
+# issues #7367 / #8111 / #17664. When upstream lands the fix, add
+# `coverageThreshold = { line = 0.89, function = 0.84 }` here for
+# belt-and-suspenders enforcement and delete the custom script.
+[test]
+coverage = true
