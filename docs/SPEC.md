@@ -33,7 +33,7 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 
 ### Package Layout
 
-```
+```text
 @questi0nm4rk/hook-kit/
 ├── src/
 │   ├── index.ts                  # Public barrel: types + builders + engine + run() + runShell()
@@ -239,7 +239,7 @@ runShell(modules);
 
 The compiled binary accepts:
 
-```
+```text
 hk -c "<command-string>"   # mirrors `bash -c`
 hk -- <argv...>            # exec form
 hk --version
@@ -280,7 +280,7 @@ case: if the wrapped command's own stdout *also* contains `---` on its
 own line (rare in practice for tooling output; common in `git diff` or
 markdown content), a downstream parser must use the *first* `---` after
 the leading annotation block as the boundary. Annotation lines all
-match `^\[[^\]]+\] (warning|note): `, so a parser can disambiguate by
+match `^\[[^\]]+\] (warning|note):\s`, so a parser can disambiguate by
 scanning until the first non-annotation line and treating the next
 `---` as the separator. Future versions may switch to an ASCII
 record-separator (``) if collisions become real.
@@ -336,7 +336,7 @@ The escalation system handles `Decision.kind === "ask"`. It is the only path whe
 
 Each running hook-kit invocation is a node in a tree. The root is the harness's native human-UI prompt (CC's `permissionDecision: "ask"`). Below the root sits the agent's own session. Below that, any subagent the parent spawned has its own session whose `meta.json.parent_session_id` points up to the parent. Subagents can spawn their own subagents, recursively.
 
-```
+```text
 [ root: harness UI (CC native ask) ]
             │
 [ agent session ]
@@ -354,7 +354,8 @@ Multiple listeners can attach to any node simultaneously. They all see the same 
 When the engine returns `ask`, the binary:
 
 1. Constructs an envelope (PROTOCOL_VERSION = 2):
-   ```
+
+   ```text
    {
      version, id,
      sessionId, parentSessionId?,
@@ -367,6 +368,7 @@ When the engine returns `ask`, the binary:
      createdAt, expiresAt
    }
    ```
+
    The intent is to give a listener enough context — harness identity, project / cwd, branch + dirty state, transcript pointer, originating pid — to decide an ambiguous ask without round-tripping. `cwd`, `transcriptPath`, and `harness` come from the adapter; `pid`/`host`/`user` are autofilled. `git` is populated only when `HOOK_KIT_ENRICH_GIT=1` is set in the binary's environment (cheap shell-outs against `git -C cwd`); failures swallow to undefined per Iron Law 4.
 2. Spawns the binary at `$HOOK_KIT_ASKPASS` with the envelope as JSON on stdin.
 3. Waits for the askpass to exit (no internal timeout by default — the harness's hook timeout is the ceiling):
@@ -387,7 +389,7 @@ The askpass binary is the **public contract**. Any program that reads JSON on st
 
 The bundled `hook-kit broker` is the default askpass implementation. It manages per-session ask channels at `~/.cache/hook-kit/sessions/$SESSION_ID/`:
 
-```
+```text
 sessions/$SESSION_ID/
 ├── meta.json                   # {parent_session_id?, started_at, pid}
 ├── pending/$REQUEST_ID.json    # the envelope
@@ -438,7 +440,7 @@ The envelope JSON Schema is shaped to match Model Context Protocol elicitation r
 
 ### Build CLI
 
-```
+```text
 hook-kit build <entrypoint> --out <path>
                             [--adapter shell|cc-tools]   (default: shell)
                             [--target <bun-target>]      (e.g. bun-linux-arm64; default: host)
@@ -471,7 +473,7 @@ Adapter modes:
 
 Each plugin compiles its own `hk` binary:
 
-```
+```text
 my-plugin/
 ├── src/hooks.ts       # createModule() + rules
 ├── dist/hk            # compiled wrapper binary
@@ -589,7 +591,7 @@ await runShell(modules);  // reads process.argv, evaluates, exits
 
 A tool plugin (e.g., `qsm-github`, `qsm-spec`) consumes hook-kit to ship one or two binaries that enforce all of that tool's rules. One binary per tool, not one per rule — startup cost amortizes across rules.
 
-```
+```text
 tools/qsm-github/
 ├── src/hooks.ts          # createModule() + rules
 ├── dist/hk               # shell wrapper (default)
@@ -666,7 +668,7 @@ Lives in `src/testing/` and exports via the `"./testing"` subpath in `package.js
 | Per-plugin binaries | One monolithic binary | Plugin isolation; independent release cycles. |
 | Variadic `cmd(command, ...sub)` | Named or array sub | Most natural TypeScript API; covers single-level and multi-level subcommands. |
 | Inline-shell recursion default-on | Opt-in | Without it every cmd() rule has a 1-line bypass via `bash -c "…"`. |
-| `pipe()` and `redirect()` as first-class builders | Express via `cmd()` | They can't be — different AST shapes (BinaryCmd, Stmt redirs). Necessary for canonical patterns (curl|bash, cmd > .env). |
+| `pipe()` and `redirect()` as first-class builders | Express via `cmd()` | They can't be — different AST shapes (BinaryCmd, Stmt redirs). Necessary for canonical patterns (curl\|bash, cmd > .env). |
 | tmpdir/cache JSON state | SQLite or memory-only | Simplest persistence that survives within a session. |
 | Fail open on infra errors | Fail closed | Hook framework bugs must not block users. Security-critical rules belong in the harness's own deny list. |
 | Wrapper output convention (stdout/stderr/exit-code) | JSON output | The caller already reads shell I/O. No new parser needed to consume a decision. |
