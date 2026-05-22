@@ -1,9 +1,11 @@
 // Escalation envelope — the JSON payload published from a hook to the askpass
-// channel and back. See docs/SPEC.md § Escalation.
+// channel and back. See docs/SPEC.md § Escalation and docs/ESCALATION.md for
+// the per-field contract.
 
 import { randomUUID } from "node:crypto";
 import { hostname } from "node:os";
 import { z } from "zod";
+import { ProtocolVersionError } from "../core/errors.js";
 
 const PROTOCOL_VERSION = 2 as const;
 
@@ -133,6 +135,17 @@ export function createAskRequest(opts: CreateAskOptions): AskRequest {
 
 export function parseAskRequest(raw: string): AskRequest {
   const json: unknown = JSON.parse(raw);
+  // Pre-validate the `version` field so a version-mismatch surfaces as
+  // ProtocolVersionError (specific) rather than EnvelopeValidationError (generic).
+  // Lets the broker and listeners route version skew separately from shape errors.
+  if (
+    json !== null &&
+    typeof json === "object" &&
+    "version" in json &&
+    json.version !== PROTOCOL_VERSION
+  ) {
+    throw new ProtocolVersionError("parseAskRequest", PROTOCOL_VERSION, json.version);
+  }
   return AskRequestSchema.parse(json);
 }
 

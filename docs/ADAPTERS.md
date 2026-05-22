@@ -177,12 +177,13 @@ hook-kit's [zero-silent-fails policy](./SPEC.md#operational-readiness) requires 
 
 ### Typed errors
 
-The 9 `HookKitError` subclasses live in [`src/core/errors.ts`](../src/core/errors.ts). Each carries a stable `code` field (`HookKitErrorCode`) that observers and adapter-side log shippers can route on without doing `instanceof` checks. An adapter generally does not construct these directly — the engine and its primitives raise them. An adapter encounters them when an `error` annotation arrives on `outcome.annotations`, and surfaces them via stderr or its observability channel.
+The 10 `HookKitError` subclasses live in [`src/core/errors.ts`](../src/core/errors.ts). Each carries a stable `code` field (`HookKitErrorCode`) that observers and adapter-side log shippers can route on without doing `instanceof` checks. An adapter generally does not construct these directly — the engine and its primitives raise them. An adapter encounters them when an `error` annotation arrives on `outcome.annotations`, and surfaces them via stderr or its observability channel.
 
 - `FileReadError` — filesystem read failed. Engine boundary, fail-open: rule contributes no decision, error annotation surfaces.
 - `FileWriteError` — filesystem write / remove failed. Includes state-store persistence failures; the in-process value is set, only persistence is lost.
 - `JsonParseError` — `JSON.parse` failed on a file hook-kit controls (state store, listener metadata, audit log).
 - `EnvelopeValidationError` — Zod schema validation failed on a broker / askpass IPC envelope. Security boundary, fail-CLOSED: synthesizes a deny alongside the error annotation.
+- `ProtocolVersionError` — broker / askpass envelope arrived with an unrecognized `version` literal (does not match `PROTOCOL_VERSION`). More specific than `EnvelopeValidationError` — lets observability layers route version skew separately from generic shape errors. Security boundary, fail-CLOSED.
 - `ShellAstParseError` — shell-ast parser / WASM runtime failure on a command input. Malformed user input is NOT wrapped — that stays silent (bash will reject it).
 - `ProcessSpawnError` — `Bun.spawn` or process-control failure (askpass invocation, git enrichment).
 - `RuleEvaluationError` — a rule's `evaluate()` threw something other than a `HookKitError`. The rule has a bug; the engine catches and surfaces.
