@@ -1,3 +1,5 @@
+// ProtocolAdapter implementation. Contract spec: docs/ADAPTERS.md.
+// Cross-reference + anti-patterns + error-handling boundaries live there.
 // Raw adapter — for library mode and tests
 // See docs/SPEC.md § Protocol Adapters
 //
