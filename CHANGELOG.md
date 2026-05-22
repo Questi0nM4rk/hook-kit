@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
+### M0.5 — Tooling hardening (completed 2026-05-22)
+
+Dev-tooling discipline ported from `ai-guardrails` Python-strict-ruff to the TS-stack equivalent. 8 batches shipped across 25+ commits. Hook-kit's dev stack now: max-strict tsc + biome 6-groups-at-error + typescript-eslint strict-type-checked + suppress-comment discipline (≥10-char content-bearing reasons) + semgrep + 84%/89% coverage floor + markdownlint CI + 4 pre-commit hooks + 4 CI gate scripts. CP-1 (no `warn` severity) enforced: zero `warn` entries across all static-check configs. The 525-test suite remains green throughout. Full per-batch retrospective + design decisions in [`docs/plans/v1.0.0-lessons.md`](docs/plans/v1.0.0-lessons.md) § Phase M0.5.
+
 ### Added
 
 - **v1.0 stability tagging.** Every public export now carries a `@stable @since 1.0.0` JSDoc tag at its declaration site; internal-only modules (`src/engine/helpers.ts`, `src/engine/trace.ts`, `src/escalation/{broker,listeners,watch-tui,enrich-git,forward}.ts`, `src/build/`, `src/core/annotations.ts`) carry a file-header `@internal` tag. Consumers can grep `node_modules/@questi0nm4rk/hook-kit/src/**/*.ts` for `@stable` to audit what's part of the v1.0 semver-promised surface. The full inventory + tier assignments live in `docs/specs/v1.0-exports.md`.
