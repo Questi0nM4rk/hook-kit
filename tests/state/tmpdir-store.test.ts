@@ -1,18 +1,24 @@
+// biome-ignore-all lint/suspicious/noConsole: these tests deliberately capture or silence console.warn to assert (or suppress) the M1.5 same-process warning emitted by TmpdirStore — capturing/patching console is the only way to verify a console-side-effect contract.
+
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FileWriteError } from "../../src/core/errors.js";
-import { TmpdirStore } from "../../src/state/tmpdir-store.js";
+import { __resetOpenPathsForTests, TmpdirStore } from "../../src/state/tmpdir-store.js";
 
 let workDir: string;
 
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "hook-kit-test-"));
+  // Clear the same-process open-paths tracker between tests so the
+  // warning-on-second-open path can be exercised independently.
+  __resetOpenPathsForTests();
 });
 
 afterEach(() => {
   rmSync(workDir, { recursive: true, force: true });
+  __resetOpenPathsForTests();
 });
 
 describe("TmpdirStore — basic operations", () => {
@@ -46,14 +52,27 @@ describe("TmpdirStore — basic operations", () => {
 
 describe("TmpdirStore — persistence", () => {
   test("flush + new instance round-trips state", () => {
-    const s1 = new TmpdirStore({ namespace: "ns", sessionId: "round-trip", root: workDir });
-    s1.set("a", 1);
-    s1.set("b", "two");
-    s1.flush();
+    // The round-trip test deliberately opens two instances at the same
+    // path to exercise the persistence path — second-instance opens after
+    // first has been flushed and is no longer in use. This is NOT a
+    // concurrent-stores violation; silence the same-process warning so
+    // the test output stays clean.
+    const originalWarn = console.warn;
+    console.warn = (): void => {
+      /* silenced for round-trip flow; warning IS the M1.5 expected behavior */
+    };
+    try {
+      const s1 = new TmpdirStore({ namespace: "ns", sessionId: "round-trip", root: workDir });
+      s1.set("a", 1);
+      s1.set("b", "two");
+      s1.flush();
 
-    const s2 = new TmpdirStore({ namespace: "ns", sessionId: "round-trip", root: workDir });
-    expect(s2.get("a")).toBe(1);
-    expect(s2.get("b")).toBe("two");
+      const s2 = new TmpdirStore({ namespace: "ns", sessionId: "round-trip", root: workDir });
+      expect(s2.get("a")).toBe(1);
+      expect(s2.get("b")).toBe("two");
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   test("namespace isolation — same sessionId, different namespace", () => {
@@ -115,5 +134,64 @@ describe("TmpdirStore — error surfacing (0.5 contract)", () => {
     expect(() => {
       s.flush();
     }).toThrow(FileWriteError);
+  });
+});
+
+describe("TmpdirStore — same-process concurrent-stores detection (M1.5 / TASK-049)", () => {
+  // Captures console.warn via patching; restores in finally. Records every
+  // call's first arg so the test can assert content + count.
+  function captureWarn<T>(fn: () => T): { warnings: string[]; result: T } {
+    const warnings: string[] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]): void => {
+      warnings.push(args.map((a) => String(a)).join(" "));
+    };
+    try {
+      const result = fn();
+      return { warnings, result };
+    } finally {
+      console.warn = original;
+    }
+  }
+
+  test("first instance on a path emits no warning", () => {
+    const { warnings } = captureWarn(
+      () => new TmpdirStore({ namespace: "warn-test", sessionId: "first", root: workDir }),
+    );
+    expect(warnings).toHaveLength(0);
+  });
+
+  test("second instance on the same path emits one warning", () => {
+    const { warnings } = captureWarn(() => {
+      const a = new TmpdirStore({ namespace: "warn-test", sessionId: "second", root: workDir });
+      const b = new TmpdirStore({ namespace: "warn-test", sessionId: "second", root: workDir });
+      return [a, b];
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("TmpdirStore");
+    expect(warnings[0]).toContain("multiple instances");
+    expect(warnings[0]).toContain("docs/STATE.md");
+    expect(warnings[0]).toContain("SqliteStateStore");
+  });
+
+  test("third + fourth instances on the same path do NOT re-emit (once-per-path-per-process)", () => {
+    const { warnings } = captureWarn(() => [
+      new TmpdirStore({ namespace: "warn-test", sessionId: "third", root: workDir }),
+      new TmpdirStore({ namespace: "warn-test", sessionId: "third", root: workDir }),
+      new TmpdirStore({ namespace: "warn-test", sessionId: "third", root: workDir }),
+      new TmpdirStore({ namespace: "warn-test", sessionId: "third", root: workDir }),
+    ]);
+    // Warning fires on the size-1-to-2 transition only; subsequent opens
+    // add to the Set but do not re-warn.
+    expect(warnings).toHaveLength(1);
+  });
+
+  test("different paths in the same process do not trigger the warning", () => {
+    const { warnings } = captureWarn(() => [
+      new TmpdirStore({ namespace: "warn-test", sessionId: "path-a", root: workDir }),
+      new TmpdirStore({ namespace: "warn-test", sessionId: "path-b", root: workDir }),
+      new TmpdirStore({ namespace: "warn-test", sessionId: "path-c", root: workDir }),
+    ]);
+    expect(warnings).toHaveLength(0);
   });
 });
