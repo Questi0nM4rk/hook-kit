@@ -271,7 +271,7 @@ Every internal failure path constructs a typed `HookKitError` subclass. The poli
 | Security boundary | Broker envelope (`parseAskRequest`), askpass response (`parseAskResponse`), askpass spawn | Fail-CLOSED: emit typed error to stderr **and** synthesize a `deny`. A malformed envelope from a trusted IPC channel is itself a security signal. |
 | Best-effort I/O | Audit log append, listener marker cleanup, git enrichment | Emit typed error to stderr, continue. The operation isn't load-bearing; visibility is the requirement. |
 
-The exception hierarchy (8 classes — `FileReadError`, `FileWriteError`, `JsonParseError`, `EnvelopeValidationError`, `ShellAstParseError`, `ProcessSpawnError`, `RuleEvaluationError`, `StateStoreError`) is exported from `@questi0nm4rk/hook-kit` for `instanceof` checks. Custom rules that wrap external I/O should throw a `HookKitError` subclass instead of swallowing — the engine catches HookKitErrors thrown from `rule.evaluate()` and emits them as the specific error class, not as `RuleEvaluationError`.
+The exception hierarchy (10 classes — `FileReadError`, `FileWriteError`, `JsonParseError`, `EnvelopeValidationError`, `ShellAstParseError`, `ProcessSpawnError`, `RuleEvaluationError`, `StateStoreError`, `ObserverError`, `ProtocolVersionError`) is exported from `@questi0nm4rk/hook-kit` for `instanceof` checks. Custom rules that wrap external I/O should throw a `HookKitError` subclass instead of swallowing — the engine catches HookKitErrors thrown from `rule.evaluate()` and emits them as the specific error class, not as `RuleEvaluationError`.
 
 **About the `---` separator:** chosen because it's the standard YAML
 frontmatter / markdown horizontal-rule marker, so AI consumers parsing

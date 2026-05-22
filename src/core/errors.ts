@@ -93,14 +93,9 @@ export class EnvelopeValidationError extends HookKitError {
   }
 }
 
-/** Protocol-version mismatch on a broker / askpass IPC envelope. A more specific
- *  classification of envelope failure than `EnvelopeValidationError`: the message
- *  parses as JSON and has the right field shape, but the `version` literal does
- *  not match `PROTOCOL_VERSION`. Surfaces from `parseAskRequest` so the broker
- *  and downstream listeners can route version-skew (old client / new broker, or
- *  the reverse) separately from generic schema failures. Triggers fail-CLOSED
- *  at security boundaries — caller synthesizes a deny alongside the error
- *  annotation.
+/** Protocol-version mismatch on a broker / askpass IPC envelope. More specific
+ *  than EnvelopeValidationError — the message parses but its `version` literal
+ *  doesn't match PROTOCOL_VERSION. Fail-CLOSED at security boundaries.
  *  @stable @since 1.0.0 */
 export class ProtocolVersionError extends HookKitError {
   readonly code = "ProtocolVersionError";
