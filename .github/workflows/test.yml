@@ -41,6 +41,14 @@ jobs:
         # Runs on every push/PR -- no base ref needed; --all scans the full
         # tree (CI has no staged set to drive the per-file lefthook variant).
         run: bun scripts/check-suppress-comments.ts --all
+      - name: Check cross-doc count claims
+        # CI-only (per L-S4-1, content checks live in CI not pre-commit).
+        # Audits HookKitError subclass count + package.json subpath export targets.
+        run: bun scripts/check-doc-counts.ts
+      - name: Check cross-doc table sync (Output convention)
+        # CI-only; asserts CLAUDE.md and docs/ADAPTERS.md Output-convention
+        # tables stay byte-identical (intentionally duplicated per TASK-024).
+        run: bun scripts/check-output-table.ts
 
   semgrep:
     name: Semgrep
