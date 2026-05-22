@@ -37,3 +37,7 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bun scripts/check-changelog.ts --base "origin/$BASE_REF"
+      - name: Check inline suppression-comment reasons
+        # Runs on every push/PR -- no base ref needed; --all scans the full
+        # tree (CI has no staged set to drive the per-file lefthook variant).
+        run: bun scripts/check-suppress-comments.ts --all
