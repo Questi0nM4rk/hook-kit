@@ -19,6 +19,7 @@ import {
 import type {
   Annotation,
   Decision,
+  DecisionObserver,
   EvalContext,
   EvaluationOutcome,
   HookEvent,
@@ -57,6 +58,13 @@ export interface EvaluateOptions {
    * docker, kubectl, make, tar, xargs).
    */
   readonly shellAstOpts?: ResolveFlagsOptions;
+  /** Programmatic decision sinks. The engine fires `observer.onDecision(...)`
+   *  per terminal decision AND per annotation, in array order. Observers
+   *  are sync — for async sinks, enqueue and flush out-of-band. Throws are
+   *  caught and surfaced as `error` annotations; the decision proceeds.
+   *  Undefined / empty short-circuits all observer-construction work so the
+   *  default path stays zero-overhead. See docs/SPEC.md § Observability. */
+  readonly observers?: readonly DecisionObserver[];
 }
 
 /** Internal evaluator state — never reachable from the public `evaluate()`
@@ -143,6 +151,7 @@ export async function runModule(opts: RunModuleOptions): Promise<EvaluationOutco
       ? {}
       : { recurseInlineShells: opts.recurseInlineShells }),
     ...(opts.shellAstOpts === undefined ? {} : { shellAstOpts: opts.shellAstOpts }),
+    ...(opts.observers === undefined ? {} : { observers: opts.observers }),
   };
   return evaluate(event, modules, evalOpts);
 }

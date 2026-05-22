@@ -28,7 +28,8 @@ export type HookKitErrorCode =
   | "ShellAstParseError"
   | "ProcessSpawnError"
   | "RuleEvaluationError"
-  | "StateStoreError";
+  | "StateStoreError"
+  | "ObserverError";
 
 /** @stable @since 1.0.0 */
 export abstract class HookKitError extends Error {
@@ -145,6 +146,22 @@ export class StateStoreError extends HookKitError {
     super(
       `state store ${operation} failed${where} (${describeCause(cause)})`,
       { operation, key },
+      cause,
+    );
+  }
+}
+
+/** A `DecisionObserver.onDecision` callback threw. Observer failures are
+ *  fail-open at the observer boundary — the engine catches, surfaces this as
+ *  an `error` annotation, and proceeds with the decision (and subsequent
+ *  observers in the same array).
+ *  @stable @since 1.0.0 */
+export class ObserverError extends HookKitError {
+  readonly code = "ObserverError";
+  constructor(observerIndex: number, cause: unknown) {
+    super(
+      `observer at index ${String(observerIndex)} threw during onDecision (${describeCause(cause)})`,
+      { observerIndex },
       cause,
     );
   }
