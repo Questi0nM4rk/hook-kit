@@ -26,6 +26,7 @@ export {
   FileWriteError,
   HookKitError,
   JsonParseError,
+  ObserverError,
   ProcessSpawnError,
   RuleEvaluationError,
   ShellAstParseError,
@@ -39,6 +40,8 @@ export { createModule } from "./core/module.js";
 export type {
   Annotation,
   Decision,
+  DecisionEventRecord,
+  DecisionObserver,
   EvalContext,
   EvaluationOutcome,
   HookEvent,

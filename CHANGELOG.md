@@ -6,6 +6,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 
 ## [Unreleased]
 
+### M1.1 — DecisionObserver API (in flight)
+
+- **`DecisionObserver` + `DecisionEventRecord` types and `EvaluateOptions.observers` field.** New programmatic hook on every decision the engine produces (terminal `deny` / `ask` + annotation `warning` / `note` / `error`) so consumers can sink to syslog / OTLP / file / custom transport without parsing wrapper stdout. `DecisionEventRecord` carries `timestamp`, `ruleId` (`module.id:rule.kind:index`), `ruleKind`, `decision`, `reason`, optional `label`, an `event` sub-shape (`eventName`, `toolName`, `cwd`, `sessionId`, `toolInputHash`), and `timingMs`. `toolInput` itself is NOT logged — only its sha256 hex hash — so observers don't leak secrets to log infrastructure by default. New `ObserverError` typed error subclass + corresponding `HookKitErrorCode` entry to preserve the zero-silent-fails contract at the observer boundary (engine catches observer throws and surfaces as `error` annotations). All four symbols re-exported from `src/index.ts` and `@stable @since 1.0.0`. Implementation lands across TASK-012..022.
+
 ### M0.5 — Tooling hardening (completed 2026-05-22)
 
 Dev-tooling discipline ported from `ai-guardrails` Python-strict-ruff to the TS-stack equivalent. 8 batches shipped across 25+ commits. Hook-kit's dev stack now: max-strict tsc + biome 6-groups-at-error + typescript-eslint strict-type-checked + suppress-comment discipline (≥10-char content-bearing reasons) + semgrep + 84%/89% coverage floor + markdownlint CI + 4 pre-commit hooks + 4 CI gate scripts. CP-1 (no `warn` severity) enforced: zero `warn` entries across all static-check configs. The 525-test suite remains green throughout. Full per-batch retrospective + design decisions in [`docs/plans/v1.0.0-lessons.md`](docs/plans/v1.0.0-lessons.md) § Phase M0.5.

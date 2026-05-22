@@ -142,3 +142,58 @@ export interface StateStore {
   delete(key: string): void;
   flush(): void | Promise<void>;
 }
+
+// === Observability ===
+//
+// DecisionObserver gives consumers a programmatic hook on every decision the
+// engine produces (terminal + annotation) so they can sink to syslog / OTLP /
+// HEC / file / custom transport without parsing wrapper stdout. The contract
+// is documented at length in docs/SPEC.md § Observability.
+
+/** A single decision the engine emitted, surfaced to every registered
+ *  DecisionObserver. `toolInput` itself is NOT logged — only its sha256 hash —
+ *  so observers don't leak secrets to log infrastructure by default.
+ *  @stable @since 1.0.0 */
+export interface DecisionEventRecord {
+  /** `Date.now()` at emission time. */
+  readonly timestamp: number;
+  /** Stable id: `<module.id>:<rule.kind>:<rule-index-in-module>`. */
+  readonly ruleId: string;
+  /** Mirror of `rule.kind` for log routing without parsing `ruleId`. */
+  readonly ruleKind: string;
+  /** The decision verb. `error` is engine-produced (rule throw / observer
+   *  throw / shell-ast / state); `warning` / `note` are rule-emitted
+   *  annotations; `deny` / `ask` are rule-emitted terminals. */
+  readonly decision: "deny" | "ask" | "warning" | "note" | "error";
+  /** `decision.reason` for terminals; `annotation.message` for annotations. */
+  readonly reason: string;
+  /** `decision.label` or `annotation.label` if the rule set one. */
+  readonly label?: string;
+  /** Event metadata: enough to correlate the decision with the harness call,
+   *  without including the raw `toolInput` (hashed instead). */
+  readonly event: {
+    readonly eventName: string;
+    readonly toolName: string;
+    readonly cwd: string;
+    readonly sessionId: string;
+    /** sha256 hex of `JSON.stringify(event.toolInput)`. 64 chars. Consumers
+     *  needing the raw input must capture it via their own pre-evaluate path. */
+    readonly toolInputHash: string;
+  };
+  /** Wall-clock ms spent in the rule's `evaluate()` call that produced this
+   *  decision. `0` for engine-emitted `error` annotations from pre-loop
+   *  validation (no rule ran). */
+  readonly timingMs: number;
+}
+
+/** Programmatic hook invoked per terminal decision and per annotation. The
+ *  contract: synchronous (engine awaits no Promise from this callback);
+ *  invoked in the order observers appear in `EvaluateOptions.observers`;
+ *  observer throws are caught and surfaced as an `error` annotation on the
+ *  outcome — the decision still proceeds and subsequent observers in the
+ *  same array still fire. For async sinks, observers should enqueue and
+ *  flush out-of-band. See docs/SPEC.md § Observability for the full contract.
+ *  @stable @since 1.0.0 */
+export interface DecisionObserver {
+  onDecision(record: DecisionEventRecord): void;
+}
