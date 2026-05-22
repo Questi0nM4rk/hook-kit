@@ -13,14 +13,15 @@
  * enforcement starts working again, this script becomes a belt-and-
  * suspenders check and can be deleted in favor of bunfig alone.
  *
- * Floors codify status quo (2026-05-22): 84% functions / 89% lines.
- * Raising past 85% is its own follow-up batch — current shortfall
- * concentrated in src/wrapper/hk.ts (compiled-binary entrypoint) and
- * src/core/event.ts (factories tested through consumers, not directly).
+ * Floors codify M1-polish status quo (2026-05-22): 85% functions /
+ * 89% lines. M1.5 close measured 86.80/90.09; the M1-polish batch raised
+ * the functions floor 84→85 to lock in M1's gain while leaving headroom
+ * for src/wrapper/hk.ts (compiled-binary entrypoint) and src/core/event.ts
+ * (factories tested through consumers, not directly).
  */
 
-const FN_FLOOR = 0.84; // 84% functions — current measured 84.65
-const LN_FLOOR = 0.89; // 89% lines     — current measured 89.29
+const FN_FLOOR = 0.85; // 85% functions — M1.5 close measured 86.80 (raised 84→85 in M1-polish)
+const LN_FLOOR = 0.89; // 89% lines     — M1.5 close measured 90.09 (held at 89 for headroom)
 const PERCENT = 100; // bun text reporter prints percentages; convert ↔ fraction.
 const SCRIPT = "check-coverage";
 
