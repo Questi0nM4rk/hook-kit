@@ -92,7 +92,7 @@ export async function forwardUp(
       const timeoutResponse = createAskResponse({
         id: requestId,
         decision: "deny",
-        reason: `[hook-kit forward] no parent decision in ${Math.round(opts.timeoutMs / MS_PER_SECOND)}s`,
+        reason: `[hook-kit forward] no parent decision in ${String(Math.round(opts.timeoutMs / MS_PER_SECOND))}s`,
         ...(opts.by === undefined ? {} : { by: opts.by }),
       });
       const sourceDecided = join(sourcePaths.decidedDir, `${requestId}.json`);

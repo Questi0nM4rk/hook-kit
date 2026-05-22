@@ -92,7 +92,7 @@ function parseArgs(argv: readonly string[]): ParsedArgs {
   }
   return {
     mode: "error",
-    errorMessage: `hk: unrecognized argument '${first}'. Use \`hk --help\`.\n`,
+    errorMessage: `hk: unrecognized argument '${String(first)}'. Use \`hk --help\`.\n`,
   };
 }
 

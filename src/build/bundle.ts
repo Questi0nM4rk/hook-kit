@@ -197,7 +197,7 @@ export async function runBuild(opts: BundleOptions): Promise<BuildResult> {
     ]);
 
     if (exitCode !== 0) {
-      throw new BuildError(`bun build exited with code ${exitCode}`, { stdout, stderr });
+      throw new BuildError(`bun build exited with code ${String(exitCode)}`, { stdout, stderr });
     }
     return { binPath: absOut, stdout, stderr };
   } finally {

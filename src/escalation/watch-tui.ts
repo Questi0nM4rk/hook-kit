@@ -90,14 +90,14 @@ const ASCII_CTRL_THRESHOLD = 0x20;
 function fmtAge(ms: number): string {
   const s = Math.floor(ms / MS_PER_SECOND);
   if (s < SECONDS_PER_MINUTE) {
-    return `${s}s`;
+    return `${String(s)}s`;
   }
   const m = Math.floor(s / SECONDS_PER_MINUTE);
   if (m < MINUTES_PER_HOUR) {
-    return `${m}m`;
+    return `${String(m)}m`;
   }
   const h = Math.floor(m / MINUTES_PER_HOUR);
-  return `${h}h`;
+  return `${String(h)}h`;
 }
 
 function truncate(s: string, max: number): string {
@@ -191,7 +191,7 @@ function renderDetail(req: AskRequest, w: number, now: number): string[] {
     ["project", req.cwd === "" ? undefined : req.cwd],
     ["git", req.git === undefined ? undefined : fmtGit(req.git)],
     ["transcript", req.transcriptPath === "" ? undefined : req.transcriptPath],
-    ["origin", `pid ${req.pid} @ ${req.host} (${req.user})`],
+    ["origin", `pid ${String(req.pid)} @ ${req.host} (${req.user})`],
     ["expires", fmtExpires(req.expiresAt, now)],
     ["label", req.label],
     ["reason", req.reason === "" ? undefined : req.reason],
@@ -248,7 +248,7 @@ export function renderTui(state: TuiState, terminalWidth: number, now: number): 
 
   // ─ Header
   const title = `${fg.bold}hook-kit watch${fg.reset}`;
-  const counts = `${state.rows.length} pending  ·  ${state.listenerCount} listener${state.listenerCount === 1 ? "" : "s"} attached`;
+  const counts = `${String(state.rows.length)} pending  ·  ${String(state.listenerCount)} listener${state.listenerCount === 1 ? "" : "s"} attached`;
   lines.push(
     `${title}${" ".repeat(Math.max(1, w - "hook-kit watch".length - counts.length))}${fg.dim}${counts}${fg.reset}`,
   );
@@ -412,7 +412,7 @@ function commit(state: MutableState, action: DecideAction, reason: string): void
     action,
     reason === "" ? undefined : reason,
     {
-      by: `tui:pid${process.pid}`,
+      by: `tui:pid${String(process.pid)}`,
     },
   );
   state.statusMessage = ok

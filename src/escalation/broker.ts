@@ -254,7 +254,7 @@ export async function brokerAskpass(
   const reason =
     timeoutMs === undefined
       ? `[hook-kit broker] decision file was malformed; original: ${request.reason}`
-      : `[hook-kit broker] no decision in ${Math.round(timeoutMs / MS_PER_SECOND)}s. Original: ${request.reason}`;
+      : `[hook-kit broker] no decision in ${String(Math.round(timeoutMs / MS_PER_SECOND))}s. Original: ${request.reason}`;
   const autoDeny = createAskResponse({
     id: request.id,
     decision: "deny",

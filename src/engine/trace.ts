@@ -16,12 +16,12 @@ export function traceLine(
   modulesConsidered: number,
   durationMs: number,
 ): string {
-  const head = `[hook-kit] event=${event.eventName} tool=${event.toolName} session=${event.sessionId} modules=${modulesConsidered}`;
+  const head = `[hook-kit] event=${event.eventName} tool=${event.toolName} session=${event.sessionId} modules=${String(modulesConsidered)}`;
   const { terminal, annotations } = outcome;
 
   // No terminal, no annotations → null outcome (silent pass-through).
   if (terminal === null && annotations.length === 0) {
-    return `${head} → null time=${durationMs}ms\n`;
+    return `${head} → null time=${String(durationMs)}ms\n`;
   }
 
   // Render the terminal (if any) with its label + reason.
@@ -36,10 +36,10 @@ export function traceLine(
   }
 
   if (annotations.length > 0) {
-    body += ` annotations=${annotations.length}`;
+    body += ` annotations=${String(annotations.length)}`;
   }
 
-  return `${head} → ${body} time=${durationMs}ms\n`;
+  return `${head} → ${body} time=${String(durationMs)}ms\n`;
 }
 
 /** Emit a verbose trace to stderr if HOOK_KIT_VERBOSE is set. No-op otherwise. */
