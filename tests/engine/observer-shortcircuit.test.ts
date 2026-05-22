@@ -13,28 +13,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { type ask, deny, note, warning } from "../../src/core/decision.js";
-import type {
-  DecisionEventRecord,
-  DecisionObserver,
-  HookEvent,
-  HookModule,
-  Rule,
-} from "../../src/core/types.js";
+import type { Rule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
+import { mockObserver } from "../../src/testing/mock-observer.js";
+import { bashEvent, moduleWith } from "../_helpers.js";
 
-const event: HookEvent = {
-  eventName: "PreToolUse",
-  sessionId: "s1",
-  cwd: "/tmp",
-  transcriptPath: "/tmp/t.jsonl",
-  toolName: "Bash",
-  toolInput: { command: "echo hi" },
-  raw: {},
-};
-
-function moduleWith(rules: Rule[]): HookModule {
-  return { id: "m", name: "test", events: ["PreToolUse"], rules };
-}
+const event = bashEvent("echo hi");
 
 function ruleOf(kind: string, decision: ReturnType<typeof deny | typeof ask>): Rule {
   return { kind, evaluate: () => decision };
@@ -46,32 +30,29 @@ describe("observer — short-circuit when no observers registered", () => {
 
     const baseline = await evaluate(event, [mod]);
     const withEmpty = await evaluate(event, [mod], { observers: [] });
-    const records: DecisionEventRecord[] = [];
-    const observer: DecisionObserver = { onDecision: (r) => records.push(r) };
-    const withObs = await evaluate(event, [mod], { observers: [observer] });
+    const obs = mockObserver();
+    const withObs = await evaluate(event, [mod], { observers: [obs] });
 
     // Byte-identical outcome regardless of observer state.
     expect(baseline).toEqual(withEmpty);
     expect(baseline).toEqual(withObs);
 
     // Observer fired only in the last call.
-    expect(records).toHaveLength(1);
-    expect(records[0]?.decision).toBe("deny");
+    expect(obs.records).toHaveLength(1);
+    expect(obs.records[0]?.decision).toBe("deny");
   });
 
   test("observers: undefined → no records (observer never called)", async () => {
-    const records: DecisionEventRecord[] = [];
-    const observer: DecisionObserver = { onDecision: (r) => records.push(r) };
+    const obs = mockObserver();
     const mod = moduleWith([ruleOf("dr", deny("blocked"))]);
 
-    // Call without observers — must NOT trigger the observer that's defined
-    // in the closure but not passed in.
+    // Call without observers — observer defined but not passed in.
     await evaluate(event, [mod]);
-    expect(records).toEqual([]);
+    expect(obs.records).toEqual([]);
 
     // Sanity: same observer fires when passed.
-    await evaluate(event, [mod], { observers: [observer] });
-    expect(records).toHaveLength(1);
+    await evaluate(event, [mod], { observers: [obs] });
+    expect(obs.records).toHaveLength(1);
   });
 
   test("observers: [] (empty array) → no observer can fire", async () => {
@@ -93,9 +74,7 @@ describe("observer — short-circuit when no observers registered", () => {
     ]);
 
     const baseline = await evaluate(event, [mod]);
-    const withObs = await evaluate(event, [mod], {
-      observers: [{ onDecision: () => undefined }],
-    });
+    const withObs = await evaluate(event, [mod], { observers: [mockObserver()] });
     expect(baseline).toEqual(withObs);
     expect(baseline.annotations).toHaveLength(2);
   });

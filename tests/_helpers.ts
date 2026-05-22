@@ -2,7 +2,7 @@
 // test discovery (which only picks up `*.test.ts` / `*_test.ts`) skips it.
 // Replaces three identical copies that were drifting across test files.
 
-import type { HookEvent } from "../src/core/types.js";
+import type { HookEvent, HookModule, Rule } from "../src/core/types.js";
 
 /** Build a synthetic PreToolUse Bash event for engine/rule tests. */
 export function bashEvent(command: string): HookEvent {
@@ -15,6 +15,13 @@ export function bashEvent(command: string): HookEvent {
     toolInput: { command },
     raw: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
   };
+}
+
+/** Build a minimal HookModule for engine tests. Defaults: PreToolUse only,
+ *  no matchers, enabled. Override `id` to disambiguate ruleId assertions
+ *  (`<id>:<rule.kind>:<index>` is the observer's ruleId format). */
+export function moduleWith(rules: Rule[], id = "m"): HookModule {
+  return { id, name: id, events: ["PreToolUse"], rules };
 }
 
 /** Capture writes to process.stderr until `restore()` is called. */

@@ -14,37 +14,12 @@
 
 import { describe, expect, test } from "bun:test";
 import { ask, deny } from "../../src/core/decision.js";
-import type {
-  Decision,
-  DecisionEventRecord,
-  DecisionObserver,
-  HookEvent,
-  HookModule,
-  Rule,
-} from "../../src/core/types.js";
+import type { Decision, DecisionObserver, Rule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
+import { mockObserver } from "../../src/testing/mock-observer.js";
+import { bashEvent, moduleWith } from "../_helpers.js";
 
-const event: HookEvent = {
-  eventName: "PreToolUse",
-  sessionId: "s1",
-  cwd: "/tmp",
-  transcriptPath: "/tmp/t.jsonl",
-  toolName: "Bash",
-  toolInput: { command: "echo hi" },
-  raw: {},
-};
-
-function captureObserver(): { observer: DecisionObserver; records: DecisionEventRecord[] } {
-  const records: DecisionEventRecord[] = [];
-  return {
-    observer: { onDecision: (r) => records.push(r) },
-    records,
-  };
-}
-
-function moduleWith(id: string, rules: Rule[]): HookModule {
-  return { id, name: id, events: ["PreToolUse"], rules };
-}
+const event = bashEvent("echo hi");
 
 function rule(kind: string, value: Decision | (() => Decision | Promise<Decision>)): Rule {
   return {
@@ -57,12 +32,12 @@ const HEX64 = /^[0-9a-f]{64}$/;
 
 describe("observer — terminal decisions", () => {
   test("fires once per deny with full record shape", async () => {
-    const { observer, records } = captureObserver();
-    const mod = moduleWith("m1", [rule("dr", deny("blocked", "test-label"))]);
-    await evaluate(event, [mod], { observers: [observer] });
+    const obs = mockObserver();
+    const mod = moduleWith([rule("dr", deny("blocked", "test-label"))], "m1");
+    await evaluate(event, [mod], { observers: [obs] });
 
-    expect(records).toHaveLength(1);
-    const r = records[0];
+    expect(obs.records).toHaveLength(1);
+    const r = obs.records[0];
     if (r === undefined) {
       throw new Error("expected at least one record");
     }
@@ -81,12 +56,12 @@ describe("observer — terminal decisions", () => {
   });
 
   test("fires once per ask with full record shape", async () => {
-    const { observer, records } = captureObserver();
-    const mod = moduleWith("m2", [rule("ar", ask("needs review"))]);
-    await evaluate(event, [mod], { observers: [observer] });
+    const obs = mockObserver();
+    const mod = moduleWith([rule("ar", ask("needs review"))], "m2");
+    await evaluate(event, [mod], { observers: [obs] });
 
-    expect(records).toHaveLength(1);
-    const r = records[0];
+    expect(obs.records).toHaveLength(1);
+    const r = obs.records[0];
     if (r === undefined) {
       throw new Error("expected at least one record");
     }
@@ -99,56 +74,58 @@ describe("observer — terminal decisions", () => {
   test("fires per rule-produced terminal even when merge policy drops it", async () => {
     // First ask wins terminal; second ask is dropped from outcome.terminal.
     // Observer should still fire for both — observability is per-decision.
-    const { observer, records } = captureObserver();
-    const mod = moduleWith("m3", [
-      rule("first", ask("first ask")),
-      rule("second", ask("second ask")),
-    ]);
-    const outcome = await evaluate(event, [mod], { observers: [observer] });
+    const obs = mockObserver();
+    const mod = moduleWith(
+      [rule("first", ask("first ask")), rule("second", ask("second ask"))],
+      "m3",
+    );
+    const outcome = await evaluate(event, [mod], { observers: [obs] });
 
     expect(outcome.terminal?.kind).toBe("ask");
     expect(outcome.terminal && "reason" in outcome.terminal ? outcome.terminal.reason : "").toBe(
       "first ask",
     );
-    expect(records).toHaveLength(2);
-    expect(records[0]?.reason).toBe("first ask");
-    expect(records[0]?.ruleId).toBe("m3:first:0");
-    expect(records[1]?.reason).toBe("second ask");
-    expect(records[1]?.ruleId).toBe("m3:second:1");
+    expect(obs.records).toHaveLength(2);
+    expect(obs.records[0]?.reason).toBe("first ask");
+    expect(obs.records[0]?.ruleId).toBe("m3:first:0");
+    expect(obs.records[1]?.reason).toBe("second ask");
+    expect(obs.records[1]?.ruleId).toBe("m3:second:1");
   });
 
   test("deny short-circuits — subsequent rules don't fire observers", async () => {
     let secondCalled = false;
-    const { observer, records } = captureObserver();
-    const mod = moduleWith("m4", [
-      rule("blocker", deny("first")),
-      rule("after", () => {
-        secondCalled = true;
-        return null;
-      }),
-    ]);
-    await evaluate(event, [mod], { observers: [observer] });
+    const obs = mockObserver();
+    const mod = moduleWith(
+      [
+        rule("blocker", deny("first")),
+        rule("after", () => {
+          secondCalled = true;
+          return null;
+        }),
+      ],
+      "m4",
+    );
+    await evaluate(event, [mod], { observers: [obs] });
 
     expect(secondCalled).toBe(false);
-    expect(records).toHaveLength(1);
-    expect(records[0]?.decision).toBe("deny");
+    expect(obs.records).toHaveLength(1);
+    expect(obs.records[0]?.decision).toBe("deny");
   });
 
   test("ruleId index reflects position in mod.rules array", async () => {
-    const { observer, records } = captureObserver();
-    const mod = moduleWith("m5", [
-      rule("first", null),
-      rule("second", null),
-      rule("third", ask("third")),
-    ]);
-    await evaluate(event, [mod], { observers: [observer] });
+    const obs = mockObserver();
+    const mod = moduleWith(
+      [rule("first", null), rule("second", null), rule("third", ask("third"))],
+      "m5",
+    );
+    await evaluate(event, [mod], { observers: [obs] });
 
-    expect(records).toHaveLength(1);
-    expect(records[0]?.ruleId).toBe("m5:third:2");
+    expect(obs.records).toHaveLength(1);
+    expect(obs.records[0]?.ruleId).toBe("m5:third:2");
   });
 
   test("timingMs >= 8 for a rule that awaits a setTimeout(., 10)", async () => {
-    const { observer, records } = captureObserver();
+    const obs = mockObserver();
     const slowRule: Rule = {
       kind: "slow",
       evaluate: async () => {
@@ -156,39 +133,33 @@ describe("observer — terminal decisions", () => {
         return deny("slow-deny");
       },
     };
-    const mod = moduleWith("m6", [slowRule]);
-    await evaluate(event, [mod], { observers: [observer] });
+    const mod = moduleWith([slowRule], "m6");
+    await evaluate(event, [mod], { observers: [obs] });
 
-    expect(records).toHaveLength(1);
+    expect(obs.records).toHaveLength(1);
     // Allow 2ms slack for scheduler jitter; brief says >= 8.
-    expect(records[0]?.timingMs).toBeGreaterThanOrEqual(8);
+    expect(obs.records[0]?.timingMs).toBeGreaterThanOrEqual(8);
   });
 
   test("observers array fires in order", async () => {
     const calls: string[] = [];
-    const o1: DecisionObserver = {
-      onDecision: () => calls.push("o1"),
-    };
-    const o2: DecisionObserver = {
-      onDecision: () => calls.push("o2"),
-    };
-    const o3: DecisionObserver = {
-      onDecision: () => calls.push("o3"),
-    };
-    const mod = moduleWith("m7", [rule("dr", deny("blocked"))]);
+    const o1: DecisionObserver = { onDecision: () => calls.push("o1") };
+    const o2: DecisionObserver = { onDecision: () => calls.push("o2") };
+    const o3: DecisionObserver = { onDecision: () => calls.push("o3") };
+    const mod = moduleWith([rule("dr", deny("blocked"))], "m7");
     await evaluate(event, [mod], { observers: [o1, o2, o3] });
 
     expect(calls).toEqual(["o1", "o2", "o3"]);
   });
 
   test("no observers registered → no records (sanity)", async () => {
-    const { observer, records } = captureObserver();
-    const mod = moduleWith("m8", [rule("dr", deny("blocked"))]);
+    const obs = mockObserver();
+    const mod = moduleWith([rule("dr", deny("blocked"))], "m8");
     // First run without observers
     await evaluate(event, [mod]);
-    expect(records).toEqual([]);
+    expect(obs.records).toEqual([]);
     // Then with observers — confirms observers wiring exists
-    await evaluate(event, [mod], { observers: [observer] });
-    expect(records).toHaveLength(1);
+    await evaluate(event, [mod], { observers: [obs] });
+    expect(obs.records).toHaveLength(1);
   });
 });

@@ -10,34 +10,21 @@
 
 import { describe, expect, test } from "bun:test";
 import { ask, deny } from "../../src/core/decision.js";
-import type { DecisionObserver, HookEvent, HookModule, Rule } from "../../src/core/types.js";
+import type { Rule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
+import { mockObserver } from "../../src/testing/mock-observer.js";
+import { bashEvent, moduleWith } from "../_helpers.js";
 
-const event: HookEvent = {
-  eventName: "PreToolUse",
-  sessionId: "s1",
-  cwd: "/tmp",
-  transcriptPath: "/tmp/t.jsonl",
-  toolName: "Bash",
-  toolInput: { command: "echo hi" },
-  raw: {},
-};
+const event = bashEvent("echo hi");
 
 function ruleWith(kind: string, value: ReturnType<typeof deny> | ReturnType<typeof ask>): Rule {
   return { kind, evaluate: () => value };
 }
 
-function moduleWith(rules: Rule[]): HookModule {
-  return { id: "m", name: "test", events: ["PreToolUse"], rules };
-}
-
 describe("observer — throw safety", () => {
   test("throw is caught, error annotation appended, terminal still emitted", async () => {
-    const throwing: DecisionObserver = {
-      onDecision: () => {
-        throw new Error("observer-boom");
-      },
-    };
+    // throwOn always-true → every record triggers the throw path.
+    const throwing = mockObserver({ throwOn: () => true });
     const outcome = await evaluate(event, [moduleWith([ruleWith("dr", deny("blocked"))])], {
       observers: [throwing],
     });
@@ -57,44 +44,31 @@ describe("observer — throw safety", () => {
     }
     expect(err.errorCode).toBe("ObserverError");
     expect(err.message).toContain("observer at index 0");
-    expect(err.message).toContain("observer-boom");
+    expect(err.message).toContain("mock-observer: throwOn fired");
+
+    // The throwing observer still captured the record (push happens before throw).
+    expect(throwing.records).toHaveLength(1);
   });
 
   test("subsequent observers in the same array still fire", async () => {
-    let secondFired = false;
-    let thirdFired = false;
-    const throwing: DecisionObserver = {
-      onDecision: () => {
-        throw new Error("o1-boom");
-      },
-    };
-    const second: DecisionObserver = {
-      onDecision: () => {
-        secondFired = true;
-      },
-    };
-    const third: DecisionObserver = {
-      onDecision: () => {
-        thirdFired = true;
-      },
-    };
+    const throwing = mockObserver({ throwOn: () => true });
+    const second = mockObserver();
+    const third = mockObserver();
     await evaluate(event, [moduleWith([ruleWith("dr", deny("blocked"))])], {
       observers: [throwing, second, third],
     });
 
-    expect(secondFired).toBe(true);
-    expect(thirdFired).toBe(true);
+    expect(second.records).toHaveLength(1);
+    expect(third.records).toHaveLength(1);
   });
 
   test("multiple throws in same array → one error annotation per throwing observer", async () => {
-    const throwAtIndex = (idx: string): DecisionObserver => ({
-      onDecision: () => {
-        throw new Error(`boom-${idx}`);
-      },
-    });
+    const o0 = mockObserver({ throwOn: () => true });
+    const o1 = mockObserver({ throwOn: () => true });
+    const o2 = mockObserver({ throwOn: () => true });
 
     const outcome = await evaluate(event, [moduleWith([ruleWith("dr", deny("blocked"))])], {
-      observers: [throwAtIndex("0"), throwAtIndex("1"), throwAtIndex("2")],
+      observers: [o0, o1, o2],
     });
 
     const errors = outcome.annotations.filter((a) => a.kind === "error");
@@ -105,11 +79,7 @@ describe("observer — throw safety", () => {
   });
 
   test("throwing observer doesn't affect ask terminal accumulation", async () => {
-    const throwing: DecisionObserver = {
-      onDecision: () => {
-        throw new Error("boom");
-      },
-    };
+    const throwing = mockObserver({ throwOn: () => true });
     const outcome = await evaluate(
       event,
       [moduleWith([ruleWith("first", ask("first")), ruleWith("second", ask("second"))])],

@@ -16,5 +16,7 @@ export {
   type MockAskpassResponse,
   mockAskpass,
 } from "./mock-askpass.js";
+// Mock decision observer
+export { type MockObserver, type MockObserverOpts, mockObserver } from "./mock-observer.js";
 // Mock state store
 export { type MockStateOpts, mockState } from "./mock-state.js";
