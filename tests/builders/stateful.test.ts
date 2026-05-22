@@ -45,7 +45,7 @@ function repetitionModule(threshold: number): HookModule {
         const count = ((state.get(key) as number) ?? 0) + 1;
         state.set(key, count);
         if (count > threshold) {
-          return warning(`repeated ${count} times — break the loop`);
+          return warning(`repeated ${String(count)} times — break the loop`);
         }
         return null;
       }),

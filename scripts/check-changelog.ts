@@ -59,7 +59,7 @@ Exits 2 on argument or git plumbing errors.
 `);
       process.exit(0);
     } else {
-      process.stderr.write(`check-changelog: unrecognized arg '${a}'\n`);
+      process.stderr.write(`check-changelog: unrecognized arg '${String(a)}'\n`);
       process.exit(2);
     }
   }
