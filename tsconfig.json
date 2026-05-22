@@ -14,8 +14,9 @@
     "skipLibCheck": true,
     "declaration": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@questi0nm4rk/hook-kit": ["./src/index.ts"]
     }
   },
-  "include": ["src", "tests", "tests-isolated", "scripts"]
+  "include": ["src", "tests", "tests-isolated", "scripts", "examples/adapter-template"]
 }

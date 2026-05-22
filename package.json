@@ -80,7 +80,7 @@
     "lint:biome": "biome check src/ tests/ tests-isolated/ scripts/",
     "lint:eslint": "bunx --bun eslint src/ tests/ tests-isolated/ scripts/ --max-warnings=0",
     "lint:fix": "biome check --write src/ tests/ tests-isolated/ scripts/ && bunx --bun eslint src/ tests/ tests-isolated/ scripts/ --fix",
-    "test": "bun scripts/check-coverage.ts && bun test tests-isolated/",
+    "test": "bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/adapter-template/tests/",
     "test:unit": "bun test tests/",
     "test:isolated": "bun test tests-isolated/",
     "build:types": "tsc -p tsconfig.build.json",
