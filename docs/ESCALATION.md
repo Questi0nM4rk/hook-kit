@@ -346,7 +346,7 @@ The actual write is `submitDecision` (which calls `createAskResponse` + atomic `
 
 - [`src/escalation/watch-tui.ts`](../src/escalation/watch-tui.ts) — interactive terminal listener with `↑↓` navigation, `a`/`d`/`e`/`q` keystrokes, detail pane. Use this when the listener IS a human at a TTY.
 - [`src/escalation/forward.ts`](../src/escalation/forward.ts) — the synchronous escalate-up forwarder. NOT a standalone listener (it's a hop primitive other listeners call); shown here as the canonical "one-hop, copy decision back down" implementation.
-- [`examples/escalation-listener-stdout/`](../examples/escalation-listener-stdout/) — the worked example. ~40-line stdout-prompt listener that downstream consumers fork for Slack / IDE / webhook integrations.
+- [`examples/escalation-listener-stdout/`](../examples/escalation-listener-stdout/) — the worked example. ~60-line stdout-prompt listener that downstream consumers fork for Slack / IDE / webhook integrations.
 
 ## Tree semantics
 
@@ -427,5 +427,5 @@ The bundled `hook-kit broker` is the default askpass implementation but not the 
 - [`docs/SPEC.md`](./SPEC.md) § Escalation — architectural overview, tree model, askpass contract, MCP elicitation compatibility.
 - [`docs/ADAPTERS.md`](./ADAPTERS.md) — `ProtocolAdapter` contract; how adapters render `harness-ask` / `deny` / `allow` to their respective harness wire formats.
 - [`docs/STABILITY.md`](./STABILITY.md) — three-tier stability system; the envelope schema is STABLE, broker / listener / TUI implementations are INTERNAL.
-- [`examples/escalation-listener-stdout/`](../examples/escalation-listener-stdout/) — worked-example listener (~40 lines, stdout prompt + stdin response).
+- [`examples/escalation-listener-stdout/`](../examples/escalation-listener-stdout/) — worked-example listener (~60 lines, stdout prompt + stdin response).
 - [`tests/escalation/`](../tests/escalation/) — contract tests for every primitive documented here, including the JSON-Schema snapshot.

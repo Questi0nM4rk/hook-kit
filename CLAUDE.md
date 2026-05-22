@@ -116,7 +116,7 @@ Add similar coverage when introducing new builder primitives or wrapper behavior
 
 `examples/adapter-template/` — fork-and-modify scaffold for authoring a custom `ProtocolAdapter` (Cursor / Cline / MCP / custom). Cross-references `docs/ADAPTERS.md` for the contract. Smoke-tested by `tests/build/adapter-template-e2e.test.ts` against the compiled binary + `examples/adapter-template/tests/` for in-process unit tests.
 
-`examples/escalation-listener-stdout/` — worked-example listener for hook-kit's escalation tree (~40-line `src/listener.ts`): polls one session spool, prompts on stdout, reads decision from stdin. Cross-references `docs/ESCALATION.md` § Listener authoring. Downstream consumers fork this for Slack / IDE / webhook / custom-UI integrations. The example's `node_modules/@questi0nm4rk/hook-kit` is symlinked to the repo root (per L-M1.3-2) so devtime resolution matches downstream consumers'.
+`examples/escalation-listener-stdout/` — worked-example listener for hook-kit's escalation tree (~60-line `src/listener.ts`): polls one session spool, prompts on stdout, reads decision from stdin. Cross-references `docs/ESCALATION.md` § Listener authoring. Downstream consumers fork this for Slack / IDE / webhook / custom-UI integrations. The example's `node_modules/@questi0nm4rk/hook-kit` is symlinked to the repo root (per L-M1.3-2) so devtime resolution matches downstream consumers'.
 
 ## What 0.6.0 landed (workstream A — shipped)
 
