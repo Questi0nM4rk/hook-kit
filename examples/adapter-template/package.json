@@ -1,0 +1,14 @@
+{
+  "name": "hook-kit-adapter-template",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fork-and-modify scaffold for authoring a custom ProtocolAdapter for hook-kit. Demonstrates the read-stdin-JSON / write-stdout-decision / observer-wiring pattern. See README.md.",
+  "scripts": {
+    "build": "bun run build.ts",
+    "test": "bun test tests/"
+  },
+  "dependencies": {
+    "@questi0nm4rk/hook-kit": "*"
+  }
+}
