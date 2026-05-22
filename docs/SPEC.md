@@ -633,9 +633,62 @@ Lives in `src/testing/` and exports via the `"./testing"` subpath in `package.js
 | Integration | Compile fixture + execute end-to-end (shell wrapper + cc-tools) |
 | Performance | Compiled binary cold start < 50ms |
 
+## Observability
+
+The engine ships a programmatic observability hook on top of the stdout/stderr/exit-code wire contract: `DecisionObserver`. Consumers register observers via `EvaluateOptions.observers` and receive a `DecisionEventRecord` per decision the engine emits — terminal (`deny` / `ask`) and annotation (`warning` / `note` / `error`). This is the structured-data channel for sinks (syslog, OTLP, HEC, file, custom transport) that would otherwise have to parse wrapper stdout.
+
+The `HOOK_KIT_VERBOSE=1` stderr trace remains the human-readable single-line summary per evaluation; `DecisionObserver` is the programmatic per-decision feed. Both can be active at the same time.
+
+### Contract
+
+- **When observers fire.** The engine invokes `observer.onDecision(record)` once per rule-produced terminal decision (`deny` or `ask`), once per rule-emitted annotation (`warning` or `note`), and once per engine-emitted `error` annotation (rule throws caught at the engine boundary, `state.flush()` failures, shell-ast parse errors drained from the eval context).
+- **Per rule-produced decisions, not per outcome decisions.** If two rules return `ask` decisions, the merge policy takes only the first into the outcome — but observers fire for BOTH. Observability surfaces what RULES decided, not what the OUTCOME carries. The same goes for warnings that get dropped from `outcome.annotations` when a later `deny` short-circuits: observers saw the warning record before the deny.
+- **Sync, in array order.** Observers fire synchronously in the order they appear in `opts.observers`. The engine does NOT await any value the observer returns; it treats `onDecision` as fire-and-return. For async sinks, the observer should enqueue and flush out-of-band — see § Anti-patterns below.
+- **Throw safety.** A throw from `observer.onDecision` is caught at the engine boundary, wrapped as `ObserverError(index, cause)`, and appended to `outcome.annotations` as an `error` annotation. The decision itself proceeds unaffected; subsequent observers in the same array still fire. This is fail-open at the observer boundary, consistent with the zero-silent-fails contract: a typed `HookKitError` carries the failure, the engine doesn't crash.
+- **Inline-shell recursion.** When the engine recurses into `bash -c "…"` (via shell-ast's `unwrapDeepParsed`), observers fire for sub-decisions produced by inner rules. The record's `ruleId` reflects the actual rule that produced the inner decision in the inner module/index; the `event` sub-shape carries the synthetic inner event's `toolInputHash` (which differs from the outer hash because `toolInput.command` is replaced with the inner script).
+- **Zero-overhead when unused.** If `opts.observers` is `undefined` or an empty array, the engine skips all observer-construction work: no record built, no `performance.now()` bracketing, no sha256 hash computed. The default path is unaffected.
+
+### Record shape
+
+```ts
+interface DecisionEventRecord {
+  readonly timestamp: number;        // Date.now() at emission
+  readonly ruleId: string;           // "<module.id>:<rule.kind>:<rule-index-in-module>"
+                                     // OR "<engine>:<source>" for engine-emitted errors
+  readonly ruleKind: string;         // mirror of rule.kind (or the engine source)
+  readonly decision: "deny" | "ask" | "warning" | "note" | "error";
+  readonly reason: string;           // decision.reason or annotation.message
+  readonly label?: string;           // decision.label or annotation.label if set
+  readonly event: {
+    readonly eventName: string;
+    readonly toolName: string;
+    readonly cwd: string;
+    readonly sessionId: string;
+    readonly toolInputHash: string;  // sha256(JSON.stringify(toolInput)) hex
+  };
+  readonly timingMs: number;         // wall-clock ms in rule.evaluate;
+                                     // 0 for engine-emitted errors (no rule ran)
+}
+```
+
+### Hash policy
+
+`event.toolInputHash` is the sha256-hex digest of `JSON.stringify(event.toolInput)`, exactly 64 lowercase hex characters. The raw `toolInput` is NOT included in the record — only its hash. This is the default-safe stance: observers correlate decisions with the harness call via the hash + `timestamp` + `sessionId` triplet, but the kit does not push potentially-sensitive command text into log infrastructure on the consumer's behalf.
+
+Consumers that need the raw `toolInput` (e.g., for audit logs they fully control) must capture it via their own pre-evaluate path — e.g., a wrapper around `evaluate()` that records `event.toolInput` to their own store keyed by `toolInputHash` + `sessionId`, then the observer correlates back to that store.
+
+The hash is cached per evaluation: all observer records emitted from a single `evaluate()` invocation (including ones produced by inline-shell recursion's outer frame) share the same hash without recomputing. Recursive inner frames have their own synthetic event and compute their own hash.
+
+### Anti-patterns
+
+- **Do not perform synchronous I/O in `onDecision`.** The engine awaits no value from the observer, but a sync I/O call (file write, network round-trip) DOES block the calling thread until it returns. For non-trivial sinks, enqueue the record to a buffer your code drains on a separate timer or `process.on("beforeExit")` handler. A `BufferedObserver` reference implementation is planned for the M4 testing SDK; until then, this is consumer responsibility.
+- **Do not throw from observers as a flow-control mechanism.** Throws are caught and surfaced as `error` annotations, but they're meant for genuine failures (logger broken, downstream sink unavailable) — not for "signal the engine to do something different." The engine does not change its decision in response to observer throws.
+- **Do not mutate the record.** It's marked `readonly` end-to-end; even if the TypeScript readonly lift were defeated, mutating shared state across multiple observers is a recipe for nondeterminism. Treat the record as immutable.
+- **Do not depend on the wrapper text format for structured data.** That format is for HUMANS (and the harness UI that renders it). Programmatic consumers should always use `DecisionObserver` plus the typed `EvaluationOutcome` return, not parse wrapper stdout. The wrapper output format is STABLE under the 1.0 contract, but stdout parsing is fragile; the observer is the supported path.
+
 ## Operational Readiness
 
-- **Observability:** `HOOK_KIT_VERBOSE=1` on the binary's environment emits a single stderr trace line per evaluation: event, tool, session, module count, decision kind, label, reason, time. Each decision can carry a `label` for source attribution. Broker state and ask channels are inspectable on disk: `cat ~/.cache/hook-kit/sessions/$SESSION_ID/audit.jsonl`. Git enrichment of AskRequest envelopes opts in via `HOOK_KIT_ENRICH_GIT=1`.
+- **Observability:** `HOOK_KIT_VERBOSE=1` on the binary's environment emits a single stderr trace line per evaluation: event, tool, session, module count, decision kind, label, reason, time. Each decision can carry a `label` for source attribution. Broker state and ask channels are inspectable on disk: `cat ~/.cache/hook-kit/sessions/$SESSION_ID/audit.jsonl`. Git enrichment of AskRequest envelopes opts in via `HOOK_KIT_ENRICH_GIT=1`. Structured per-decision streams are available via `DecisionObserver` — see § Observability for the contract.
 - **Failure modes:**
   - shell-AST WASM fails to load → all command/pipe/redirect rules return `null` (silent), stderr warning.
   - tmpdir/cache write fails → state lost, hook returns `null` (silent).
