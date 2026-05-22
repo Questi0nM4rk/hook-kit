@@ -54,3 +54,20 @@ jobs:
         run: |
           pip install semgrep
           semgrep --config auto --error --exclude tests/ --exclude tests-isolated/ --exclude examples/ --exclude docs/
+
+  markdown:
+    name: Markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: Install deps
+        run: bun install --frozen-lockfile
+      - name: Markdownlint
+        # Broader scope than lefthook (which only sees staged files and excludes
+        # docs/plans|specs). Catches doc drift from contributors without the
+        # local hook. CI scans all *.md except node_modules / dist; the `#`
+        # prefix is markdownlint-cli2's exclude-glob syntax.
+        run: bunx --bun markdownlint-cli2 "**/*.md" "#node_modules/**" "#dist/**"
