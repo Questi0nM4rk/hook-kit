@@ -57,7 +57,7 @@ describe("brokerAskpass — happy path", () => {
 
     ensureSession("s1", { root: workDir });
     const decidedPath = join(brokerPaths("s1", workDir).decidedDir, `${req.id}.json`);
-    Bun.write(
+    await Bun.write(
       decidedPath,
       JSON.stringify({
         id: req.id,
@@ -263,7 +263,7 @@ describe("listSessions", () => {
     expect(out).toEqual([]);
   });
 
-  test("includes pendingCount", () => {
+  test("includes pendingCount", async () => {
     const req = createAskRequest({
       sessionId: "s-pending",
       toolName: "Bash",
@@ -271,7 +271,7 @@ describe("listSessions", () => {
       reason: "x",
     });
     ensureSession("s-pending", { root: workDir });
-    Bun.write(
+    await Bun.write(
       join(brokerPaths("s-pending", workDir).pendingDir, `${req.id}.json`),
       JSON.stringify(req),
     );
@@ -282,7 +282,7 @@ describe("listSessions", () => {
 });
 
 describe("listPending + submitDecision", () => {
-  test("listPending returns each request envelope on disk", () => {
+  test("listPending returns each request envelope on disk", async () => {
     const req = createAskRequest({
       sessionId: "s-list",
       toolName: "Bash",
@@ -290,7 +290,7 @@ describe("listPending + submitDecision", () => {
       reason: "x",
     });
     ensureSession("s-list", { root: workDir });
-    Bun.write(
+    await Bun.write(
       join(brokerPaths("s-list", workDir).pendingDir, `${req.id}.json`),
       JSON.stringify(req),
     );
