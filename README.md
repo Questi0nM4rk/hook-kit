@@ -733,7 +733,11 @@ See [`examples/ai-guardrails/README.md`](examples/ai-guardrails/README.md) for t
 ## Docs
 
 - [**docs/SPEC.md**](docs/SPEC.md) — single living spec; Iron Laws, output convention, escalation tree, all architectural truth.
+- [**docs/ADAPTERS.md**](docs/ADAPTERS.md) — `ProtocolAdapter` contract; how to author a new adapter (Cursor / Cline / MCP / custom).
+- [**docs/ESCALATION.md**](docs/ESCALATION.md) — askpass envelope schema + broker filesystem-spool protocol + listener-authoring guide.
+- [**docs/STABILITY.md**](docs/STABILITY.md) — three-tier stability system + deprecation cycle.
 - [**examples/ai-guardrails/README.md**](examples/ai-guardrails/README.md) — reference plugin walkthrough.
+- [**examples/adapter-template/README.md**](examples/adapter-template/README.md) — fork-and-modify scaffold for a custom adapter.
 - [**CLAUDE.md**](CLAUDE.md) — Claude Code orientation for this repo.
 
 ---

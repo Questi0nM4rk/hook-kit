@@ -332,6 +332,8 @@ Custom stores implement `StateStore` (e.g., SQLite for shared cross-session stat
 
 The escalation system handles `Decision.kind === "ask"`. It is the only path where a hook binary can block waiting for an external decision. Per Iron Law 8, the hook publishes a request and waits; any registered listener up the parent chain can answer through the same askpass contract.
 
+> **Full contract spec:** [`docs/ESCALATION.md`](./ESCALATION.md) — per-field envelope schema, broker filesystem-spool protocol, 5-phase lifecycle, listener-authoring guide, tree semantics, `HOOK_KIT_ASKPASS` env-var contract. The summary below is the architectural overview; the spec is the source of truth for what a listener / askpass binary / observability layer must do.
+
 #### Tree Model
 
 Each running hook-kit invocation is a node in a tree. The root is the harness's native human-UI prompt (CC's `permissionDecision: "ask"`). Below the root sits the agent's own session. Below that, any subagent the parent spawned has its own session whose `meta.json.parent_session_id` points up to the parent. Subagents can spawn their own subagents, recursively.
