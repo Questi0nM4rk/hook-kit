@@ -32,6 +32,16 @@ pre-commit:
       fail_text: "Markdown lint errors found"
       priority: 2
 
+    suppress-comments:
+      glob: "*.{ts,tsx,js,jsx}"
+      exclude: '(node_modules/.*|dist/.*|\.claude/.*|docs/plans/.*|docs/specs/.*)'
+      # bun runs the local TS script directly. bunx resolves package names, not
+      # filesystem paths -- L-S2-4 applies to devDep invocations (biome, eslint),
+      # not local scripts. Mirrors the CI invocation in .github/workflows/test.yml.
+      run: bun scripts/check-suppress-comments.ts {staged_files}
+      fail_text: "Inline suppression comments require a >=10-char reason; bare or generic suppressions blocked"
+      priority: 2
+
 commit-msg:
   commands:
     conventional:
