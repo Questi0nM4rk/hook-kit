@@ -1,3 +1,5 @@
+// ProtocolAdapter implementation. Contract spec: docs/ADAPTERS.md.
+// Cross-reference + anti-patterns + error-handling boundaries live there.
 // Claude Code protocol adapter
 // See docs/SPEC.md § Protocol Adapters for the CC mapping table
 
