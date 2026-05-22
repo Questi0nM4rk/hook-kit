@@ -13,6 +13,16 @@ export { path } from "./builders/path.js";
 export { pipe } from "./builders/pipe.js";
 export { redirect } from "./builders/redirect.js";
 export { stateful } from "./builders/state.js";
+// Annotation formatters — re-exported for custom adapters emitting the
+// shell-wrapper convention. Pass `defaultLabel` to override the "[hook-kit]"
+// fallback without re-implementing the line format.
+export {
+  type ErrorAnnotation,
+  formatErrorAnnotation,
+  formatNonErrorAnnotation,
+  type NonErrorAnnotation,
+  partitionAnnotations,
+} from "./core/annotations.js";
 // Decision constructors
 export { ask, deny, note, warning } from "./core/decision.js";
 // Typed errors — thrown by rules / engine boundary, surfaced as `error`

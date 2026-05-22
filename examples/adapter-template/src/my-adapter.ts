@@ -5,7 +5,13 @@
 // parsing lives in `./parse-input.ts` — that's the file README step 1
 // tells consumers to edit first.
 
-import type { EvaluationOutcome, HookEvent, ProtocolAdapter } from "@questi0nm4rk/hook-kit";
+import {
+  type EvaluationOutcome,
+  formatErrorAnnotation,
+  formatNonErrorAnnotation,
+  type HookEvent,
+  type ProtocolAdapter,
+} from "@questi0nm4rk/hook-kit";
 import { parseInput } from "./parse-input.js";
 
 /** Streams the adapter writes to / reads from. Constructor-injected so tests
@@ -54,11 +60,11 @@ function emitOutcome(
 ): number {
   const { terminal, annotations } = outcome;
   // `error` annotations ALWAYS surface — see docs/ADAPTERS.md § Error handling.
+  // Reuse hook-kit's formatter so the line shape (`<prefix> error: <code>: <msg>`)
+  // stays in sync with the wrapper + CC adapter.
   for (const a of annotations) {
     if (a.kind === "error") {
-      streams.stderr.write(
-        `${prefixFor(defaultLabel, a.label)} error: ${a.errorCode}: ${a.message}\n`,
-      );
+      streams.stderr.write(`${formatErrorAnnotation(a, defaultLabel)}\n`);
     }
   }
   if (terminal?.kind === "deny") {
@@ -73,7 +79,7 @@ function emitOutcome(
   }
   for (const a of annotations) {
     if (a.kind === "warning" || a.kind === "note") {
-      streams.stdout.write(`${prefixFor(defaultLabel, a.label)} ${a.kind}: ${a.message}\n`);
+      streams.stdout.write(`${formatNonErrorAnnotation(a, defaultLabel)}\n`);
     }
   }
   return 0;

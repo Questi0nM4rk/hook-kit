@@ -87,15 +87,19 @@ src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 
 ## Testing
 
-The npm `test` script runs two `bun test` invocations:
+The npm `test` script runs three `bun test` processes (post-M1.3) under a coverage-floor wrapper:
 
 ```bash
-bun test tests/ && bun test tests-isolated/
+bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/adapter-template/tests/
 ```
 
-- `tests/` — the regular suite (~420 unit + integration tests).
-- `tests-isolated/` — tests that need `mock.module()` for module-level mocks. Bun's `mock.module()` is process-sticky across files (oven-sh/bun#14516) and would poison sibling tests in the regular suite. The split keeps each isolated test file its own `bun test` process. **Don't add `mock.module()` to anything under `tests/` — put it under `tests-isolated/` instead.**
+The coverage script internally runs `bun test tests/ --coverage`. Each invocation is a separate process to keep `mock.module()` and bun's resolution scopes isolated (oven-sh/bun#14516 / L-S1b-3).
+
+- `tests/` — regular suite (586+ unit + integration tests). The coverage-floor enforcer parses its `--coverage` output.
+- `tests-isolated/` — tests that need `mock.module()` for module-level mocks. **Don't add `mock.module()` to anything under `tests/` — put it under `tests-isolated/` instead.**
+- `examples/adapter-template/tests/` — adapter template's in-process unit tests. Run in their own process so any future example-local `mock.module()` use can't poison the core suite.
 - `tests/builders/` — one file per builder primitive (renamed from `tests/rules/` in 0.5.1).
+- Coverage floor only applies to `src/` (via the `tests/` suite). `tests-isolated/` and `examples/*/tests/` do not count toward the 84%/89% gate — isolated tests use `mock.module()`, example tests cover non-`src/` code.
 - CI (`.github/workflows/test.yml`) and `prepublishOnly` both call `bun run test`, not raw `bun test` — preserves the isolation. Don't regress that.
 
 Canonical end-to-end tests under `tests/build/`:
