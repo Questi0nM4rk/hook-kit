@@ -32,6 +32,7 @@ export function rawAdapter(event: HookEvent): RawAdapter {
     errored: false,
   };
   const adapter: ProtocolAdapter = {
+    // eslint-disable-next-line @typescript-eslint/require-await -- async signature is part of the ProtocolAdapter stable API contract; CC-tools adapter does real async I/O, raw adapter trivially returns the held event.
     async readInput(): Promise<HookEvent> {
       return event;
     },
