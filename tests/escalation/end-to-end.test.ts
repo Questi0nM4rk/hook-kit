@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runBuild } from "../../src/build/bundle.js";
+import { parseCcStdout } from "../_helpers.js";
 
 const BUILD_TIMEOUT_MS = 60_000;
 
@@ -132,7 +133,7 @@ describe("escalation — compiled binary + askpass", () => {
           proc.exited,
         ]);
         expect(exitCode).toBe(0);
-        const parsed = JSON.parse(stdout);
+        const parsed = parseCcStdout(stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("policy violation");
       } finally {
@@ -164,7 +165,7 @@ describe("escalation — compiled binary + askpass", () => {
           proc.exited,
         ]);
         expect(exitCode).toBe(0);
-        const parsed = JSON.parse(stdout);
+        const parsed = parseCcStdout(stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
           "review this rm before running",
@@ -201,7 +202,7 @@ describe("escalation — compiled binary + askpass", () => {
           proc.exited,
         ]);
         expect(exitCode).toBe(0);
-        const parsed = JSON.parse(stdout);
+        const parsed = parseCcStdout(stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
           "review this rm before running",

@@ -15,6 +15,37 @@ import {
 import { createAskRequest } from "../../src/escalation/envelope.js";
 import { registerListener } from "../../src/escalation/listeners.js";
 
+/** Shape of broker meta.json — written by ensureSession in src/escalation/broker.ts. */
+interface SessionMetaJson {
+  readonly sessionId: string;
+  readonly parentSessionId?: string;
+  readonly pid: number;
+  readonly startedAt: string;
+}
+
+/** Shape of broker decided/*.json — written by submitDecision in src/escalation/broker.ts. */
+interface DecidedJson {
+  readonly id: string;
+  readonly decision: "allow" | "deny" | "harness-ask";
+  readonly reason?: string;
+  readonly by?: string;
+  readonly decidedAt: string;
+}
+
+/** Type-narrow JSON.parse for broker meta files. */
+function parseSessionMeta(text: string): SessionMetaJson {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- JSON.parse return is any; narrowed to SessionMetaJson per src/escalation/broker.ts:ensureSession's write shape.
+  const v: SessionMetaJson = JSON.parse(text);
+  return v;
+}
+
+/** Type-narrow JSON.parse for broker decided/*.json files. */
+function parseDecidedJson(text: string): DecidedJson {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- JSON.parse return is any; narrowed to DecidedJson per src/escalation/broker.ts:submitDecision's write shape.
+  const v: DecidedJson = JSON.parse(text);
+  return v;
+}
+
 let workDir: string;
 
 beforeEach(() => {
@@ -30,7 +61,7 @@ describe("ensureSession", () => {
     expect(existsSync(paths.pendingDir)).toBe(true);
     expect(existsSync(paths.decidedDir)).toBe(true);
     expect(existsSync(paths.metaPath)).toBe(true);
-    const meta = JSON.parse(readFileSync(paths.metaPath, "utf8"));
+    const meta = parseSessionMeta(readFileSync(paths.metaPath, "utf8"));
     expect(meta.sessionId).toBe("s1");
     expect(meta.parentSessionId).toBe("p1");
     expect(typeof meta.pid).toBe("number");
@@ -307,7 +338,7 @@ describe("listPending + submitDecision", () => {
       join(brokerPaths("s-submit", workDir).decidedDir, "req-1.json"),
       "utf8",
     );
-    expect(JSON.parse(decided).decision).toBe("allow");
+    expect(parseDecidedJson(decided).decision).toBe("allow");
   });
 
   test("submitDecision is first-writer-wins (atomic)", () => {
@@ -316,7 +347,7 @@ describe("listPending + submitDecision", () => {
     const b = submitDecision("s-race", "req", "deny", "late", { root: workDir, by: "b" });
     expect(a).toBe(true);
     expect(b).toBe(false);
-    const stored = JSON.parse(
+    const stored = parseDecidedJson(
       readFileSync(join(brokerPaths("s-race", workDir).decidedDir, "req.json"), "utf8"),
     );
     expect(stored.decision).toBe("allow");

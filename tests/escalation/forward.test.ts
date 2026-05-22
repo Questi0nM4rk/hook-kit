@@ -8,6 +8,29 @@ import { brokerPaths, ensureSession, submitDecision } from "../../src/escalation
 import { createAskRequest } from "../../src/escalation/envelope.js";
 import { forwardUp } from "../../src/escalation/forward.js";
 
+/** Decided/<id>.json shape — written by submitDecision in src/escalation/broker.ts. */
+interface DecidedJson {
+  readonly id: string;
+  readonly decision: "allow" | "deny" | "harness-ask";
+  readonly reason?: string;
+}
+/** Forwarded pending envelope shape — adds `forwarded_from` per src/escalation/forward.ts. */
+interface ForwardedPendingJson {
+  readonly id: string;
+  readonly forwarded_from?: string;
+}
+
+function parseDecidedJson(text: string): DecidedJson {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- JSON.parse return is any; narrowed to DecidedJson per submitDecision write shape.
+  const v: DecidedJson = JSON.parse(text);
+  return v;
+}
+function parseForwardedPending(text: string): ForwardedPendingJson {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- JSON.parse return is any; narrowed to ForwardedPendingJson per forwardUp write shape (envelope + forwarded_from key).
+  const v: ForwardedPendingJson = JSON.parse(text);
+  return v;
+}
+
 let workDir: string;
 
 beforeEach(() => {
@@ -79,7 +102,7 @@ describe("forwardUp — happy path (one hop)", () => {
     // Source's decided/<id>.json should mirror the parent's decision.
     const sourceDecided = join(brokerPaths("child", workDir).decidedDir, `${req.id}.json`);
     expect(existsSync(sourceDecided)).toBe(true);
-    const sourceContent = JSON.parse(readFileSync(sourceDecided, "utf8"));
+    const sourceContent = parseDecidedJson(readFileSync(sourceDecided, "utf8"));
     expect(sourceContent.decision).toBe("allow");
   });
 
@@ -104,7 +127,7 @@ describe("forwardUp — happy path (one hop)", () => {
     const forward = forwardUp("child", req.id, { root: workDir, pollMs: 10 });
     setTimeout(() => {
       const parentPending = join(brokerPaths("parent", workDir).pendingDir, `${req.id}.json`);
-      const envelope = JSON.parse(readFileSync(parentPending, "utf8"));
+      const envelope = parseForwardedPending(readFileSync(parentPending, "utf8"));
       expect(envelope.forwarded_from).toBe("child");
       submitDecision("parent", req.id, "allow", undefined, { root: workDir });
     }, 50);

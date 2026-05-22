@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decideCcOutput, parseHookInput, resolveCcOutput } from "../../src/adapters/claude-code.js";
 import type { Annotation, EvaluationOutcome, HookEvent, Terminal } from "../../src/core/types.js";
+import { parseCcStdout } from "../_helpers.js";
 
 let askDir: string;
 
@@ -84,7 +85,7 @@ describe("decideCcOutput — deny", () => {
     );
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toBe("");
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed).toEqual({
       hookSpecificOutput: {
         hookEventName: "PreToolUse",
@@ -127,7 +128,7 @@ describe("decideCcOutput — deny", () => {
       outcome({ kind: "deny", reason: "blocked", label: "[security]" }),
       event("PreToolUse"),
     );
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toBe("[security] blocked");
   });
 
@@ -146,7 +147,7 @@ describe("decideCcOutput — deny", () => {
       ]),
       event("PreToolUse"),
     );
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
     // The annotation must not appear in deny output — command never runs, so
     // surfacing warnings about a command that won't execute is noise.
@@ -162,7 +163,7 @@ describe("decideCcOutput — annotations only (no terminal)", () => {
     );
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toBe("");
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.additionalContext).toBe("[hint] warning: FYI");
   });
 
@@ -171,7 +172,7 @@ describe("decideCcOutput — annotations only (no terminal)", () => {
       outcome(null, [{ kind: "note", message: "size 2KB", label: "[size]" }]),
       event("PostToolUse"),
     );
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.hookEventName).toBe("PostToolUse");
     expect(parsed.hookSpecificOutput.additionalContext).toBe("[size] note: size 2KB");
   });
@@ -184,7 +185,7 @@ describe("decideCcOutput — annotations only (no terminal)", () => {
       ]),
       event("PreToolUse"),
     );
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.additionalContext).toBe("[one] warning: a\n[two] note: b");
   });
 
@@ -193,7 +194,7 @@ describe("decideCcOutput — annotations only (no terminal)", () => {
       outcome(null, [{ kind: "warning", message: "no label" }]),
       event("PreToolUse"),
     );
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.additionalContext).toBe("[hook-kit] warning: no label");
   });
 });
@@ -205,7 +206,7 @@ describe("decideCcOutput — escalate sync path (use resolveCcOutput in producti
       event("PreToolUse"),
     );
     expect(out.exitCode).toBe(0);
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("sync path");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("needs human");
@@ -233,7 +234,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
       { askpassPath: askpass },
     );
     expect(out.exitCode).toBe(0);
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.additionalContext).toBe("[w] warning: after approval");
   });
 
@@ -245,7 +246,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
       { askpassPath: askpass },
     );
     expect(out.exitCode).toBe(0);
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("policy violation");
   });
@@ -269,7 +270,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
       { askpassPath: askpass },
     );
     expect(out.exitCode).toBe(0);
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("review this");
   });
@@ -284,7 +285,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
       event("PreToolUse"),
       { askpassPath: askpass },
     );
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("review this");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
       "[x] warning: also danger",
@@ -300,7 +301,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
       { askpassPath: askpass },
     );
     expect(out.exitCode).toBe(0);
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.additionalContext).toContain("review this");
   });
 
@@ -312,7 +313,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
       { askpassPath: "" },
     );
     expect(out.exitCode).toBe(0);
-    const parsed = JSON.parse(out.stdout);
+    const parsed = parseCcStdout(out.stdout);
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("needs human");
   });
@@ -325,7 +326,7 @@ describe("resolveCcOutput — escalate via askpass", () => {
       outcome({ kind: "deny", reason: "blocked" }),
       event("PreToolUse"),
     );
-    const parsed = JSON.parse(deny.stdout);
+    const parsed = parseCcStdout(deny.stdout);
     expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
   });
 });

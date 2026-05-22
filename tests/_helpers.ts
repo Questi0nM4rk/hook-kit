@@ -28,6 +28,34 @@ export function captureStderr(): { restore: () => void; output: () => string } {
   return { restore: () => (process.stderr.write = original), output: () => buf.join("") };
 }
 
+/**
+ * Shape of the CC adapter's stdout JSON, exactly matching the keys produced
+ * by `src/adapters/claude-code.ts` (`hookSpecificOutput` envelope). The shape
+ * is conservative — every field optional — so this can stand in for both
+ * deny/ask paths (with permissionDecision / permissionDecisionReason) and the
+ * annotation-only path (additionalContext).
+ */
+export interface CcStdoutJson {
+  readonly hookSpecificOutput: {
+    readonly hookEventName?: string;
+    readonly permissionDecision?: string;
+    readonly permissionDecisionReason?: string;
+    readonly additionalContext?: string;
+  };
+}
+
+/**
+ * Type-narrow JSON.parse for CC adapter output. JSON.parse is `any` by design
+ * (its return type cannot be derived from the input string); we cast at the
+ * test boundary to the well-known CC schema produced by claude-code.ts so
+ * test bodies stay type-safe under ESLint's no-unsafe-* rules.
+ */
+export function parseCcStdout(stdout: string): CcStdoutJson {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- JSON.parse return type is any by design; narrowed to CcStdoutJson at this test-boundary based on the well-known CC adapter output schema.
+  const parsed: CcStdoutJson = JSON.parse(stdout);
+  return parsed;
+}
+
 /** Run `fn` with the env var set to `value` (or unset when `value` is undefined). */
 export function withEnv(key: string, value: string | undefined, fn: () => void): void {
   const prev = process.env[key];
