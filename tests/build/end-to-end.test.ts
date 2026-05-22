@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-floating-promises -- file drives spawned binaries through proc.stdin.write / .end whose Bun FileSink return type is `number | Promise<number>` (sync for small buffers, async for large); the meaningful success signal is the awaited proc.exited race on `Promise.all([new Response(proc.stdout).text(), proc.exited])` below each write block. Awaiting the FileSink calls individually adds no signal and would serialize the writes-then-await pattern that the kernel pipe already handles. */
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
