@@ -322,11 +322,11 @@ interface StateStore {
 }
 ```
 
-**tmpdir-store** (default): `join(tmpdir(), "hook-kit-{namespace}-{sessionId}.json")`. Loaded on construction; flushed automatically after `evaluate()`. No locking — assumes sequential single-agent invocations. Disk full → `flush` throws → caught → silent (state lost, hook doesn't block).
+**tmpdir-store** (default): `join(tmpdir(), "hook-kit-{namespace}-{sessionId}.json")`. Loaded on construction; flushed automatically after `evaluate()`. No locking — assumes single-process operation. Disk full → `flush` throws `FileWriteError` → engine catches → surfaces as an `error` annotation on the outcome (hook doesn't block). Per the M1.5 design (see `docs/specs/tmpdir-store-decision.md`), opening a second `TmpdirStore` on a path already opened by another `TmpdirStore` in the same process emits a one-time `console.warn` pointing consumers at `SqliteStateStore` (M2.1) for multi-process work.
 
 **memory-store**: in-memory `Map`, no persistence. For tests and stateless hooks.
 
-Custom stores implement `StateStore` (e.g., SQLite for shared cross-session state).
+Custom stores implement `StateStore` (e.g., SQLite for shared cross-session state). The four-guarantee contract is documented in `docs/STATE.md` with worked examples and the per-store conformance table.
 
 ### Escalation
 
