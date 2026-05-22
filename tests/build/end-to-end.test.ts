@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runBuild } from "../../src/build/bundle.js";
+import { parseCcStdout } from "../_helpers.js";
 
 // The whole pipeline is slow: bun build --compile produces a ~50 MB
 // bytecode binary. 60s gives generous slack for cold caches.
@@ -87,7 +88,7 @@ describe("hook-kit build — end to end", () => {
           proc.exited,
         ]);
         expect(exitCode).toBe(0);
-        const parsed = JSON.parse(stdout);
+        const parsed = parseCcStdout(stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("[fixture]");
       } finally {
@@ -204,7 +205,7 @@ export default async () => {
           proc.exited,
         ]);
         expect(exitCode).toBe(0);
-        const parsed = JSON.parse(stdout);
+        const parsed = parseCcStdout(stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("[tla-fixture]");
       } finally {

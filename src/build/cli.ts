@@ -182,7 +182,11 @@ async function writeHooksJson(
   }
 
   const absEntry = isAbsolute(entrypoint) ? entrypoint : resolve(process.cwd(), entrypoint);
-  const userModules = await import(absEntry);
+  // Dynamic ESM import — the user entry's exports cannot be statically typed
+  // because they live in user code we resolve at runtime. We trust the shape
+  // and cast to the expected modules type at the boundary (see TASK-T13).
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- dynamic import of user entry; return is any by design (unknown user module shape).
+  const userModules: { default?: unknown } = await import(absEntry);
   const modules = (userModules.default ?? []) as Parameters<typeof generateHooksJson>[0];
   const json = generateHooksJson(modules, { binaryPath: binaryCommand, timeout });
   const absJsonPath = isAbsolute(hooksJsonPath)
