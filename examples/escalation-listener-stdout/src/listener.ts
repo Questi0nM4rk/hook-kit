@@ -19,6 +19,10 @@ async function main(sessionId: string): Promise<void> {
     detach();
     process.exit(0);
   });
+  process.on("SIGTERM", () => {
+    detach();
+    process.exit(0);
+  });
 
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   const decided = new Set<string>();
