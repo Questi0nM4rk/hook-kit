@@ -1,0 +1,13 @@
+{
+  "name": "hook-kit-escalation-listener-stdout",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Worked-example listener for hook-kit's escalation tree — prompts on stdout, reads decision from stdin. Fork-and-modify scaffold for Slack / IDE / webhook integrations. See docs/ESCALATION.md.",
+  "scripts": {
+    "start": "bun src/listener.ts"
+  },
+  "dependencies": {
+    "@questi0nm4rk/hook-kit": "*"
+  }
+}

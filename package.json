@@ -63,6 +63,10 @@
     "./testing": {
       "import": "./src/testing/index.ts",
       "types": "./dist/types/testing/index.d.ts"
+    },
+    "./escalation": {
+      "import": "./src/escalation/index.ts",
+      "types": "./dist/types/escalation/index.d.ts"
     }
   },
   "bin": {
