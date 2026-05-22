@@ -28,6 +28,7 @@ import { createModule } from "../../src/core/module.js";
 import { evaluate } from "../../src/engine/index.js";
 import { bashEvent } from "../../tests/_helpers.js";
 
+// eslint-disable-next-line @typescript-eslint/no-floating-promises -- bun's mock.module returns `void | Promise<void>`; at module-load time we install the mock as a side-effect, no awaitable boundary exists here (top-level await would block the test runner's module graph).
 mock.module("@questi0nm4rk/shell-ast", () => ({
   ...realShellAst,
   parse: async () => {

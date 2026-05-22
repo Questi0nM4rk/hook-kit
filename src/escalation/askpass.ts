@@ -76,7 +76,14 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
   const stdin = proc.stdin as import("bun").FileSink;
   const stdoutStream = proc.stdout as ReadableStream<Uint8Array>;
   const stderrStream = proc.stderr as ReadableStream<Uint8Array>;
+  // FileSink .write / .end return promises that resolve when the data flushes;
+  // we don't await — the askpass reads from stdin as it goes and the race below
+  // is what decides success/failure. Explicit `void` so the eslint rule sees
+  // intent. Failure here surfaces via raceResult (proc.exited reflects the
+  // child seeing EPIPE on a broken pipe).
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises -- fire-and-forget write; the proc.exited race below is the success/failure signal.
   stdin.write(JSON.stringify(opts.request));
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises -- fire-and-forget end; proc.exited race below catches any pipe failure.
   stdin.end();
 
   // Race exit against timeout (when set). Don't await streams during the
@@ -90,6 +97,10 @@ export async function callAskpass(opts: CallAskpassOptions): Promise<AskResponse
         : setTimeout(() => {
             resolve({ kind: "timeout" });
           }, timeoutMs);
+    // Bridge proc.exited into the outer Promise's resolve via .then; this is
+    // the canonical race pattern, the thenable's return value is consumed by
+    // resolve and any rejection here would mean the runtime itself failed.
+    // eslint-disable-next-line @typescript-eslint/no-floating-promises -- intentional race bridge; .then's value goes to resolve, no recoverable failure mode.
     proc.exited.then((code) => {
       if (timer !== undefined) {
         clearTimeout(timer);
