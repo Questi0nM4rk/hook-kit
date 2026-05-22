@@ -1,6 +1,6 @@
 // DecisionObserver — short-circuit when no observers are registered.
 //
-// Per TASK-020 and docs/SPEC.md § Observability:
+// Per docs/SPEC.md § Observability:
 //   - When `opts.observers === undefined`, engine skips all observer-
 //     construction work (no record built, no performance.now() bracketing,
 //     no sha256 hash computed).
@@ -85,9 +85,8 @@ describe("observer — short-circuit when no observers registered", () => {
   test("annotation-only outcome preserved under both observer states", async () => {
     // Observer records are delivered via callback, not on the outcome —
     // so the outcome shape must be byte-identical regardless of observer
-    // presence. (TASK-016 wires observers for annotations; observer firing
-    // never mutates outcome.annotations beyond appending error annotations
-    // for observer throws, which we exclude here by using a noop observer.)
+    // presence. (A noop observer never mutates outcome.annotations beyond
+    // appending error annotations for observer throws.)
     const mod = moduleWith([
       { kind: "w", evaluate: () => warning("be careful") },
       { kind: "n", evaluate: () => note("heads up") },

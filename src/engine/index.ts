@@ -256,6 +256,25 @@ function buildRecord(args: BuildRecordArgs): DecisionEventRecord {
   return args.label === undefined ? base : { ...base, label: args.label };
 }
 
+/** Closed set of synthetic `ruleId` prefixes for engine-emitted error
+ *  annotations (no rule context). Documents the contract and prevents typos
+ *  at the call sites. */
+type EngineErrorSource = "state-flush" | "shell-ast";
+
+/** Args for the per-evaluation `notifyFor` closure inside `evaluateInternal`.
+ *  The four ambient fields (event, toolInputHash, annotations, observers) come
+ *  from the closure scope; this shape carries only the per-decision varying
+ *  fields. Options-object form keeps the call sites readable and satisfies
+ *  biome's `useMaxParams` cap. */
+interface NotifyForArgs {
+  readonly ruleId: string;
+  readonly ruleKind: string;
+  readonly decision: DecisionEventRecord["decision"];
+  readonly reason: string;
+  readonly label?: string;
+  readonly timingMs: number;
+}
+
 /** Fire every registered observer with the record, in array order. Observer
  *  throws are caught and surfaced as `error` annotations on the outcome —
  *  the calling site keeps running and subsequent observers in the same array
@@ -270,11 +289,7 @@ function notifyObservers(
   for (let i = 0; i < observers.length; i++) {
     const observer = observers[i];
     if (observer === undefined) {
-      // Defensive: readonly array index is `T | undefined` under strict
-      // noUncheckedIndexedAccess; observers we own are dense so this branch
-      // is unreachable in practice. Skip silently rather than throwing —
-      // observer plumbing must never destabilize the engine.
-      continue;
+      continue; // dense array under noUncheckedIndexedAccess
     }
     try {
       observer.onDecision(record);
@@ -298,39 +313,56 @@ async function evaluateInternal(
   const { ctx, drainErrors } = buildEvalContext(event, state, modules, opts.shellAstOpts);
 
   // Observer machinery — short-circuit when nobody's listening so the default
-  // path stays zero-overhead (no hash, no Date.now, no performance.now). Per
-  // TASK-020 the per-rule timing bracket is also skipped under this gate.
-  const observers = opts.observers;
-  const observersActive = observers !== undefined && observers.length > 0;
-  // Compute the toolInputHash lazily and cache it per evaluation (TASK-018):
-  // multiple decisions in the same evaluation share the same input → compute
-  // once, reuse for every record built in this frame. Recursive frames have
-  // their own synthetic event and compute their own hash.
-  let toolInputHashCache: string | undefined;
-  const getToolInputHash = (): string => {
-    toolInputHashCache ??= hashToolInput(event.toolInput);
-    return toolInputHashCache;
-  };
+  // path stays zero-overhead (no hash, no Date.now, no performance.now, no
+  // per-rule timing bracket, no ruleId string allocation per rule).
+  const obs = opts.observers ?? [];
+  const observersActive = obs.length > 0;
 
-  /** Fire observers for an engine-emitted error annotation (no rule ran).
-   *  ruleId uses the synthetic `<engine>:<source>` prefix to keep records
-   *  uniformly addressable; timingMs is 0 because no rule.evaluate() was
-   *  bracketed. Only called when observersActive. */
-  const notifyEngineError = (source: string, err: HookKitError): void => {
-    notifyObservers(
-      observers ?? [],
-      buildRecord({
-        event,
-        toolInputHash: getToolInputHash(),
+  // Hash cache + per-decision notify closures are only allocated when
+  // observers are active — when nobody's listening, none of this exists.
+  let notifyFor: (args: NotifyForArgs) => void = () => {
+    /* noop when observersActive=false; closure replaced below */
+  };
+  let notifyEngineError: (source: EngineErrorSource, err: HookKitError) => void = () => {
+    /* noop when observersActive=false; closure replaced below */
+  };
+  if (observersActive) {
+    // Cache the toolInputHash per evaluation: multiple decisions in this
+    // frame share the same input → compute once, reuse for every record.
+    // Recursive frames have their own synthetic event and compute their own.
+    let toolInputHashCache: string | undefined;
+    const getToolInputHash = (): string => {
+      toolInputHashCache ??= hashToolInput(event.toolInput);
+      return toolInputHashCache;
+    };
+    notifyFor = (args): void => {
+      notifyObservers(
+        obs,
+        buildRecord({
+          event,
+          toolInputHash: getToolInputHash(),
+          ruleId: args.ruleId,
+          ruleKind: args.ruleKind,
+          decision: args.decision,
+          reason: args.reason,
+          ...(args.label === undefined ? {} : { label: args.label }),
+          timingMs: args.timingMs,
+        }),
+        annotations,
+      );
+    };
+    // Engine-emitted errors have no rule context; use the synthetic
+    // `<engine>:<source>` ruleId + timingMs=0 convention.
+    notifyEngineError = (source, err): void => {
+      notifyFor({
         ruleId: `<engine>:${source}`,
         ruleKind: source,
         decision: "error",
         reason: err.message,
         timingMs: 0,
-      }),
-      annotations,
-    );
-  };
+      });
+    };
+  }
 
   const flushState = async (): Promise<void> => {
     try {
@@ -339,9 +371,7 @@ async function evaluateInternal(
       const err =
         cause instanceof HookKitError ? cause : new StateStoreError("flush", undefined, cause);
       annotations.push(errorAnnotation(err));
-      if (observersActive) {
-        notifyEngineError("state-flush", err);
-      }
+      notifyEngineError("state-flush", err);
     }
   };
 
@@ -351,9 +381,7 @@ async function evaluateInternal(
   const drainContextErrors = (): void => {
     for (const err of drainErrors()) {
       annotations.push(errorAnnotation(err));
-      if (observersActive) {
-        notifyEngineError("shell-ast", err);
-      }
+      notifyEngineError("shell-ast", err);
     }
   };
 
@@ -376,15 +404,14 @@ async function evaluateInternal(
     for (let ruleIndex = 0; ruleIndex < mod.rules.length; ruleIndex++) {
       const rule = mod.rules[ruleIndex];
       if (rule === undefined) {
-        // Defensive index check — readonly Rule[] under noUncheckedIndexedAccess
-        // is `Rule | undefined`. Engine-owned arrays are dense so unreachable.
-        continue;
+        continue; // dense array under noUncheckedIndexedAccess
       }
-      // Build the ruleId once per rule (cheap; only spent when observers fire).
-      const ruleId = `${mod.id}:${rule.kind}:${String(ruleIndex)}`;
+      // Skip ruleId string allocation when no observers are registered —
+      // the empty string is never read in that path.
+      const ruleId = observersActive ? `${mod.id}:${rule.kind}:${String(ruleIndex)}` : "";
       let decision: Decision;
-      // Per-rule timing bracket (TASK-017). Skipped when no observers are
-      // registered to keep the default path zero-overhead.
+      // Per-rule timing bracket; skipped when no observers are registered
+      // to keep the default path zero-overhead.
       const ruleStart = observersActive ? performance.now() : 0;
       try {
         // biome-ignore lint/performance/noAwaitInLoops: rules MUST execute sequentially — deny short-circuits, ask bundles, ordering is the merge-policy contract.
@@ -398,22 +425,14 @@ async function evaluateInternal(
         const err =
           cause instanceof HookKitError ? cause : new RuleEvaluationError(rule.kind, cause);
         annotations.push(errorAnnotation(err));
-        if (observersActive) {
-          const timingMs = performance.now() - ruleStart;
-          notifyObservers(
-            observers,
-            buildRecord({
-              event,
-              toolInputHash: getToolInputHash(),
-              ruleId,
-              ruleKind: rule.kind,
-              decision: "error",
-              reason: err.message,
-              timingMs,
-            }),
-            annotations,
-          );
-        }
+        const errTimingMs = observersActive ? performance.now() - ruleStart : 0;
+        notifyFor({
+          ruleId,
+          ruleKind: rule.kind,
+          decision: "error",
+          reason: err.message,
+          timingMs: errTimingMs,
+        });
         continue;
       }
       const timingMs = observersActive ? performance.now() - ruleStart : 0;
@@ -422,65 +441,41 @@ async function evaluateInternal(
       }
 
       if (decision.kind === "deny") {
-        if (observersActive) {
-          notifyObservers(
-            observers,
-            buildRecord({
-              event,
-              toolInputHash: getToolInputHash(),
-              ruleId,
-              ruleKind: rule.kind,
-              decision: "deny",
-              reason: decision.reason,
-              ...(decision.label === undefined ? {} : { label: decision.label }),
-              timingMs,
-            }),
-            annotations,
-          );
-        }
+        notifyFor({
+          ruleId,
+          ruleKind: rule.kind,
+          decision: "deny",
+          reason: decision.reason,
+          ...(decision.label === undefined ? {} : { label: decision.label }),
+          timingMs,
+        });
         drainContextErrors();
         await flushState();
         return { terminal: decision, annotations: keepOnlyErrors(annotations) };
       }
       if (decision.kind === "ask") {
-        if (observersActive) {
-          notifyObservers(
-            observers,
-            buildRecord({
-              event,
-              toolInputHash: getToolInputHash(),
-              ruleId,
-              ruleKind: rule.kind,
-              decision: "ask",
-              reason: decision.reason,
-              ...(decision.label === undefined ? {} : { label: decision.label }),
-              timingMs,
-            }),
-            annotations,
-          );
-        }
+        notifyFor({
+          ruleId,
+          ruleKind: rule.kind,
+          decision: "ask",
+          reason: decision.reason,
+          ...(decision.label === undefined ? {} : { label: decision.label }),
+          timingMs,
+        });
         terminal ??= decision;
         continue;
       }
       // warning / note / (rule-emitted error — type-allowed but engine never
       // produces this; if a rule somehow emits one, accumulate like any other)
       annotations.push(decision);
-      if (observersActive) {
-        notifyObservers(
-          observers,
-          buildRecord({
-            event,
-            toolInputHash: getToolInputHash(),
-            ruleId,
-            ruleKind: rule.kind,
-            decision: decision.kind,
-            reason: decision.message,
-            ...(decision.label === undefined ? {} : { label: decision.label }),
-            timingMs,
-          }),
-          annotations,
-        );
-      }
+      notifyFor({
+        ruleId,
+        ruleKind: rule.kind,
+        decision: decision.kind,
+        reason: decision.message,
+        ...(decision.label === undefined ? {} : { label: decision.label }),
+        timingMs,
+      });
     }
   }
 
