@@ -205,8 +205,8 @@ Each shipped implementation honours different subsets of the contract. The table
 
 | Store | Atomicity | Flush durability | Concurrent stores | Multi-process | Windows |
 |---|---|---|---|---|---|
-| `MemoryStore` | Yes (single-process) | n/a (in-memory only) | n/a (no shared backing storage) | No | Yes (any platform Bun runs on) |
-| `TmpdirStore` | Yes (single-process) | Yes (JSON write on flush) | **No** (single-process by design; warns on violation) | No | Yes (filesystem path semantics work on Windows) |
+| `MemoryStore` | Yes | n/a (in-memory only) | n/a (no shared backing storage) | No | Yes (any platform Bun runs on) |
+| `TmpdirStore` | Yes | Yes (JSON write on flush) | **No** (single-process by design; warns on violation) | No | Yes (filesystem path semantics work on Windows) |
 | `SqliteStateStore` (M2.1) | Planned: yes | Planned: yes (WAL fsync) | Planned: yes (SQLite WAL + busy-timeout) | Planned: yes | Planned per M2.1 |
 
 `MemoryStore` is the test default and the right pick for stateless hooks. `TmpdirStore` is the production default for single-agent runs — file path encodes the session, no cross-process coordination needed. For multi-process work (parallel CI runners against shared state, daemon-style broker accumulating counters across sessions), the intended choice is `SqliteStateStore` (lands in M2.1); until then, consumers needing multi-process semantics must author a custom `StateStore` that satisfies the concurrent-stores guarantee.

@@ -2,6 +2,8 @@
 // test discovery (which only picks up `*.test.ts` / `*_test.ts`) skips it.
 // Replaces three identical copies that were drifting across test files.
 
+// biome-ignore-all lint/suspicious/noConsole: silenceConsoleWarn + captureConsoleWarn intentionally rebind console.warn so tests can suppress or assert the M1.5 same-path warning emitted by TmpdirStore; this is the test-side dual of the production-side console.warn in src/state/tmpdir-store.ts.
+
 import type { HookEvent, HookModule, Rule } from "../src/core/types.js";
 
 /** Build a synthetic PreToolUse Bash event for engine/rule tests. */
@@ -61,6 +63,41 @@ export function parseCcStdout(stdout: string): CcStdoutJson {
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- JSON.parse return type is any by design; narrowed to CcStdoutJson at this test-boundary based on the well-known CC adapter output schema.
   const parsed: CcStdoutJson = JSON.parse(stdout);
   return parsed;
+}
+
+/** Silence console.warn for the duration of a test block. Returns a
+ *  restore function that re-installs the prior `console.warn`. Pair via
+ *  beforeEach/afterEach: `let restore; beforeEach(() => restore = silenceConsoleWarn()); afterEach(() => restore());`.
+ *  Used by tests that exercise TmpdirStore round-trip / sequential flows
+ *  which legitimately open multiple instances on the same path (NOT
+ *  concurrent-stores violation) — the M1.5 same-path warning fires
+ *  correctly but is noise in those test patterns. */
+export function silenceConsoleWarn(): () => void {
+  const original = console.warn;
+  console.warn = (): void => {
+    /* silenced — restore via the returned function */
+  };
+  return (): void => {
+    console.warn = original;
+  };
+}
+
+/** Capture console.warn calls for assertion. Returns `{ restore, warnings }`
+ *  where `warnings` is an array filled as calls arrive (each entry is the
+ *  joined string form of all arguments). Counterpart to `silenceConsoleWarn`
+ *  for tests that assert ON the warning content rather than silence it. */
+export function captureConsoleWarn(): { restore: () => void; warnings: string[] } {
+  const original = console.warn;
+  const warnings: string[] = [];
+  console.warn = (...args: unknown[]): void => {
+    warnings.push(args.map((a) => String(a)).join(" "));
+  };
+  return {
+    restore: (): void => {
+      console.warn = original;
+    },
+    warnings,
+  };
 }
 
 /** Run `fn` with the env var set to `value` (or unset when `value` is undefined). */
