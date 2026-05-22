@@ -134,7 +134,38 @@ export interface HookModule {
 
 // === State ===
 
-/** @stable @since 1.0.0 */
+/**
+ * Cross-invocation key/value store for `stateful()` rules. Five methods —
+ * `get`, `set`, `has`, `delete`, `flush`. The engine calls `flush()` once at
+ * the end of every `evaluate()` (success or short-circuit) so persistence is
+ * automatic from the rule author's perspective.
+ *
+ * The four guarantees every conforming implementation MUST honour
+ * (`docs/STATE.md` § Contract is the full discussion with worked examples):
+ *
+ * - **Atomicity.** Every `set` / `delete` is atomic with respect to
+ *   concurrent readers against the same backing storage. A reader sees the
+ *   pre-state OR the post-state, never a torn intermediate.
+ * - **Flush durability.** After `flush()` resolves, all prior writes are
+ *   visible to FRESH `StateStore` instances opened against the same backing
+ *   storage AND are recoverable across process restart. Returns
+ *   `void | Promise<void>` so sync (memory) and async (network-backed)
+ *   implementations share the interface.
+ * - **Concurrent stores.** Multiple `StateStore` instances pointing at the
+ *   same backing storage MUST safely interleave. Last-write-wins per key.
+ *   A read sees the latest committed write.
+ * - **No multi-key transactions.** A single key's read-modify-write is the
+ *   CONSUMER's problem; the contract does NOT provide compare-and-swap.
+ *   Compose via the retry-on-conflict pattern documented in
+ *   `docs/STATE.md` § Read-modify-write pattern.
+ *
+ * Per-store conformance varies; see `docs/STATE.md` § Per-store guarantees
+ * for what each shipped implementation provides (notably: `MemoryStore` is
+ * single-process by definition; `TmpdirStore` is single-process by design
+ * and warns when violated).
+ *
+ * @stable @since 1.0.0
+ */
 export interface StateStore {
   get(key: string): unknown;
   set(key: string, value: unknown): void;
