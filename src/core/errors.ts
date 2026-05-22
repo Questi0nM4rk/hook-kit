@@ -25,6 +25,7 @@ export type HookKitErrorCode =
   | "FileWriteError"
   | "JsonParseError"
   | "EnvelopeValidationError"
+  | "ProtocolVersionError"
   | "ShellAstParseError"
   | "ProcessSpawnError"
   | "RuleEvaluationError"
@@ -88,6 +89,25 @@ export class EnvelopeValidationError extends HookKitError {
       `envelope failed schema validation: ${source} (${describeCause(cause)})`,
       { source },
       cause,
+    );
+  }
+}
+
+/** Protocol-version mismatch on a broker / askpass IPC envelope. A more specific
+ *  classification of envelope failure than `EnvelopeValidationError`: the message
+ *  parses as JSON and has the right field shape, but the `version` literal does
+ *  not match `PROTOCOL_VERSION`. Surfaces from `parseAskRequest` so the broker
+ *  and downstream listeners can route version-skew (old client / new broker, or
+ *  the reverse) separately from generic schema failures. Triggers fail-CLOSED
+ *  at security boundaries — caller synthesizes a deny alongside the error
+ *  annotation.
+ *  @stable @since 1.0.0 */
+export class ProtocolVersionError extends HookKitError {
+  readonly code = "ProtocolVersionError";
+  constructor(source: string, expected: number, actual: unknown) {
+    super(
+      `envelope protocol version mismatch at ${source}: expected ${String(expected)}, got ${String(actual)}`,
+      { source, expected, actual },
     );
   }
 }

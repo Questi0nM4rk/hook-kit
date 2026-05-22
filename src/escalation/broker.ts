@@ -18,6 +18,7 @@ import {
   emitErrorLine,
   FileWriteError,
   JsonParseError,
+  ProtocolVersionError,
 } from "../core/errors.js";
 import {
   type AskDecisionKind,
@@ -167,13 +168,22 @@ export async function brokerAskpass(
   } catch (cause) {
     // Fail-CLOSED at security boundary: typed error on stderr, deny synthesized
     // with an id-less envelope so callAskpass's id-match check fails cleanly
-    // rather than crashing.
-    const wrapped = new EnvelopeValidationError("broker stdin", cause);
+    // rather than crashing. Version mismatches surface as ProtocolVersionError
+    // (more specific) — propagate that class instead of re-wrapping as the
+    // generic EnvelopeValidationError so observability layers can route on it.
+    const wrapped =
+      cause instanceof ProtocolVersionError
+        ? cause
+        : new EnvelopeValidationError("broker stdin", cause);
     emitErrorLine(wrapped);
+    const denyKind =
+      cause instanceof ProtocolVersionError
+        ? "protocol version mismatch"
+        : "malformed request envelope";
     return createAskResponse({
       id: "<malformed>",
       decision: "deny",
-      reason: `[hook-kit broker] malformed request envelope: ${wrapped.message}`,
+      reason: `[hook-kit broker] ${denyKind}: ${wrapped.message}`,
     });
   }
 

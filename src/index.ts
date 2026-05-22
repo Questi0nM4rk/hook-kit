@@ -38,6 +38,7 @@ export {
   JsonParseError,
   ObserverError,
   ProcessSpawnError,
+  ProtocolVersionError,
   RuleEvaluationError,
   ShellAstParseError,
   StateStoreError,
