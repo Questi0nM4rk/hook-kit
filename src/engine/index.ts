@@ -312,6 +312,26 @@ async function evaluateInternal(
     return toolInputHashCache;
   };
 
+  /** Fire observers for an engine-emitted error annotation (no rule ran).
+   *  ruleId uses the synthetic `<engine>:<source>` prefix to keep records
+   *  uniformly addressable; timingMs is 0 because no rule.evaluate() was
+   *  bracketed. Only called when observersActive. */
+  const notifyEngineError = (source: string, err: HookKitError): void => {
+    notifyObservers(
+      observers ?? [],
+      buildRecord({
+        event,
+        toolInputHash: getToolInputHash(),
+        ruleId: `<engine>:${source}`,
+        ruleKind: source,
+        decision: "error",
+        reason: err.message,
+        timingMs: 0,
+      }),
+      annotations,
+    );
+  };
+
   const flushState = async (): Promise<void> => {
     try {
       await state.flush();
@@ -319,6 +339,9 @@ async function evaluateInternal(
       const err =
         cause instanceof HookKitError ? cause : new StateStoreError("flush", undefined, cause);
       annotations.push(errorAnnotation(err));
+      if (observersActive) {
+        notifyEngineError("state-flush", err);
+      }
     }
   };
 
@@ -328,6 +351,9 @@ async function evaluateInternal(
   const drainContextErrors = (): void => {
     for (const err of drainErrors()) {
       annotations.push(errorAnnotation(err));
+      if (observersActive) {
+        notifyEngineError("shell-ast", err);
+      }
     }
   };
 
@@ -439,6 +465,22 @@ async function evaluateInternal(
       // warning / note / (rule-emitted error — type-allowed but engine never
       // produces this; if a rule somehow emits one, accumulate like any other)
       annotations.push(decision);
+      if (observersActive) {
+        notifyObservers(
+          observers,
+          buildRecord({
+            event,
+            toolInputHash: getToolInputHash(),
+            ruleId,
+            ruleKind: rule.kind,
+            decision: decision.kind,
+            reason: decision.message,
+            ...(decision.label === undefined ? {} : { label: decision.label }),
+            timingMs,
+          }),
+          annotations,
+        );
+      }
     }
   }
 
