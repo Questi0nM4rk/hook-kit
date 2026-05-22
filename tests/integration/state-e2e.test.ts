@@ -1,5 +1,4 @@
 // biome-ignore-all lint/style/noMagicNumbers: integration tests use literal counter/threshold values inline so cross-feature wiring stays readable; named constants would obscure the test intent.
-// biome-ignore-all lint/suspicious/noConsole: the restart-recovery test silences the M1.5 same-process warning emitted by TmpdirStore when sequentially opening two instances on the same path (NOT a concurrent-stores violation in this restart-recovery pattern).
 
 // M1.5 + M1.1 + M1.2 triple-window e2e — per L-M1.3-5.
 //
@@ -29,11 +28,16 @@ import { join } from "node:path";
 import { stateful } from "../../src/builders/state.js";
 import { warning } from "../../src/core/decision.js";
 import { createModule } from "../../src/core/module.js";
-import type { HookEvent, HookModule } from "../../src/core/types.js";
+import type { HookModule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
 import { __resetOpenPathsForTests, TmpdirStore } from "../../src/state/tmpdir-store.js";
+// Per L-M1.1-2 the testing SDK is the primary lens for tests; integration
+// tests showcase the SDK helpers (bashEvent / mockObserver / mockState)
+// downstream consumers are pointed at.
+import { bashEvent } from "../../src/testing/events.js";
 import { mockObserver } from "../../src/testing/mock-observer.js";
 import { mockState } from "../../src/testing/mock-state.js";
+import { silenceConsoleWarn } from "../_helpers.js";
 
 let workDir: string;
 
@@ -46,20 +50,6 @@ afterEach(() => {
   rmSync(workDir, { recursive: true, force: true });
   __resetOpenPathsForTests();
 });
-
-/** Helper: synthetic Bash event with a deterministic sessionId for state
- *  paths. Mirrors tests/_helpers bashEvent but with sessionId override. */
-function bashEvent(command: string, sessionId = "s-e2e"): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId,
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
-  };
-}
 
 /** Helper: a stateful counter module. Increments `count:<command>` per
  *  invocation; emits a warning once the counter exceeds the threshold. */
@@ -217,10 +207,7 @@ describe("M1.5 state e2e — triple-window (contract + observer + adapter)", () 
     //
     // Silence the same-process warning since this IS the canonical
     // round-trip pattern (sequential, not concurrent).
-    const originalWarn = console.warn;
-    console.warn = (): void => {
-      /* silenced — restart-recovery is sequential, not concurrent-stores violation */
-    };
+    const restore = silenceConsoleWarn();
     try {
       const sessionId = "restart-recovery";
       const mod = counterModule(100);
@@ -246,7 +233,7 @@ describe("M1.5 state e2e — triple-window (contract + observer + adapter)", () 
       // Below threshold (100) so no warning.
       expect(r4.annotations).toHaveLength(0);
     } finally {
-      console.warn = originalWarn;
+      restore();
     }
   });
 });
