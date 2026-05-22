@@ -90,7 +90,8 @@ async function runHk(bin: string, command: string): Promise<HkResult> {
 }
 
 let stagedBin: string;
-let cleanup: () => void;
+// Defensive: beforeAll could throw before the assignment, leaving cleanup undefined.
+let cleanup: (() => void) | undefined;
 
 beforeAll(async () => {
   const dir = mkdtempSync(join(tmpdir(), "hook-kit-warn-"));

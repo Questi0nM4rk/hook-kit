@@ -80,7 +80,8 @@ export async function forwardUp(
 
   const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
   const start = Date.now();
-  while (true) {
+  // Poll loop; break on parent decided-file arrival or timeout.
+  for (;;) {
     if (existsSync(parentDecided)) {
       const raw = readFileSync(parentDecided, "utf8");
       const parsed = parseAskResponse(raw);

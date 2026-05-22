@@ -275,9 +275,7 @@ async function evaluateInternal(
         return { terminal: decision, annotations: keepOnlyErrors(annotations) };
       }
       if (decision.kind === "ask") {
-        if (terminal === null) {
-          terminal = decision;
-        }
+        terminal ??= decision;
         continue;
       }
       // warning / note / (rule-emitted error — type-allowed but engine never
@@ -399,13 +397,20 @@ function buildEvalContext(
   };
 }
 
+// Noop StateStore stub: every method is intentionally empty — writes drop,
+// delete is a no-op, flush has nothing to persist. The empty body IS the
+// contract for the "no state configured" engine path. Inline comments
+// satisfy both biome's noEmptyBlockStatements and eslint's no-empty-function.
 const noopState: StateStore = {
   get: () => undefined,
-  // biome-ignore lint/suspicious/noEmptyBlockStatements: noop StateStore stub — empty body is the implementation.
-  set: () => {},
+  set: () => {
+    /* noop — see noopState header comment */
+  },
   has: () => false,
-  // biome-ignore lint/suspicious/noEmptyBlockStatements: noop StateStore stub — empty body is the implementation.
-  delete: () => {},
-  // biome-ignore lint/suspicious/noEmptyBlockStatements: noop StateStore stub — empty body is the implementation.
-  flush: () => {},
+  delete: () => {
+    /* noop — see noopState header comment */
+  },
+  flush: () => {
+    /* noop — see noopState header comment */
+  },
 };

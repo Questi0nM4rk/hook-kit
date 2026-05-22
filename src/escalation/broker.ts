@@ -211,7 +211,8 @@ export async function brokerAskpass(
   // Poll for decided/<id>.json. With no timeout (default), this loops until
   // either a listener writes a decision or the broker process is killed.
   const start = Date.now();
-  while (true) {
+  // Poll loop; break on decided-file arrival or timeout (handled inside).
+  for (;;) {
     if (existsSync(decidedPath)) {
       try {
         const raw = readFileSync(decidedPath, "utf8");
