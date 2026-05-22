@@ -22,7 +22,7 @@ describe("evaluateRule() — single-rule test helper", () => {
   });
 
   test("works with custom() rules — no need to build EvalContext by hand", async () => {
-    const rule: Rule = custom("test", async (event) => {
+    const rule: Rule = custom("test", (event) => {
       const cmdInput = event.toolInput.command;
       const command = typeof cmdInput === "string" ? cmdInput : "";
       return command.includes("secret") ? deny("found", "[custom-test]") : null;

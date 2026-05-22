@@ -39,16 +39,25 @@ describe("expectModule.toDeny", () => {
 
   test("throws when reason doesn't match", async () => {
     const mod = modOf(cmd("rm").deny("foo"));
-    expect(expectModule(mod).onCommand("rm /tmp/x").toDeny(/bar/)).rejects.toThrow(
-      /expected deny reason matching/,
-    );
+    // bun:test's `.rejects.toThrow()` types as void but resolves async at runtime; use try/await/catch so eslint can see the awaited promise.
+    let caught: unknown;
+    try {
+      await expectModule(mod).onCommand("rm /tmp/x").toDeny(/bar/);
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as Error | undefined)?.message).toMatch(/expected deny reason matching/);
   });
 
   test("throws when terminal is not deny", async () => {
     const mod = modOf(cmd("rm").ask("review"));
-    expect(expectModule(mod).onCommand("rm /tmp/x").toDeny()).rejects.toThrow(
-      /expected deny terminal/,
-    );
+    let caught: unknown;
+    try {
+      await expectModule(mod).onCommand("rm /tmp/x").toDeny();
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as Error | undefined)?.message).toMatch(/expected deny terminal/);
   });
 });
 
@@ -69,9 +78,13 @@ describe("expectModule.toRun", () => {
 
   test("throws when a terminal fires", async () => {
     const mod = modOf(cmd("rm").deny("blocked"));
-    expect(expectModule(mod).onCommand("rm /tmp/x").toRun()).rejects.toThrow(
-      /expected no terminal/,
-    );
+    let caught: unknown;
+    try {
+      await expectModule(mod).onCommand("rm /tmp/x").toRun();
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as Error | undefined)?.message).toMatch(/expected no terminal/);
   });
 });
 
@@ -88,9 +101,13 @@ describe("expectModule.toWarn", () => {
 
   test("throws when no warning fires", async () => {
     const mod = modOf(cmd("rm").note("just a note"));
-    expect(expectModule(mod).onCommand("rm /tmp/x").toWarn()).rejects.toThrow(
-      /at least one warning/,
-    );
+    let caught: unknown;
+    try {
+      await expectModule(mod).onCommand("rm /tmp/x").toWarn();
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as Error | undefined)?.message).toMatch(/at least one warning/);
   });
 });
 

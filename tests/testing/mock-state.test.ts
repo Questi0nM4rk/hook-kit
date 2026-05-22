@@ -73,7 +73,14 @@ describe("mockState", () => {
         },
       },
     );
-    expect(s.flush()).rejects.toThrow("disk full");
+    // bun:test's `.rejects.toThrow()` types as void; use try/await/catch so eslint sees the awaited promise.
+    let caught: unknown;
+    try {
+      await s.flush();
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as Error | undefined)?.message).toBe("disk full");
   });
 
   test("two mockState calls produce independent stores", () => {

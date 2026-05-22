@@ -42,6 +42,7 @@ describe("run() — adapter round-trip", () => {
   test("delegates readInput failure to handleError (fail-open)", async () => {
     let captured: unknown;
     const adapter: ProtocolAdapter = {
+      // eslint-disable-next-line @typescript-eslint/require-await -- async throw is the test fixture's whole point: ProtocolAdapter contract returns Promise<HookEvent>; sync throw would bypass the engine's promise-rejection handling path the test is asserting against.
       readInput: async () => {
         throw new Error("stdin broken");
       },
