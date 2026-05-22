@@ -37,3 +37,16 @@ jobs:
         env:
           BASE_REF: ${{ github.base_ref }}
         run: bun scripts/check-changelog.ts --base "origin/$BASE_REF"
+
+  semgrep:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run semgrep
+        # --config auto = semgrep registry default ruleset (security + ecosystem).
+        # --error makes any finding fail the job (CP-1: no warn, only error).
+        # Excludes mirror the lefthook hook-scope spirit: skip tests/fixtures/docs/examples.
+        run: |
+          pip install semgrep
+          semgrep --config auto --error --exclude tests/ --exclude tests-isolated/ --exclude examples/ --exclude docs/
