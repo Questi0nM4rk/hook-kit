@@ -2,11 +2,11 @@
 
 # `hook-kit`
 
-**Agent-agnostic shell-wrapper hook binaries** — TypeScript rule definitions compiled to a single standalone `hk` binary that substitutes for `bash -c`. Decisions surface through `stdout` / `stderr` / exit-code. No JSON wire protocol, no harness coupling, no per-agent adapter required.
+**Caller-agnostic shell-wrapper hook binaries** — TypeScript rule definitions compiled to a single standalone `hk` binary that substitutes for `bash -c`. Decisions surface through `stdout` / `stderr` / exit-code. No JSON wire protocol, no harness coupling — it works for any caller that shells out (an AI agent, a human, a CI script). For harnesses with non-shell tool channels, a companion adapter bin is ~50 LOC (see [`docs/ADAPTERS.md`](docs/ADAPTERS.md)).
 
 [![npm](https://img.shields.io/npm/v/@questi0nm4rk/hook-kit?color=cb3837&label=npm)](https://www.npmjs.com/package/@questi0nm4rk/hook-kit)
 [![types](https://img.shields.io/npm/types/@questi0nm4rk/hook-kit?color=3178c6)](https://www.npmjs.com/package/@questi0nm4rk/hook-kit)
-[![binary](https://img.shields.io/badge/compiled%20binary-~66%20MB-7e57c2)](./dist)
+[![binary](https://img.shields.io/badge/compiled%20binary-~77%20MB-7e57c2)](./dist)
 [![bun](https://img.shields.io/badge/bun-%E2%89%A5%201.2-fbf0df)](./package.json)
 [![license](https://img.shields.io/npm/l/@questi0nm4rk/hook-kit?color=blue)](./LICENSE)
 [![CI](https://github.com/Questi0nM4rk/hook-kit/actions/workflows/test.yml/badge.svg)](https://github.com/Questi0nM4rk/hook-kit/actions/workflows/test.yml)
@@ -115,7 +115,7 @@ The contract every caller can rely on:
 
 `<prefix>` is the user-supplied decision label when set (e.g. `[my-plugin]`), or `[hook-kit]` when no label is provided.
 
-**0-silent-fails (0.5+):** every internal failure path constructs a typed `HookKitError` (`FileReadError`, `FileWriteError`, `JsonParseError`, `EnvelopeValidationError`, `ShellAstParseError`, `ProcessSpawnError`, `RuleEvaluationError`, `StateStoreError`). Engine-boundary failures (rule throws, AST parse errors, state flush failures) surface as `error` annotations in `EvaluationOutcome.annotations`. Security-boundary failures (broker envelope, askpass IPC) emit the same typed error to stderr **and** fail-CLOSED with a synthesized `deny`. The exception classes are exported from `@questi0nm4rk/hook-kit` for `instanceof` checks in custom rules.
+**0-silent-fails (0.5+):** every internal failure path constructs a typed `HookKitError` (`FileReadError`, `FileWriteError`, `JsonParseError`, `EnvelopeValidationError`, `ProtocolVersionError`, `ShellAstParseError`, `ProcessSpawnError`, `RuleEvaluationError`, `StateStoreError`, `ObserverError`). Engine-boundary failures (rule throws, AST parse errors, state flush failures, observer throws) surface as `error` annotations in `EvaluationOutcome.annotations`. Security-boundary failures (broker envelope, askpass IPC) emit the same typed error to stderr **and** fail-CLOSED with a synthesized `deny`. The exception classes are exported from `@questi0nm4rk/hook-kit` for `instanceof` checks in custom rules.
 
 Approved commands run transparently. Denied commands never run. Escalated commands never run, but the warning goes to `stdout` (so a tail-the-output agent sees it without losing access to `stderr` for actual errors). Annotations (warning/note) are non-blocking — the command runs and its output flows below the `---` separator.
 
@@ -554,7 +554,7 @@ src/
 ├── core/         types.ts, decision.ts, event.ts, module.ts
 ├── builders/     cmd(), path(), pipe(), redirect(), content(), custom(), stateful() — primitives only; no pre-built rules ship
 ├── engine/       evaluate() loop + helpers (flag aliases, inline-shell extraction)
-├── wrapper/      hk.ts — runShell() (the v0.4 default)
+├── wrapper/      hk.ts — runShell() (the default adapter)
 ├── adapters/     ProtocolAdapter: claude-code (cc-tools), raw
 ├── state/        StateStore: memory-store, tmpdir-store
 ├── escalation/   askpass, broker, envelope, forward, listeners, watch-tui, enrich-git
@@ -597,7 +597,7 @@ The engine is intentionally minimal — its only job is to map `(event, modules)
 
 ## Quality bar
 
-- **418 tests across 37 files** covering rule builders (incl. `pipe` / `redirect` / `withDdash`), the engine (incl. inline-shell recursion + depth limit), the shell wrapper output convention, the cc-tools adapter, both state stores, the entire escalation system (envelope schemas, askpass child-process invocation, broker spool atomicity, listener marker liveness, `NO PARENT ATTACHED` validator, escalate-up forwarding, the TUI render function), git enrichment, and real compile + execute end-to-end smokes for both binary modes.
+- **649 tests** covering rule builders (incl. `pipe` / `redirect` / `withDdash`), the engine (incl. inline-shell recursion + depth limit + the `DecisionObserver` feed), the shell wrapper output convention, the cc-tools adapter, both state stores, the entire escalation system (envelope schemas, askpass child-process invocation, broker spool atomicity, listener marker liveness, `NO PARENT ATTACHED` validator, escalate-up forwarding, the TUI render function), git enrichment, and real compile + execute end-to-end smokes for both binary modes. (Run via `bun run test` — the regular suite plus the isolated- and example-test processes.)
 - **CI gate** (`.github/workflows/test.yml`) — `bun install --frozen-lockfile` + `biome check` + `bun test` on push to main and every PR. Red CI = no merge.
 - **`mock.module()` isolation** — Bun's process-sticky module mocks ([oven-sh/bun#14516](https://github.com/oven-sh/bun/issues/14516)) would poison sibling tests in the regular suite. The `tests-isolated/` directory runs as its own `bun test` process so each isolated test file is its own context.
 - **Compiled-binary smoke tests** baked in — `tests/build/example-ai-guardrails.test.ts` and `tests/build/adversarial.test.ts` build a real `dist/hk` and run 50+ adversarial inputs (alias expansion, sudo unwrap, inline-shell recursion, redirects, edge cases). A regression in the bundler or shell-ast WASM loading fails the build, not silently fails at user-deploy.
@@ -630,6 +630,25 @@ cat ~/.cache/hook-kit/sessions/$SESSION_ID/audit.jsonl
 ```
 
 Each decision can carry a `label` (e.g. `[my-plugin]`) for source attribution across modules.
+
+### `DecisionObserver` — the structured-data feed
+
+`HOOK_KIT_VERBOSE` is the human-readable stderr trace; `DecisionObserver` is the programmatic per-decision feed for log sinks (syslog, OTLP, file, custom transport) that shouldn't have to parse wrapper stdout. Register observers through `EvaluateOptions.observers`; the engine calls `onDecision(record)` once per terminal (`deny` / `ask`) and once per annotation (`warning` / `note` / `error`).
+
+```typescript
+import { evaluate, type DecisionObserver, type DecisionEventRecord } from "@questi0nm4rk/hook-kit";
+import modules from "./hooks.js";
+
+const jsonl: DecisionObserver = {
+  onDecision(r: DecisionEventRecord) {
+    process.stderr.write(`${JSON.stringify(r)}\n`); // ship to your sink
+  },
+};
+
+await evaluate(event, modules, { observers: [jsonl] });
+```
+
+Each `DecisionEventRecord` carries a timestamp, rule id, decision kind, reason, optional label, per-rule `timingMs`, and an `event` sub-shape. `toolInput` is **never** logged — only its sha256 hex hash — so observers don't leak secrets by default. A throw from `onDecision` is caught, surfaced as an `ObserverError` `error` annotation, and the decision proceeds (fail-open at the observer boundary). The default zero-observer path is zero-overhead. The testing SDK ships `mockObserver()` for asserting the decision stream. Full contract in [`docs/SPEC.md`](docs/SPEC.md) § Observability.
 
 ---
 
@@ -680,39 +699,9 @@ hk --help
 
 ---
 
-## Explicit trade-offs
+## Design rationale
 
-| Chose | Over | Because |
-|---|---|---|
-| Shell wrapper as the v0.4 default | Harness adapter as the default | Caller-agnostic by design — no JSON wire protocol with the harness, decisions surface through the same channel the caller already reads. Works for any caller that runs commands. |
-| `pipe()` and `redirect()` as first-class builders | Express via `cmd()` | They can't be — different AST shapes (`BinaryCmd`, `Stmt` redirs). Necessary for canonical patterns (`curl\|bash`, `cmd > .env`). |
-| Inline-shell recursion default-on | Opt-in | Without it every `cmd()` rule has a 1-line bypass via `bash -c "…"`. |
-| Wrapper output convention (stdout/stderr/exit-code) | JSON output | The caller already reads shell I/O. No new parser needed to consume a decision. |
-| Per-plugin binaries | One monolithic binary | Plugin isolation; independent release cycles. |
-| Variadic `cmd(command, ...sub)` | Named or array sub | Most natural TypeScript API; covers single-level and multi-level subcommands. |
-| Fail open on infra errors | Fail closed | Hook framework bugs must not block users. Security-critical rules belong in the harness's own deny list. |
-| `HOOK_KIT_ASKPASS` unset → harness-ask fallthrough | Hard-deny on unset askpass | Most simple "ask the user" hooks don't need a broker tree. Iron-Law-4 fail-closed is preserved when broker infra is *expected* but broken. |
-| Per-session ask channels | One global queue | Avoids cross-session noise when multiple sessions × subagents are active. Discovery via `meta.json` parent links. |
-| Tree-shaped escalation with `escalate-up` forward | Auto-routing in the broker | Listeners explicitly choose to forward, matching the user's mental model. Synchronous forwarder, no daemon, audit trail per hop. |
-| Filesystem spool inside the broker | Socket-only or HTTP | Inspectable, crash-safe, atomic via `rename(2)`, no daemon strictly required. |
-| Askpass as the public escalation contract | A dedicated socket protocol | Decades of prior art (`sudo`, `ssh`, `git`, `gpg`). Any binary can be a responder. |
-| Blacklist semantics | Whitelist | Matches harness behavior. One block wins regardless of others. |
-| No default `--hook-timeout` | Sensible default like 65s or 3600s | Either default has a wrong tail. Forcing the plugin author to pick makes the trade-off explicit at build time. |
-
----
-
-## Change triggers
-
-The design assumes the following. If any of them changes, revisit the noted area.
-
-- **Assumes:** Every caller that needs gating shells out for the action it cares about. **If** a target harness has a critical action that bypasses the shell entirely with no equivalent tool event (no `Edit`/`Write`/`Read`-style hook channel either) → the shell wrapper alone gives no coverage; either build a custom adapter bin for that harness's channel or accept the gap. Document explicitly.
-- **Assumes:** shell-AST can parse Bash / POSIX / mksh dialects with sufficient fidelity for rule matching. **If** a target shell (fish, nushell, PowerShell) becomes a primary integration → shell-ast may not cover it; either contribute parsing or use a different parser layer. Rules built on AST traversal would need to be reconfirmed.
-- **Assumes:** Cold start ~50ms is fast enough for the wrapper to sit in front of every command. **If** a profile shows the wrapper adds noticeable latency to interactive use → drop the bytecode build (`bun build --compile` without `--bytecode`) or split the engine into a long-running daemon spoken to over a socket. Output convention stays the same.
-- **Assumes:** `HOOK_KIT_ASKPASS` unset → harness-ask is acceptable as the default. **If** a deployment context demands hard-deny on missing infra (e.g. CI where there's no human to answer) → set `HOOK_KIT_ASKPASS=/bin/false` explicitly. This is a deployment-time decision, not a code change.
-- **Assumes:** Escalation is rare (the broker tree is invoked only on `ask` decisions, not on every command). **If** a plugin starts using `ask` for the common path → either revisit the rule (most "ask" use cases should be `deny` with a clear remediation, or `warning` / `note` with informational messaging) or expect operational complexity from broker setup.
-- **Assumes:** Per-plugin compiled binaries are acceptable disk footprint (~66 MB each). **If** disk pressure becomes an issue (e.g. many plugins on a small system) → drop bytecode (smaller binary, slower start) or move to a shared runtime model.
-- **Assumes:** The output convention `stderr+exit-2` for deny / `stdout+exit-1` for ask is unambiguous downstream. **If** a caller can't distinguish those (e.g. captures only one stream, or treats any non-zero as fatal) → it'll lose the deny/ask distinction. Document the contract explicitly in any wrapper docs the caller might use.
-- **Assumes:** Iron Laws hold without weakening. **If** any future feature would require fail-closed behavior on a non-ask path (e.g. mandatory whitelist mode) → that's a new mode, not an extension of the current one. Spec it as a separate decision kind, not by reweighing the existing fail-open semantics.
+The full **trade-off rationale** (why shell-wrapper-as-default, why fail-open, why filesystem spool, etc.) and the **change-trigger assumptions** (what the design assumes and when to revisit each area) live in [`docs/SPEC.md`](docs/SPEC.md) § Key Trade-offs and § Change triggers.
 
 ---
 
@@ -735,6 +724,7 @@ See [`examples/ai-guardrails/README.md`](examples/ai-guardrails/README.md) for t
 - [**docs/SPEC.md**](docs/SPEC.md) — single living spec; Iron Laws, output convention, escalation tree, all architectural truth.
 - [**docs/ADAPTERS.md**](docs/ADAPTERS.md) — `ProtocolAdapter` contract; how to author a new adapter (Cursor / Cline / MCP / custom).
 - [**docs/ESCALATION.md**](docs/ESCALATION.md) — askpass envelope schema + broker filesystem-spool protocol + listener-authoring guide.
+- [**docs/STATE.md**](docs/STATE.md) — `StateStore` contract (the four guarantees), read-modify-write pattern, per-store comparison. Backs the cross-invocation state recipe above.
 - [**docs/STABILITY.md**](docs/STABILITY.md) — three-tier stability system + deprecation cycle.
 - [**examples/ai-guardrails/README.md**](examples/ai-guardrails/README.md) — reference plugin walkthrough.
 - [**examples/adapter-template/README.md**](examples/adapter-template/README.md) — fork-and-modify scaffold for a custom adapter.
@@ -750,21 +740,24 @@ Prerequisites: Bun ≥ 1.2 (used as runtime, test runner, and binary compiler), 
 git clone https://github.com/Questi0nM4rk/hook-kit
 cd hook-kit
 bun install
-bun test                # 418 tests across 37 files
+bun run test            # full suite (see the test count in Quality bar)
 bun run typecheck       # tsc --noEmit
-bun run lint            # biome check
+bun run lint            # biome + eslint
 bun run build           # emit dist/types
 bun run build:bin       # compile the hook-kit CLI binary itself
 ```
 
-The npm `test` script runs two `bun test` invocations:
+The npm `test` script runs three separate `bun test` processes (under a coverage-floor wrapper):
 
 ```bash
-bun test tests/ && bun test tests-isolated/
+bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/adapter-template/tests/
 ```
+
+(`check-coverage.ts` internally runs `bun test tests/ --coverage` — the regular suite.)
 
 - `tests/` — the regular suite.
 - `tests-isolated/` — tests that need `mock.module()` for module-level mocks. Bun's `mock.module()` is process-sticky across files ([oven-sh/bun#14516](https://github.com/oven-sh/bun/issues/14516)) and would poison sibling tests in the regular suite. The split keeps each isolated test file its own `bun test` process. **Don't add `mock.module()` to anything under `tests/` — put it under `tests-isolated/` instead.**
+- `examples/adapter-template/tests/` — the adapter-template's own in-process unit tests, run in their own process for the same isolation reason.
 
 ### Releasing
 
@@ -781,20 +774,9 @@ git push --follow-tags
 
 ## Status
 
-Pre-release (`0.x`). Current: **`0.7.0`**. The shell-wrapper API + output convention is intended to stabilize toward `1.0`. Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
+Pre-release (`0.x`) — see the [npm badge](https://www.npmjs.com/package/@questi0nm4rk/hook-kit) above for the current published version. The shell-wrapper API + output convention is intended to stabilize toward `1.0`; stability tiers per export are tracked in [`docs/STABILITY.md`](docs/STABILITY.md). Adapter-bin shape (CC, future Cursor / OpenCode / KiloCode) and broker spool layout are stable across `0.x`.
 
-**0.7.0 highlights** (pure addition):
-
-- New subpath `@questi0nm4rk/hook-kit/testing` — first-class test-builders SDK. `expectModule` / `expectRule` fluent runner; `bashEvent`/`writeEvent`/`editEvent`/`readEvent` factories; `mockState` Map-backed StateStore; `mockAskpass` POSIX-shell script generator. Worked examples below.
-
-**0.6.0 highlights** (breaking on default command-name matching; pure addition for the rest):
-
-- `cmd()` default-basename match (`cmd("git")` fires on `/usr/bin/git`). `.strictPath()` opts out.
-- `.flagValueMatches(flag, /regex/)` and `.flagValueEquals(flag, value)` on `cmd()`.
-- `EvaluateOptions.shellAstOpts.globalFlags` for per-tool value-flag registration.
-- Bumped to shell-ast `^0.6.0` (adopts polymorphic query helpers + IDEOLOGY §11 "primary lens completeness").
-
-Published to npm as [`@questi0nm4rk/hook-kit`](https://www.npmjs.com/package/@questi0nm4rk/hook-kit).
+Per-version highlights live in the [`CHANGELOG.md`](CHANGELOG.md). Published to npm as [`@questi0nm4rk/hook-kit`](https://www.npmjs.com/package/@questi0nm4rk/hook-kit).
 
 ---
 
