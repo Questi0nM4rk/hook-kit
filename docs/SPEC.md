@@ -1,8 +1,8 @@
 # hook-kit
 
-> **Status:** spec describes the 0.8 surface, audited 2026-05-20 (M0 of the v1.0 plan). Every symbol mentioned below exists in `src/` at this revision. Stability tiers are tagged at the declaration site — see [`STABILITY.md`](./STABILITY.md) and the full export inventory in [`specs/v1.0-exports.md`](./specs/v1.0-exports.md). Features marked "subject to M1–M5" reflect planned 1.x evolution; their shape may shift before 1.0.0 ships. The v1.0 roadmap lives in [`plans/v1.0.0.md`](./plans/v1.0.0.md).
+> **Status:** spec describes the 0.8 surface, audited 2026-05-20. Every symbol mentioned below exists in `src/` at this revision. Stability tiers are tagged at the declaration site — see [`STABILITY.md`](./STABILITY.md) and the full export inventory in [`specs/v1.0-exports.md`](./specs/v1.0-exports.md). Features marked "subject to a future minor" reflect planned 1.x evolution; their shape may shift before 1.0.0 ships.
 
-Build agent-agnostic shell-wrapper hook binaries. Real shell-AST parsing, output via stdout/stderr/exit-code, no JSON wire protocol with the caller, no harness coupling. Optional adapter bins extend coverage to harness tool-call channels (Claude Code's `Edit` / `Write` / `Read`, etc.) for the cases that bypass the shell.
+Build caller-agnostic shell-wrapper hook binaries — they work for any caller that shells out (an AI agent, a human, a CI script). Real shell-AST parsing, output via stdout/stderr/exit-code, no JSON wire protocol with the caller, no harness coupling. For harnesses with non-shell tool channels (Claude Code's `Edit` / `Write` / `Read`, etc.), an optional companion adapter bin (~50 LOC) extends coverage to the cases that bypass the shell.
 
 ## Problem
 
@@ -26,7 +26,7 @@ hook-kit ships one primitive: a shell wrapper that parses commands with shell-AS
 4. **Fail open on infrastructure errors.** State-store disk full, JSON parse error, rule throws — caught, treated as silent. Hook-kit never blocks a user because of its own bugs. Exception: `ask` with no responder and no harness UI to fall back to denies with a reason.
 5. **Blacklist semantics.** There is no `allow` decision. A hook either blocks (deny) / asks / annotates (warning, note) — or stays silent. Silent = nothing was wrong.
 6. **Output convention is the wire format.** stdout for needs-review (ask) and annotations (warning, note), stderr for errors (deny), exit code carries success/failure. No caller needs a JSON parser to consume an outcome.
-7. **Each plugin compiles its own binary.** Plugin isolation. One plugin can iterate without affecting the others. ~50 MB per binary; sub-50 ms cold start.
+7. **Each plugin compiles its own binary.** Plugin isolation. One plugin can iterate without affecting the others. ~77 MB per binary; sub-50 ms cold start.
 8. **Escalation is async, tree-shaped, out-of-band.** Escalation requests publish to per-session ask channels and propagate up a `parent_session_id` tree. Any registered listener (TTY, parent agent, bridge) can answer through the same `askpass` contract; listeners that don't want to decide forward up via `escalate-up`. When the chain exhausts at the root, `harness-ask` delegates to whatever native UI the harness has (or, with `HOOK_KIT_ASKPASS` unset, falls through to harness-ask immediately — no broker infra needed for simple "ask the user" hooks).
 
 ## Architecture
@@ -740,9 +740,22 @@ The hash is cached per evaluation: all observer records emitted from a single `e
 | Filesystem spool inside the broker | Socket-only or HTTP | Inspectable, crash-safe, atomic via `rename(2)`, no daemon strictly required. |
 | Askpass as the public escalation contract | A dedicated socket protocol | Decades of prior art (sudo, ssh, git, gpg). Any binary can be a responder. |
 
+## Change triggers
+
+The design assumes the following. If any of them changes, revisit the noted area.
+
+- **Assumes:** Every caller that needs gating shells out for the action it cares about. **If** a target harness has a critical action that bypasses the shell entirely with no equivalent tool event (no `Edit`/`Write`/`Read`-style hook channel either) → the shell wrapper alone gives no coverage; either build a custom adapter bin for that harness's channel or accept the gap. Document explicitly.
+- **Assumes:** shell-AST can parse Bash / POSIX / mksh dialects with sufficient fidelity for rule matching. **If** a target shell (fish, nushell, PowerShell) becomes a primary integration → shell-ast may not cover it; either contribute parsing or use a different parser layer. Rules built on AST traversal would need to be reconfirmed.
+- **Assumes:** Cold start ~50ms is fast enough for the wrapper to sit in front of every command. **If** a profile shows the wrapper adds noticeable latency to interactive use → drop the bytecode build (`bun build --compile` without `--bytecode`) or split the engine into a long-running daemon spoken to over a socket. Output convention stays the same.
+- **Assumes:** `HOOK_KIT_ASKPASS` unset → harness-ask is acceptable as the default. **If** a deployment context demands hard-deny on missing infra (e.g. CI where there's no human to answer) → set `HOOK_KIT_ASKPASS=/bin/false` explicitly. This is a deployment-time decision, not a code change.
+- **Assumes:** Escalation is rare (the broker tree is invoked only on `ask` decisions, not on every command). **If** a plugin starts using `ask` for the common path → either revisit the rule (most "ask" use cases should be `deny` with a clear remediation, or `warning` / `note` with informational messaging) or expect operational complexity from broker setup.
+- **Assumes:** Per-plugin compiled binaries are acceptable disk footprint (~77 MB each). **If** disk pressure becomes an issue (e.g. many plugins on a small system) → drop bytecode (smaller binary, slower start) or move to a shared runtime model.
+- **Assumes:** The output convention `stderr+exit-2` for deny / `stdout+exit-1` for ask is unambiguous downstream. **If** a caller can't distinguish those (e.g. captures only one stream, or treats any non-zero as fatal) → it'll lose the deny/ask distinction. Document the contract explicitly in any wrapper docs the caller might use.
+- **Assumes:** Iron Laws hold without weakening. **If** any future feature would require fail-closed behavior on a non-ask path (e.g. mandatory whitelist mode) → that's a new mode, not an extension of the current one. Spec it as a separate decision kind, not by reweighing the existing fail-open semantics.
+
 ## Considered Future Additions
 
-> Subject to M1–M5 of the v1.0 plan (see [`plans/v1.0.0.md`](./plans/v1.0.0.md)). The DecisionObserver API, the spec'd extension contracts (`ADAPTERS.md`, `ESCALATION.md`, `STATE.md`), production primitives (SqliteStateStore, benches, integrity helpers), additional builders (`env`/`subshell`/`regex`/`frequency`), and the testing-SDK analytics (`coverageReport`, conflict detection, snapshot harness) land in the 1.0 milestones rather than as 1.x add-ons. Items in this section are the ones still deferred AFTER the 1.0 cut.
+> Subject to the v1.0 roadmap. The DecisionObserver API, the spec'd extension contracts (`ADAPTERS.md`, `ESCALATION.md`, `STATE.md`), production primitives (SqliteStateStore, benches, integrity helpers), additional builders (`env`/`subshell`/`regex`/`frequency`), and the testing-SDK analytics (`coverageReport`, conflict detection, snapshot harness) land in the 1.0 milestones rather than as 1.x add-ons. Items in this section are the ones still deferred AFTER the 1.0 cut.
 
 Things explored but deliberately deferred. Logged so we don't re-litigate.
 
