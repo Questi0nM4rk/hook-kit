@@ -30,7 +30,7 @@ export function coverageReport(...): Promise<CoverageReport>;
 
 - **Promise:** subject to breaking change in any minor release. Such a change WILL get a one-release deprecation cycle (see below) — but the cycle is one minor version, not one major version. Patch releases will not break EXPERIMENTAL exports.
 - **When to use them:** when you accept the looser stability contract for early access to the API. EXPERIMENTAL exports are usually labelled when downstream feedback could reshape them — shipping them gets the feedback, but consumers should expect to revisit their integration sooner than they would for STABLE.
-- **Current EXPERIMENTAL surface (1.0.0):** none. First entries land in M2 (`SqliteStateStore`'s schema details) and M4 (`coverageReport`, conflict detection, snapshot harness) per `docs/plans/v1.0.0.md`.
+- **Current EXPERIMENTAL surface (1.0.0):** none. First entries land in a later 1.x minor (`SqliteStateStore`'s schema details; `coverageReport`, conflict detection, snapshot harness).
 
 ### INTERNAL
 
@@ -80,7 +80,7 @@ When a STABLE export is going to be removed or have a breaking change:
 
 4. **Remove at the next major.** When the major releases, the symbol drops out of `src/index.ts`. CHANGELOG's "Removed" section enumerates every dropped export and links to the deprecation notice from the minor where it landed.
 
-5. **CI enforces the floor.** `scripts/check-stable-exports.ts` (added in M0) diffs the current STABLE export set against `origin/main`. A STABLE removal without a `BREAKING CHANGE:` footer in the commit-range messages fails CI — see TASK-007 in `docs/plans/v1.0.0-tasks.md`.
+5. **CI enforces the floor.** `scripts/check-stable-exports.ts` diffs the current STABLE export set against `origin/main`. A STABLE removal without a `BREAKING CHANGE:` footer in the commit-range messages fails CI.
 
 ### Migration windows
 

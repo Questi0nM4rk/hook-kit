@@ -83,7 +83,7 @@ src/build/        hook-kit CLI: build, broker, watch, subscribe, decide, list
 - `ask` semantics (DSL verb; routes through the escalation infrastructure): `HOOK_KIT_ASKPASS` unset → falls through to harness-ask (CC ask JSON / shell-wrapper exit-1 stdout). Set + broken → deny. Set + working broker → routes through the spool tree.
 - `recurseInlineShells` defaults on. `bash -c "rm -rf /"` triggers the same `cmd("rm")` rule as the bare command.
 - **0-silent-fails:** Every internal failure path constructs a typed `HookKitError` (10 subclasses in `src/core/errors.ts`) and surfaces as either an `error` annotation (engine boundary, fail-open) or stderr line + synthesized deny (security boundary, fail-closed). Best-effort I/O sites emit-and-continue. NEVER add `catch {}` / `?? undefined` / silent `return null` patterns that hide a failure.
-- **NO `warn` severity in any static-check config.** Binary rule: every lint / static-analysis rule (biome, ESLint, codespell-equivalent, future scanners) is `"error"` (blocks CI) or `"off"` (explicitly disabled with one-line WHY). `"warn"` / `"warning"` / `"info"` are forbidden. WHY: warning fatigue defeats the signal; "X warnings" in CI becomes background noise. Forces explicit per-rule decision. Verify: `grep -inE '"(warn|warning|info)"' biome.jsonc .eslintrc.* eslint.config.* lefthook.yml 2>/dev/null` → zero matches. Distinct from hook-kit's runtime `warning` decision kind (which IS a valid annotation for end-user agent feedback). Full rationale: `docs/plans/v1.0.0-lessons.md` § Cross-phase CP-1.
+- **NO `warn` severity in any static-check config.** Binary rule: every lint / static-analysis rule (biome, ESLint, codespell-equivalent, future scanners) is `"error"` (blocks CI) or `"off"` (explicitly disabled with one-line WHY). `"warn"` / `"warning"` / `"info"` are forbidden. WHY: warning fatigue defeats the signal; "X warnings" in CI becomes background noise. Forces explicit per-rule decision. Verify: `grep -inE '"(warn|warning|info)"' biome.jsonc .eslintrc.* eslint.config.* lefthook.yml 2>/dev/null` → zero matches. Distinct from hook-kit's runtime `warning` decision kind (which IS a valid annotation for end-user agent feedback).
 
 ## Testing
 
@@ -95,7 +95,7 @@ bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/a
 
 The coverage script internally runs `bun test tests/ --coverage`. Each invocation is a separate process to keep `mock.module()` and bun's resolution scopes isolated (oven-sh/bun#14516 / L-S1b-3).
 
-- `tests/` — regular suite (586+ unit + integration tests). The coverage-floor enforcer parses its `--coverage` output.
+- `tests/` — the regular unit + integration suite (the bulk of the 649 tests across all three suites). The coverage-floor enforcer parses its `--coverage` output.
 - `tests-isolated/` — tests that need `mock.module()` for module-level mocks. **Don't add `mock.module()` to anything under `tests/` — put it under `tests-isolated/` instead.**
 - `examples/adapter-template/tests/` — adapter template's in-process unit tests. Run in their own process so any future example-local `mock.module()` use can't poison the core suite.
 - `tests/builders/` — one file per builder primitive (renamed from `tests/rules/` in 0.5.1).
