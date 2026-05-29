@@ -44,6 +44,20 @@ interface FixtureOptions {
   readonly packageExports: Record<string, unknown>;
   /** Filesystem paths (relative) to create as empty files. */
   readonly existingFiles?: readonly string[];
+  /** package.json `version` field. Omit to stage a versionless package.json
+   *  (the version-marker audit then has nothing to compare against). */
+  readonly packageVersion?: string;
+  /** Contents of a synthetic README.md. Omit to stage no README at all
+   *  (the version-marker + test-count audits skip an absent README). */
+  readonly readme?: string;
+  /** Map of relative test-dir → number of trivial passing tests to stage in
+   *  it. Used to give the test-count audit a deterministic `Ran N` per suite.
+   *  When set, the audit's three target dirs (`tests/`, `tests-isolated/`,
+   *  `examples/adapter-template/tests/`) get a `<dir>/gen.test.ts` with that
+   *  many `test()` cases. Dirs omitted from the map are left absent (the audit
+   *  treats an absent suite as a hard read-failure → exit 2, so callers that
+   *  want a clean count stage all three). */
+  readonly testSuites?: Readonly<Record<string, number>>;
 }
 
 /** Stage a tmpdir with the minimum layout the script needs. */
@@ -67,7 +81,29 @@ function stageFixture(opts: FixtureOptions): { dir: string; cleanup: () => void 
   writeFileSync(join(dir, "docs", "SPEC.md"), "# SPEC\n");
   writeFileSync(join(dir, "docs", "ADAPTERS.md"), "# ADAPTERS\n");
 
-  writeFileSync(join(dir, "package.json"), JSON.stringify({ exports: opts.packageExports }));
+  const pkg: Record<string, unknown> = { exports: opts.packageExports };
+  if (opts.packageVersion !== undefined) {
+    pkg.version = opts.packageVersion;
+  }
+  writeFileSync(join(dir, "package.json"), JSON.stringify(pkg));
+
+  if (opts.readme !== undefined) {
+    writeFileSync(join(dir, "README.md"), opts.readme);
+  }
+
+  if (opts.testSuites !== undefined) {
+    for (const [suiteDir, count] of Object.entries(opts.testSuites)) {
+      mkdirSync(join(dir, suiteDir), { recursive: true });
+      const cases = Array.from(
+        { length: count },
+        (_, i) => `test("gen ${String(i)}", () => { expect(1).toBe(1); });`,
+      ).join("\n");
+      writeFileSync(
+        join(dir, suiteDir, "gen.test.ts"),
+        `import { test, expect } from "bun:test";\n${cases}\n`,
+      );
+    }
+  }
 
   for (const path of opts.existingFiles ?? []) {
     const abs = join(dir, path);
@@ -209,5 +245,123 @@ describe("scripts/check-doc-counts.ts", () => {
     const r = await runScript(staged.dir, ["--bogus"]);
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("unrecognized arg");
+  });
+
+  // --- Audit 3: test-count ---
+  //
+  // The synthetic suites' exact `Ran N` totals depend on bun's path-arg
+  // matching across the three staged dirs, which is environment-sensitive, so
+  // these tests don't hardcode the total. Instead they derive what the script
+  // itself computed (the `total N` it prints on a deliberate mismatch) and
+  // then assert the matching/ non-matching behaviour against that value.
+
+  test("exit 0 when README test count matches the summed three-suite total", async () => {
+    const fx = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: { ".": { import: "./src/index.ts" } },
+      existingFiles: ["src/index.ts"],
+      testSuites: {
+        tests: 5,
+        "tests-isolated": 1,
+        "examples/adapter-template/tests": 1,
+      },
+      // Deliberately-wrong claim (0 can never equal the staged total) so the
+      // first run reports the computed total in its drift message.
+      readme: "# Demo\n\n0 tests across the suite.\n",
+    });
+    staged = fx;
+    const probe = await runScript(fx.dir);
+    expect(probe.exit).toBe(1);
+    const total = /total (\d+)/.exec(probe.stderr)?.[1];
+    expect(total).toBeDefined();
+    // Rewrite the README to claim the computed total; now the audit passes.
+    writeFileSync(
+      join(fx.dir, "README.md"),
+      `# Demo\n\n${String(total)} tests across the suite.\n`,
+    );
+    const r = await runScript(fx.dir);
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("all audits passed");
+  });
+
+  test("exit 1 on test-count drift (README claims wrong total)", async () => {
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: { ".": { import: "./src/index.ts" } },
+      existingFiles: ["src/index.ts"],
+      testSuites: {
+        tests: 5,
+        "tests-isolated": 1,
+        "examples/adapter-template/tests": 1,
+      },
+      // 4242 cannot equal the small staged-suite total → guaranteed drift.
+      readme: "# Demo\n\n4242 tests across the suite.\n",
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(1);
+    expect(r.stderr).toContain("claims 4242 tests");
+    expect(r.stderr).toContain("test-count");
+  });
+
+  test("test-count audit is skipped (exit 0) when no doc carries a count claim", async () => {
+    // No README, CLAUDE.md has only a subclass claim (not a test claim), and no
+    // test suites are staged. The audit must NOT run `bun test` (nothing to
+    // verify) and must NOT error on the absent suites.
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: { ".": { import: "./src/index.ts" } },
+      existingFiles: ["src/index.ts"],
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("all audits passed");
+  });
+
+  // --- Audit 4: README version marker ---
+
+  test("exit 1 when README has a Current: marker disagreeing with package.json", async () => {
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: { ".": { import: "./src/index.ts" } },
+      existingFiles: ["src/index.ts"],
+      packageVersion: "0.8.0",
+      readme: "# Demo\n\n## Status\n\nCurrent: **`0.7.0`**.\n",
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(1);
+    expect(r.stderr).toContain("readme-version-marker");
+    expect(r.stderr).toContain("0.7.0");
+    expect(r.stderr).toContain("0.8.0");
+  });
+
+  test("exit 0 when README has no version marker (preferred state)", async () => {
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: { ".": { import: "./src/index.ts" } },
+      existingFiles: ["src/index.ts"],
+      packageVersion: "0.8.0",
+      readme: "# Demo\n\nPre-release; see the npm badge for the version.\n",
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("all audits passed");
+  });
+
+  test("exit 0 when a Status: marker matches package.json", async () => {
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: { ".": { import: "./src/index.ts" } },
+      existingFiles: ["src/index.ts"],
+      packageVersion: "0.8.0",
+      readme: "# Demo\n\nStatus: v0.8.0\n",
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(0);
   });
 });
