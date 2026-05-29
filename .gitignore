@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.baseline
 .claude/worktrees/
+# Internal v1.0 planning scaffolding (TASK-ID briefs, lessons log) — kept
+# locally for the maintainer, not shipped in the public tree. See README/SPEC
+# for consumer-facing docs.
+docs/plans/
