@@ -22,6 +22,19 @@
  *      must point to a file that exists on disk. L-M1.5-1 caught
  *      `./state → src/state/types.ts` advertised but absent until M1.5.
  *
+ *   3. Test-count claims — the authoritative total is derived by running
+ *      the same three suites the npm `test` script runs (`tests/`,
+ *      `tests-isolated/`, `examples/adapter-template/tests/`) and summing
+ *      each suite's `Ran (\d+) tests` line. Every `N tests` /
+ *      `N TypeScript tests` claim in README.md + CLAUDE.md must equal that
+ *      sum. (README claimed a stale 418; CLAUDE.md a stale 586+.)
+ *
+ *   4. README version markers — a hardcoded `Current: vX.Y.Z` /
+ *      `Status: vX.Y.Z` in README.md that disagrees with package.json's
+ *      version fails. Preferred state: none (rely on the npm version
+ *      badge). README drifted to `Current: 0.7.0` while package.json was
+ *      0.8.0; this guards the regression.
+ *
  * Extending: add new audits as count-claims accumulate. Each audit
  * returns its violations into `violations[]`; the main loop reports all
  * and exits 1 on any non-empty.
@@ -72,6 +85,9 @@ Audits:
   1. HookKitError subclass count vs src/core/errors.ts
      (CLAUDE.md, docs/SPEC.md, docs/ADAPTERS.md)
   2. package.json subpath exports — every target file must exist
+  3. Test-count claims (README.md, CLAUDE.md) vs the summed
+     'Ran N tests' across the three npm-test suites
+  4. README version markers (Current:/Status: vX.Y.Z) vs package.json
 
 Exits 0 if all audits pass.
 Exits 1 if any audit found drift.
@@ -251,6 +267,183 @@ function walkExportEntry(
   }
 }
 
+/** The three suites the npm `test` script exercises. `tests/` is run via the
+ *  coverage wrapper in the actual script; here we invoke it directly with
+ *  `bun test tests/` since we only need the `Ran N tests` count, not coverage.
+ *  Keep this list in sync with the `test` script in package.json. */
+const TEST_SUITES: readonly string[] = [
+  "tests/",
+  "tests-isolated/",
+  "examples/adapter-template/tests/",
+];
+
+/** Run `bun test <dir>` and return the `Ran (\d+) tests` total parsed from
+ *  stderr (bun writes the run summary there). Returns null if the suite
+ *  produced no parseable summary line — caller treats that as a read-failure
+ *  rather than silently undercounting. */
+function suiteTestCount(dir: string): number | null {
+  const r = Bun.spawnSync(["bun", "test", dir], { stdout: "pipe", stderr: "pipe" });
+  const stderr = r.stderr.toString("utf8");
+  // Last `Ran N test(s)` line is the suite total (bun prints one at the end).
+  // The noun is singular when N === 1 ("Ran 1 test across 1 file"), so the
+  // trailing `s` is optional — otherwise a one-test suite parses as null.
+  const matches = [...stderr.matchAll(/Ran (\d+) tests?\b/g)];
+  const last = matches.at(-1);
+  if (last?.[1] === undefined) {
+    process.stderr.write(
+      `${SCRIPT}: 'bun test ${dir}' produced no 'Ran N tests' line (exit ${String(r.exitCode)}); ` +
+        "cannot derive the authoritative test count.\n",
+    );
+    return null;
+  }
+  return Number.parseInt(last[1], 10);
+}
+
+/** Authoritative test total = sum of the three npm-test suites' `Ran N`
+ *  counts. Returns null if any suite couldn't be counted. */
+function authoritativeTestTotal(): number | null {
+  let total = 0;
+  for (const dir of TEST_SUITES) {
+    const n = suiteTestCount(dir);
+    if (n === null) {
+      return null;
+    }
+    total += n;
+  }
+  return total;
+}
+
+/** Match every `N tests` / `N TypeScript tests` claim in a doc. The capture is
+ *  the integer; the caller compares each against the authoritative total. The
+ *  optional `TypeScript ` infix covers CLAUDE.md's "N TypeScript tests"
+ *  phrasing alongside README's plain "N tests". */
+function extractTestCountClaims(content: string): readonly number[] {
+  const claims: number[] = [];
+  const re = /(\d+)\s+(?:TypeScript\s+)?tests\b/g;
+  let match: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: canonical /g regex iteration over `content`; assignment-in-while is the documented MDN pattern.
+  while ((match = re.exec(content)) !== null) {
+    const n = Number.parseInt(match[1] ?? "", 10);
+    if (Number.isFinite(n)) {
+      claims.push(n);
+    }
+  }
+  return claims;
+}
+
+/** Audit 3: every `N tests` claim in README.md + CLAUDE.md must equal the
+ *  summed `Ran N` across the three npm-test suites.
+ *
+ *  Cheap-exit: if neither doc carries a test-count claim there is nothing to
+ *  verify, so we skip the (expensive) suite run entirely and pass. This also
+ *  keeps synthetic-fixture unit tests — which stage no README and no `tests/`
+ *  dir — green: a repo with no claim never triggers the suite run.
+ *
+ *  Returns false on drift, or on inability to derive the truth WHEN a claim
+ *  exists (the latter pushes no violation, so the caller treats it as a
+ *  read-failure → exit 2). */
+function auditTestCount(violations: Violation[]): boolean {
+  const AUDIT = "test-count";
+  const docs: readonly string[] = ["README.md", "CLAUDE.md"];
+
+  // Collect claims first; only derive the (expensive) truth if any doc claims.
+  const present: { readonly doc: string; readonly claims: readonly number[] }[] = [];
+  for (const doc of docs) {
+    // Doc absent (e.g. synthetic fixture has no README) — nothing to check for
+    // that doc. existsSync avoids readFile's stderr-on-ENOENT (which would
+    // pollute --quiet success output). Matches the no-claim-is-fine philosophy.
+    if (!existsSync(resolve(process.cwd(), doc))) {
+      continue;
+    }
+    const content = readFile(doc);
+    if (content === null) {
+      continue;
+    }
+    present.push({ doc, claims: extractTestCountClaims(content) });
+  }
+  const totalClaims = present.reduce((n, p) => n + p.claims.length, 0);
+  if (totalClaims === 0) {
+    return true; // no claims anywhere → nothing to verify; skip the suite run
+  }
+
+  const truth = authoritativeTestTotal();
+  if (truth === null) {
+    return false; // read-failure: surfaced as exit 2 by main()
+  }
+
+  let anyFailure = false;
+  for (const { doc, claims } of present) {
+    for (const claim of claims) {
+      if (claim !== truth) {
+        violations.push({
+          audit: AUDIT,
+          detail: `${doc}: claims ${String(claim)} tests; the three npm-test suites total ${String(truth)}`,
+        });
+        anyFailure = true;
+      }
+    }
+  }
+  return !anyFailure;
+}
+
+interface PackageVersion {
+  readonly version?: string;
+}
+
+/** Audit 4: a hardcoded `Current: vX.Y.Z` / `Status: vX.Y.Z` marker in
+ *  README.md must match package.json's version. The preferred state is no such
+ *  marker at all (rely on the npm version badge); this only fires when a marker
+ *  exists AND disagrees, so a clean README with no marker passes. */
+function auditReadmeVersionMarker(violations: Violation[]): boolean {
+  const AUDIT = "readme-version-marker";
+  const raw = readFile("package.json");
+  if (raw === null) {
+    return false;
+  }
+  let pkg: PackageVersion;
+  try {
+    pkg = JSON.parse(raw) as PackageVersion;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    violations.push({ audit: AUDIT, detail: `package.json: parse failed (${msg})` });
+    return false;
+  }
+  const version = pkg.version;
+  if (version === undefined) {
+    // No version field (e.g. synthetic fixture's minimal package.json) — there
+    // is nothing to compare a marker against, so skip rather than fail.
+    return true;
+  }
+
+  // README absent (synthetic fixtures stage none) → no marker to check; skip.
+  if (!existsSync(resolve(process.cwd(), "README.md"))) {
+    return true;
+  }
+  const readme = readFile("README.md");
+  if (readme === null) {
+    return false;
+  }
+
+  // `Current:` / `Status:` optionally followed by markdown emphasis/backticks,
+  // then a vX.Y.Z (leading `v` optional). Bold/inline-code wrappers around the
+  // version are tolerated so `Current: **`0.7.0`**` matches.
+  const re = /\b(Current|Status)\s*:\s*[*`]*v?(\d+\.\d+\.\d+)/g;
+  let anyFailure = false;
+  let match: RegExpExecArray | null;
+  // biome-ignore lint/suspicious/noAssignInExpressions: canonical /g regex iteration over `readme`; assignment-in-while is the documented MDN pattern.
+  while ((match = re.exec(readme)) !== null) {
+    const marked = match[2];
+    if (marked !== undefined && marked !== version) {
+      violations.push({
+        audit: AUDIT,
+        detail: `README.md: hardcoded '${match[1] ?? ""}: ${marked}' disagrees with package.json version ${version}. Prefer removing the marker and relying on the npm version badge.`,
+      });
+      anyFailure = true;
+    }
+  }
+  return !anyFailure;
+}
+
 function main(): number {
   const args = parseArgs(process.argv.slice(2));
   if (args === null) {
@@ -271,6 +464,16 @@ function main(): number {
 
   const exportsOk = auditPackageJsonExportTargets(violations);
   if (!(exportsOk || violations.some((v) => v.audit === "package-json-export-targets"))) {
+    readFailure = true;
+  }
+
+  const testCountOk = auditTestCount(violations);
+  if (!(testCountOk || violations.some((v) => v.audit === "test-count"))) {
+    readFailure = true;
+  }
+
+  const versionMarkerOk = auditReadmeVersionMarker(violations);
+  if (!(versionMarkerOk || violations.some((v) => v.audit === "readme-version-marker"))) {
     readFailure = true;
   }
 
