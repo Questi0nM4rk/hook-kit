@@ -13,7 +13,7 @@
  * Scope (1.0.0 release-gate): only `src/index.ts` is diffed. Subpath
  * exports (./testing, ./adapters/*, ./state/*) are not yet covered; M1+
  * tasks can extend this to walk every subpath listed in
- * `docs/specs/v1.0-exports.md`.
+ * `docs/v1.0-exports.md`.
  *
  * Usage:
  *   bun scripts/check-stable-exports.ts                  # diff against origin/main
