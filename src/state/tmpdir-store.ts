@@ -19,7 +19,7 @@ export interface TmpdirStoreOptions {
 
 // Counts open `TmpdirStore` instances per path in this process. Used to
 // detect same-process violations of the concurrent-stores contract — see
-// `docs/specs/tmpdir-store-decision.md` and `docs/STATE.md` § Per-store
+// `docs/decisions/tmpdir-store-decision.md` and `docs/STATE.md` § Per-store
 // guarantees. Counts open instances per path so a second instance
 // surfaces a warning; the WARN fires once per (path, process) on the
 // 1→2 transition. A count (not Set<TmpdirStore>) avoids retaining strong
@@ -36,7 +36,7 @@ const OPEN_PATHS = new Map<string, number>();
  * Does NOT honour the concurrent-stores guarantee: two `TmpdirStore`
  * instances against the same file path will silently lose the first's
  * writes when the second flushes (last-write-wins). This is the explicit
- * scope decided in `docs/specs/tmpdir-store-decision.md`.
+ * scope decided in `docs/decisions/tmpdir-store-decision.md`.
  *
  * Same-process detection: the constructor emits a one-time `console.warn`
  * when a second instance opens an already-open path within the same
@@ -98,7 +98,7 @@ export class TmpdirStore implements StateStore {
  * Same-process detection of concurrent-stores contract violation. Emits a
  * one-time `console.warn` when a second `TmpdirStore` opens an already-
  * open path within this process. Cross-process violations are not
- * detectable from here — see `docs/specs/tmpdir-store-decision.md`.
+ * detectable from here — see `docs/decisions/tmpdir-store-decision.md`.
  */
 function registerOpenPath(file: string): void {
   const prior = OPEN_PATHS.get(file) ?? 0;
@@ -107,7 +107,7 @@ function registerOpenPath(file: string): void {
   // no extra warning fires — once per (path, process) keeps logs clean
   // under tight retry loops.
   if (prior === 1) {
-    // biome-ignore lint/suspicious/noConsole: deliberate console.warn for consumer-misuse signal per docs/specs/tmpdir-store-decision.md — runtime warning is the intended channel for surfacing same-process concurrent-stores contract violations to downstream consumers (NOT an internal hook-kit failure path; HookKitError would be wrong here).
+    // biome-ignore lint/suspicious/noConsole: deliberate console.warn for consumer-misuse signal per docs/decisions/tmpdir-store-decision.md — runtime warning is the intended channel for surfacing same-process concurrent-stores contract violations to downstream consumers (NOT an internal hook-kit failure path; HookKitError would be wrong here).
     console.warn(
       `[hook-kit] TmpdirStore: multiple instances opened the same path "${file}" in this process — last-write-wins applies, see docs/STATE.md § Per-store guarantees. For multi-process work, use SqliteStateStore (M2.1) or a custom StateStore.`,
     );

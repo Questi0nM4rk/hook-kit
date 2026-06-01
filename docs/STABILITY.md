@@ -2,7 +2,7 @@
 
 How to read `@stable`, `@experimental`, and `@internal` tags on `@questi0nm4rk/hook-kit` exports, plus the deprecation cycle the kit promises starting with the 1.0.0 release.
 
-This document is the contract. The full export inventory with per-symbol assignments lives in [`specs/v1.0-exports.md`](./specs/v1.0-exports.md).
+This document is the contract. The full export inventory with per-symbol assignments lives in [`v1.0-exports.md`](./v1.0-exports.md).
 
 ---
 
@@ -44,7 +44,7 @@ export function coverageReport(...): Promise<CoverageReport>;
   - `__setMaxRecurseDepthForTests` (`src/engine/index.ts`) — test-only override of `MAX_RECURSE_DEPTH`. Reachable from `src/index.ts`'s export graph but reserved for hook-kit's own tests.
   - `__resetOpenPathsForTests` (`src/state/tmpdir-store.ts`) — test-only reset of the same-path open-instance counter that backs the M1.5 concurrent-stores warning. Not exported from any public barrel.
   - `errorAnnotation` (`src/core/decision.ts`) — engine-only constructor for `error` annotations, NOT re-exported but flagged so a future refactor that incidentally exposes it stays honest about the tier.
-- **Where it is NOT applied:** file-header `@internal` JSDoc blocks on whole modules that are entirely unreachable from `src/index.ts`. Those add no signal beyond what this STABILITY.md table already lists, and would need maintenance every time an internal file moves. The canonical INTERNAL inventory lives in [`specs/v1.0-exports.md`](./specs/v1.0-exports.md) and the consumer-facing guidance lives below in § How to consume. Do not duplicate that into per-file headers.
+- **Where it is NOT applied:** file-header `@internal` JSDoc blocks on whole modules that are entirely unreachable from `src/index.ts`. Those add no signal beyond what this STABILITY.md table already lists, and would need maintenance every time an internal file moves. The canonical INTERNAL inventory lives in [`v1.0-exports.md`](./v1.0-exports.md) and the consumer-facing guidance lives below in § How to consume. Do not duplicate that into per-file headers.
 
 ### Mixed-tier modules
 
@@ -114,7 +114,7 @@ The kit does not expose a `HOOK_KIT_SUPPRESS_DEPRECATIONS` env var. The runtime 
 A consumer integrating hook-kit should:
 
 1. **Pin a hook-kit version.** Use `^1.x` to get the full STABLE contract across the major. `~1.0` if you want patch-only updates.
-2. **Audit imports against the inventory.** [`specs/v1.0-exports.md`](./specs/v1.0-exports.md) lists every public symbol with its tier. Any import not on that list is unsupported (likely a reach into an internal path).
+2. **Audit imports against the inventory.** [`v1.0-exports.md`](./v1.0-exports.md) lists every public symbol with its tier. Any import not on that list is unsupported (likely a reach into an internal path).
 3. **Treat `@experimental` imports as a sub-dependency you re-version with.** Every minor bump, run your test suite; if an `@experimental` you depend on broke, the CHANGELOG will say so and you'll have one minor to migrate before the symbol is gone.
 4. **Don't import from `src/engine/helpers.ts`, `src/escalation/{broker,listeners,watch-tui,forward,enrich-git}.ts`, `src/build/`, `src/core/annotations.ts`.** These are file-header `@internal`. The functionality they provide is reachable through STABLE entry points — `evaluate()`, the `hook-kit broker` CLI, the askpass envelope schema (STABLE; spec'd in M1.4).
    - **Subpath exception, `@internal` tier:** the `@questi0nm4rk/hook-kit/escalation` subpath barrel (added 1.0.0 alongside `docs/ESCALATION.md`) re-exports listener-authoring primitives — `registerListener`, `listPending`, `submitDecision`, `forwardUp`, `brokerAskpass`, `ensureSession`, and friends. They are tagged `@internal` at the barrel: subject to change in any 1.x release with one-minor-deprecation under the same cycle EXPERIMENTAL exports use. The envelope schema (`createAskRequest`, `parseAskRequest`, `AskRequest`, `AskResponse`, `PROTOCOL_VERSION`) re-exported by the same barrel IS `@stable @since 1.0.0`. The split is documented in `src/escalation/index.ts`; the worked-example listener at `examples/escalation-listener-stdout/` consumes through this subpath. Direct imports from the deep `src/escalation/*.ts` paths remain off-limits.

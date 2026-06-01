@@ -67,7 +67,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 - **`docs/STABILITY.md` + `@stable @since 1.0.0` tagging.** The three-tier
   stability system (STABLE / EXPERIMENTAL / INTERNAL) and its deprecation cycle
   are documented, and every public export carries a `@stable @since 1.0.0` tag at
-  its declaration site. The full inventory lives in `docs/specs/v1.0-exports.md`.
+  its declaration site. The full inventory lives in `docs/v1.0-exports.md`.
 
 ### Changed
 

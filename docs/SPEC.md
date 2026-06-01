@@ -1,6 +1,6 @@
 # hook-kit
 
-> **Status:** spec describes the 0.8 surface, audited 2026-05-20. Every symbol mentioned below exists in `src/` at this revision. Stability tiers are tagged at the declaration site — see [`STABILITY.md`](./STABILITY.md) and the full export inventory in [`specs/v1.0-exports.md`](./specs/v1.0-exports.md). Features marked "subject to a future minor" reflect planned 1.x evolution; their shape may shift before 1.0.0 ships.
+> **Status:** spec describes the 0.8 surface, audited 2026-05-20. Every symbol mentioned below exists in `src/` at this revision. Stability tiers are tagged at the declaration site — see [`STABILITY.md`](./STABILITY.md) and the full export inventory in [`v1.0-exports.md`](./v1.0-exports.md). Features marked "subject to a future minor" reflect planned 1.x evolution; their shape may shift before 1.0.0 ships.
 
 Build caller-agnostic shell-wrapper hook binaries — they work for any caller that shells out (an AI agent, a human, a CI script). Real shell-AST parsing, output via stdout/stderr/exit-code, no JSON wire protocol with the caller, no harness coupling. For harnesses with non-shell tool channels (Claude Code's `Edit` / `Write` / `Read`, etc.), an optional companion adapter bin (~50 LOC) extends coverage to the cases that bypass the shell.
 
@@ -322,7 +322,7 @@ interface StateStore {
 }
 ```
 
-**tmpdir-store** (default): `join(tmpdir(), "hook-kit-{namespace}-{sessionId}.json")`. Loaded on construction; flushed automatically after `evaluate()`. No locking — assumes single-process operation. Disk full → `flush` throws `FileWriteError` → engine catches → surfaces as an `error` annotation on the outcome (hook doesn't block). Per the M1.5 design (see `docs/specs/tmpdir-store-decision.md`), opening a second `TmpdirStore` on a path already opened by another `TmpdirStore` in the same process emits a one-time `console.warn` pointing consumers at `SqliteStateStore` (M2.1) for multi-process work.
+**tmpdir-store** (default): `join(tmpdir(), "hook-kit-{namespace}-{sessionId}.json")`. Loaded on construction; flushed automatically after `evaluate()`. No locking — assumes single-process operation. Disk full → `flush` throws `FileWriteError` → engine catches → surfaces as an `error` annotation on the outcome (hook doesn't block). Per the M1.5 design (see `docs/decisions/tmpdir-store-decision.md`), opening a second `TmpdirStore` on a path already opened by another `TmpdirStore` in the same process emits a one-time `console.warn` pointing consumers at `SqliteStateStore` (M2.1) for multi-process work.
 
 **memory-store**: in-memory `Map`, no persistence. For tests and stateless hooks.
 

@@ -219,7 +219,7 @@ Single-process scope makes the contract trivially satisfied. Each instance owns 
 
 `TmpdirStore` loads the JSON file on construction and flushes it on demand. Single-instance use within one process satisfies atomicity and flush durability — the in-memory `Map` is the working set, the file is the persistence. The contract violation arises ONLY when two `TmpdirStore` instances open the same file path concurrently (whether in the same process or across processes): both load the file, both mutate their in-memory `Map`s, both flush — the second flush's `writeFileSync` overwrites the first's. Lost-update, silently.
 
-The implementation emits a `console.warn` once when a second instance opens a path that another `TmpdirStore` instance has already opened in the same process. Same-process detection only — cross-process violation cannot be reliably detected from within a single process and is the contract violation we explicitly call out: if you see the warning, switch to `SqliteStateStore` (when M2.1 ships) or accept last-write-wins semantics. See class JSDoc in [`src/state/tmpdir-store.ts`](../src/state/tmpdir-store.ts) and `docs/specs/tmpdir-store-decision.md` for the design rationale.
+The implementation emits a `console.warn` once when a second instance opens a path that another `TmpdirStore` instance has already opened in the same process. Same-process detection only — cross-process violation cannot be reliably detected from within a single process and is the contract violation we explicitly call out: if you see the warning, switch to `SqliteStateStore` (when M2.1 ships) or accept last-write-wins semantics. See class JSDoc in [`src/state/tmpdir-store.ts`](../src/state/tmpdir-store.ts) and `docs/decisions/tmpdir-store-decision.md` for the design rationale.
 
 ### SqliteStateStore — production multi-process
 
@@ -230,5 +230,5 @@ Planned for M2.1. SQLite's WAL mode + busy-timeout retries serialize concurrent 
 - [`src/core/types.ts`](../src/core/types.ts) — the canonical `StateStore` interface declaration with the JSDoc contract summary.
 - [`docs/SPEC.md`](./SPEC.md) § State Management — where the engine's flush-on-evaluate behaviour and the `error`-annotation fail-open boundary live.
 - [`docs/SPEC.md`](./SPEC.md) § Operational Readiness — the 0-silent-fails policy state-store failures route through.
-- [`docs/specs/tmpdir-store-decision.md`](./specs/tmpdir-store-decision.md) — the M1.5 design decision recording why `TmpdirStore` stays single-process rather than gaining file-locking.
+- [`docs/decisions/tmpdir-store-decision.md`](./decisions/tmpdir-store-decision.md) — the M1.5 design decision recording why `TmpdirStore` stays single-process rather than gaining file-locking.
 - [`docs/STABILITY.md`](./STABILITY.md) — `StateStore`, `MemoryStore`, `TmpdirStore` are STABLE; breaking changes follow the deprecation cycle.
