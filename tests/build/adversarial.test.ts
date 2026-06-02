@@ -335,13 +335,13 @@ describe("edge cases — engine robustness", () => {
     expect(r.exit).toBe(0);
   });
 
-  test("malformed syntax fails open (no spurious deny/escalate)", async () => {
-    // `$(` is unterminated. shell-ast throws ParseSyntaxError, engine treats
-    // as no AST (Iron Law 4). hk passes the command through to bash, which
-    // also errors — the exit code is bash's, not hk's.
+  test("malformed syntax escalates to ask (SA-03 — unknown is not safe)", async () => {
+    // `$(` is unterminated. shell-ast throws ParseSyntaxError; under the
+    // default profile the engine escalates (onUnparsable: ask) rather than
+    // passing it through, since shell-ast may reject what bash would run.
     const r = await runHk(stagedBin, "$(");
-    expect(r.stdout).not.toContain("needs review");
-    expect(r.stderr).not.toContain("denied");
+    expect(r.stdout).toContain("needs review");
+    expect(r.exit).toBe(1);
   });
 
   test("UTF-8 BOM does not break rule evaluation (shell-ast 0.3 fix)", async () => {

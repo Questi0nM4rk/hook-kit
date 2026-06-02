@@ -25,6 +25,7 @@ import { describe, expect, mock, test } from "bun:test";
 import * as realShellAst from "@questi0nm4rk/shell-ast";
 import { cmd } from "../../src/builders/command.js";
 import { createModule } from "../../src/core/module.js";
+import { STRICT_BUT_ASKS } from "../../src/core/security.js";
 import { evaluate } from "../../src/engine/index.js";
 import { bashEvent } from "../../tests/_helpers.js";
 
@@ -66,11 +67,24 @@ describe("engine — WasmLoadError surfaces as ShellAstParseError annotation", (
     }
   });
 
-  test("rules contribute null under WasmLoadError (Iron Law 4 preserved)", async () => {
+  test("engine-unavailable denies by default — onEngineUnavailable: deny-all (SA-03)", async () => {
+    // SA-03 refines Iron Law 4: a NOT-FUNCTIONING shell-AST engine can inspect
+    // nothing, so the default STRICT_BUT_ASKS profile fails CLOSED — every
+    // command denies. (Distinct from rule-throw / state-IO bugs, which still
+    // fail open.) The ShellAstParseError annotation rides along on the deny.
     const outcome = await evaluate(bashEvent("rm -rf /"), [denyRm]);
-    // Annotation present, but no terminal — the AST-aware rule couldn't fire
-    // and there are no other rules to produce a decision.
+    expect(outcome.terminal?.kind).toBe("deny");
+    expect(outcome.annotations.filter((a) => a.kind === "error")).toHaveLength(1);
+  });
+
+  test("onEngineUnavailable 'allow-all' preserves the legacy fail-open path", async () => {
+    const outcome = await evaluate(bashEvent("rm -rf /"), [denyRm], {
+      security: { ...STRICT_BUT_ASKS, onEngineUnavailable: "allow-all" },
+    });
+    // No terminal — the AST-aware rule couldn't fire and the policy opts out of
+    // fail-closed. The error annotation still surfaces the infra failure.
     expect(outcome.terminal).toBeNull();
+    expect(outcome.annotations.filter((a) => a.kind === "error")).toHaveLength(1);
   });
 
   test("non-Bash events skip parse entirely, no error annotation produced", async () => {

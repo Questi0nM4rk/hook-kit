@@ -58,9 +58,11 @@ describe("cmd() — basic matching", () => {
     expect(d).toBeNull();
   });
 
-  test("does not match on a malformed Bash command (parse error)", async () => {
+  test("escalates on a malformed Bash command (SA-03 — cannot verify)", async () => {
+    // A command shell-ast can't parse can't be certified against the rule;
+    // the default profile escalates (onUnparsable: ask) rather than skipping.
     const d = await runCmd("if; then", cmd("rm").deny("blocked"));
-    expect(d).toBeNull();
+    expect(d?.kind).toBe("ask");
   });
 });
 
