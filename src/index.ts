@@ -11,6 +11,7 @@ export { content } from "./builders/content.js";
 export { custom } from "./builders/custom.js";
 export { path } from "./builders/path.js";
 export { pipe } from "./builders/pipe.js";
+export { type ProtectMode, protectPath } from "./builders/protect-path.js";
 export { redirect } from "./builders/redirect.js";
 export { stateful } from "./builders/state.js";
 // Annotation formatters — re-exported for custom adapters emitting the
