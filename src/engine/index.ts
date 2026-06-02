@@ -18,6 +18,7 @@ import {
   ShellAstParseError,
   StateStoreError,
 } from "../core/errors.js";
+import { type SecurityOptions, STRICT_BUT_ASKS } from "../core/security.js";
 import type {
   Annotation,
   Decision,
@@ -68,6 +69,12 @@ export interface EvaluateOptions {
    *  Undefined / empty short-circuits all observer-construction work so the
    *  default path stays zero-overhead. See docs/SPEC.md § Observability. */
   readonly observers?: readonly DecisionObserver[];
+  /** Security policy for the uncertainty path (issue #14): how to surface
+   *  values the parser cannot statically certify (dynamic args, unparsable
+   *  commands, recursion-depth exhaustion, engine unavailability). Default-
+   *  filled to `STRICT_BUT_ASKS` at engine entry. Spread a profile to override
+   *  a single knob: `{ ...STRICT_BUT_ASKS, onUnparsable: "deny" }`. */
+  readonly security?: SecurityOptions;
 }
 
 /** Internal evaluator state — never reachable from the public `evaluate()`
@@ -155,6 +162,7 @@ export async function runModule(opts: RunModuleOptions): Promise<EvaluationOutco
       : { recurseInlineShells: opts.recurseInlineShells }),
     ...(opts.shellAstOpts === undefined ? {} : { shellAstOpts: opts.shellAstOpts }),
     ...(opts.observers === undefined ? {} : { observers: opts.observers }),
+    ...(opts.security === undefined ? {} : { security: opts.security }),
   };
   return evaluate(event, modules, evalOpts);
 }
@@ -310,7 +318,10 @@ async function evaluateInternal(
   let terminal: Terminal | null = null;
 
   const state = opts.state ?? noopState;
-  const { ctx, drainErrors } = buildEvalContext(event, state, modules, opts.shellAstOpts);
+  const { ctx, drainErrors } = buildEvalContext(event, state, modules, {
+    shellAstOpts: opts.shellAstOpts,
+    security: opts.security ?? STRICT_BUT_ASKS,
+  });
 
   // Observer machinery — short-circuit when nobody's listening so the default
   // path stays zero-overhead (no hash, no Date.now, no performance.now, no
@@ -550,7 +561,10 @@ function buildEvalContext(
   event: HookEvent,
   state: StateStore,
   modules: readonly HookModule[],
-  shellAstOpts: ResolveFlagsOptions | undefined,
+  cfg: {
+    readonly shellAstOpts: ResolveFlagsOptions | undefined;
+    readonly security: SecurityOptions;
+  },
 ): { ctx: EvalContext; drainErrors: () => HookKitError[] } {
   let cached: ShellFile | null | undefined;
   const errors: HookKitError[] = [];
@@ -558,7 +572,8 @@ function buildEvalContext(
     ctx: {
       state,
       modules,
-      ...(shellAstOpts === undefined ? {} : { shellAstOpts }),
+      security: cfg.security,
+      ...(cfg.shellAstOpts === undefined ? {} : { shellAstOpts: cfg.shellAstOpts }),
       async getBashAst(): Promise<ShellFile | null> {
         if (cached !== undefined) {
           return cached;
