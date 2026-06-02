@@ -47,6 +47,17 @@ export {
 export { toToolEvent } from "./core/event.js";
 // Module factory
 export { createModule } from "./core/module.js";
+// Security uncertainty path (issue #14) — config surface, profiles, and the
+// `escalate` emit helper matchers call for values they cannot statically
+// certify. @experimental until the SA-01..SA-10 epic completes.
+export {
+  type EngineUnavailablePolicy,
+  type EscalationDecision,
+  escalate,
+  type SecurityOptions,
+  STRICT_BUT_ASKS,
+  STRICT_DENY,
+} from "./core/security.js";
 // Core types
 export type {
   Annotation,
@@ -69,6 +80,9 @@ export {
   type RunModuleOptions,
   runModule,
 } from "./engine/index.js";
+// Resolution — the three-state vocabulary the uncertainty path classifies
+// inspected values into. @experimental until the SA-01..SA-10 epic completes.
+export { type Resolution, resolutionOf } from "./engine/resolution.js";
 // Entry point — adapter mode (used by cc-tools binary, library consumers)
 export { type RunOptions, run } from "./run.js";
 // Entry point — shell-wrapper mode (the v0.3 default for compiled binaries)

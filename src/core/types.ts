@@ -5,6 +5,7 @@
 
 import type { ResolveFlagsOptions, ShellFile } from "@questi0nm4rk/shell-ast";
 import type { HookKitErrorCode } from "./errors.js";
+import type { SecurityOptions } from "./security.js";
 
 // === Decisions ===
 //
@@ -118,6 +119,14 @@ export interface EvalContext {
    * built-in `GLOBAL_VALUE_FLAGS` table only.
    */
   readonly shellAstOpts?: ResolveFlagsOptions;
+  /**
+   * Resolved security policy for the uncertainty path (issue #14). Always a
+   * full {@link SecurityOptions} — the engine default-fills it to
+   * `STRICT_BUT_ASKS` from `EvaluateOptions.security` at entry, so matchers
+   * read concrete knobs without re-defaulting. Builders consult this to decide
+   * how to surface dynamic / unparsable values via `escalate`.
+   */
+  readonly security: SecurityOptions;
 }
 
 // === Modules ===
