@@ -18,7 +18,7 @@ import {
   ShellAstParseError,
   StateStoreError,
 } from "../core/errors.js";
-import { type SecurityOptions, STRICT_BUT_ASKS } from "../core/security.js";
+import { escalate, type SecurityOptions, STRICT_BUT_ASKS } from "../core/security.js";
 import type {
   Annotation,
   Decision,
@@ -93,6 +93,26 @@ let MAX_RECURSE_DEPTH = 5;
 export function __setMaxRecurseDepthForTests(d: number): void {
   MAX_RECURSE_DEPTH = d;
 }
+
+/** Shell-interpreter wrappers whose `-c "<script>"` value (or, for `eval`,
+ *  the concatenated positional args) is itself a shell script. Mirrors the
+ *  script-wrapper rows of shell-ast's WRAPPERS registry. When such a wrapper
+ *  has a DYNAMIC body (`bash -c "$X"`, `eval "$VAR"`), shell-ast yields a
+ *  `wrapped-opaque` layer the recursion cannot re-parse — SA-02 escalates it.
+ *  Non-shell wrappers (sudo, gosu, exec, env, xargs, timeout) are deliberately
+ *  excluded: `sudo $X` is a dynamic command, not an inline-shell body.
+ *  TODO(shell-ast): export `isShellInterpreter`/WRAPPERS so this can't drift. */
+const INLINE_SHELL_WRAPPERS: ReadonlySet<string> = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "ksh",
+  "mksh",
+  "dash",
+  "ash",
+  "eval",
+  "su",
+]);
 
 /**
  * Test helper: evaluate a single rule against an event without hand-building
@@ -513,6 +533,30 @@ async function evaluateInternal(
       for (const call of findCalls(ast)) {
         // biome-ignore lint/performance/noAwaitInLoops: shell-ast deep-unwrap is sync-ish but typed async; chained-wrapper recursion needs per-call ordering for the depth cap.
         const chain = await unwrapDeepParsed(call, parse, ctx.shellAstOpts);
+        // SA-02: a shell-interpreter layer with a DYNAMIC body (eval "$X",
+        // sh -c "$DYN", bash -c "$VAR"; including chained `sudo bash -c "$X"`)
+        // surfaces as `wrapped-opaque` — there is no static script to re-parse,
+        // so the wrapped-script path below would silently skip it. Escalate per
+        // the security policy instead. Non-shell opaque wrappers (sudo $X) are
+        // a dynamic command, not an inline-shell body — left out of scope.
+        const opaqueShell = chain.find(
+          (u) => u.kind === "wrapped-opaque" && INLINE_SHELL_WRAPPERS.has(u.wrapper),
+        );
+        if (opaqueShell?.kind === "wrapped-opaque") {
+          const esc = escalate(
+            ctx.security.uncertaintyDecision,
+            `opaque inline-shell body (${opaqueShell.wrapper} with a dynamic script) — cannot inspect`,
+          );
+          if (esc?.kind === "deny") {
+            drainContextErrors();
+            await flushState();
+            return { terminal: esc, annotations: keepOnlyErrors(annotations) };
+          }
+          if (esc?.kind === "ask") {
+            terminal ??= esc;
+          }
+          continue;
+        }
         const innerScript = chain.find((u) => u.kind === "wrapped-script");
         if (innerScript?.kind !== "wrapped-script") {
           continue;

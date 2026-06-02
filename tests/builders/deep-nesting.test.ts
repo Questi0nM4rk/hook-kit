@@ -106,17 +106,18 @@ describe("deep-nesting wrapper chains — recursion + sudo-unwrap + flagValue (r
     expect(out.terminal?.kind).toBe("deny");
   });
 
-  test("DYNAMIC at outer level makes inner opaque — no rule firing (limitation pin)", async () => {
+  test("DYNAMIC outer script makes the inner opaque — SA-02 escalates", async () => {
     // Counterpart to the previous test: when `$VAR` appears in the OUTER
     // double-quoted script, the entire inner becomes wrapped-opaque from
     // shell-ast's perspective — there's no static script to recurse into.
-    // Pinned here so we notice if shell-ast ever ships symbolic-resolution
-    // and this case starts firing.
+    // This used to pass silently (a one-token bypass of every inner rule);
+    // SA-02 (#16) now escalates the opaque inline-shell body per the security
+    // policy (default profile: ask) instead of skipping it.
     const mod = modOf(cmd("gcc").flagValueDynamic("-o").deny("dynamic -o"));
     const out = await runModule({
       module: mod,
       command: 'bash -c "gcc -o $TARGET src.c"',
     });
-    expect(out.terminal).toBeNull();
+    expect(out.terminal?.kind).toBe("ask");
   });
 });
