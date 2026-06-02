@@ -17,6 +17,7 @@ import {
   note as noteDecision,
   warning as warningDecision,
 } from "../core/decision.js";
+import { escalate } from "../core/security.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 import { expandFlags, hasFlag, unwrappedName } from "../engine/helpers.js";
 
@@ -237,6 +238,9 @@ class CommandRuleBuilder {
       strictPath: this.strictPathFlag,
       flagPredicates: [...this.flagPredicates] as readonly FlagPredicate[],
     };
+    // Only deny/ask rules escalate on an uncertifiable command (SA-01);
+    // warning/note are informational and must not be promoted to a terminal.
+    const isTerminalRule = decision.kind === "deny" || decision.kind === "ask";
     return {
       kind: "command",
       // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: cmd() evaluator runs the full match-or-skip pipeline (AST walk → unwrap → strict/basename → sub → flags → noFlags → argMatch → argIncludes → flagValues → ddash) per call; ordering matters for short-circuit and decomposing reduces cohesion.
@@ -249,6 +253,24 @@ class CommandRuleBuilder {
         for (const call of findCalls(ast)) {
           const u = unwrapCall(call, ctx.shellAstOpts);
           if (u === null) {
+            // SA-01: unwrapCall returns null exactly when the command WORD is
+            // dynamic ($CMD, ${CMD}, $(which rm)) — we cannot certify it is NOT
+            // this rule's target. For terminal (deny/ask) security rules,
+            // escalate per ctx.security.uncertaintyDecision instead of the
+            // silent skip that would let any cmd() deny be bypassed with a
+            // single token. Annotation (warning/note) rules stay silent —
+            // promoting an informational annotation to a terminal inverts
+            // severity and would fire on every dynamic invocation.
+            if (isTerminalRule) {
+              const esc = escalate(
+                ctx.security.uncertaintyDecision,
+                `command word is dynamic — cannot verify the "${cfg.command}" rule`,
+                decision.label,
+              );
+              if (esc !== null) {
+                return esc;
+              }
+            }
             continue;
           }
           // See `unwrappedName` in engine/helpers.ts for the dispatch policy.
