@@ -9,8 +9,10 @@ import {
   type ResolveFlagsOptions,
   type ShellFile,
   unwrapDeepParsed,
+  WasmLoadError,
+  WasmRuntimeError,
 } from "@questi0nm4rk/shell-ast";
-import { ask as askDecision, errorAnnotation } from "../core/decision.js";
+import { ask as askDecision, deny as denyDecision, errorAnnotation } from "../core/decision.js";
 import {
   HookKitError,
   ObserverError,
@@ -101,7 +103,8 @@ export function __setMaxRecurseDepthForTests(d: number): void {
  *  `wrapped-opaque` layer the recursion cannot re-parse — SA-02 escalates it.
  *  Non-shell wrappers (sudo, gosu, exec, env, xargs, timeout) are deliberately
  *  excluded: `sudo $X` is a dynamic command, not an inline-shell body.
- *  TODO(shell-ast): export `isShellInterpreter`/WRAPPERS so this can't drift. */
+ *  TODO(shell-ast): swap for an exported `isShellInterpreter`/WRAPPERS so this
+ *  can't drift — tracked at Questi0nM4rk/shell-ast#12. */
 const INLINE_SHELL_WRAPPERS: ReadonlySet<string> = new Set([
   "bash",
   "sh",
@@ -338,7 +341,7 @@ async function evaluateInternal(
   let terminal: Terminal | null = null;
 
   const state = opts.state ?? noopState;
-  const { ctx, drainErrors } = buildEvalContext(event, state, modules, {
+  const { ctx, drainErrors, getParseFailure } = buildEvalContext(event, state, modules, {
     shellAstOpts: opts.shellAstOpts,
     security: opts.security ?? STRICT_BUT_ASKS,
   });
@@ -585,8 +588,60 @@ async function evaluateInternal(
   }
 
   drainContextErrors();
+
+  // SA-03: apply the security policy for a parse failure discovered while
+  // evaluating. engine-unavailable fails CLOSED (deny-all) by default — a dead
+  // shell-AST engine can inspect nothing; unparsable escalates per onUnparsable
+  // (ask by default). Both are distinct from a genuine deny a rule already
+  // produced (handled above) and from infra fail-open (rule throw / state I/O).
+  const parseFailure = getParseFailure();
+  // A dead engine fails closed regardless of any non-deny terminal a custom
+  // (non-AST) rule may have produced — deny-all overrides ask. (No deny can
+  // reach here; every rule-produced deny short-circuits above.)
+  if (parseFailure === "engine-unavailable" && ctx.security.onEngineUnavailable === "deny-all") {
+    await flushState();
+    return {
+      terminal: denyDecision("[hook-kit] shell-AST engine unavailable — denying (fail-closed)"),
+      annotations: keepOnlyErrors(annotations),
+    };
+  }
+  if (parseFailure === "unparsable" && terminal === null) {
+    const esc = escalate(
+      ctx.security.onUnparsable,
+      "[hook-kit] command could not be parsed — cannot verify",
+    );
+    if (esc?.kind === "deny") {
+      await flushState();
+      return { terminal: esc, annotations: keepOnlyErrors(annotations) };
+    }
+    if (esc?.kind === "ask") {
+      terminal = esc;
+    }
+  }
+
   await flushState();
   return { terminal, annotations };
+}
+
+/** Route a thrown `parse()` error into the SA-03 buckets (kept out of
+ *  `getBashAst` to hold its complexity under the cap):
+ *  - WASM load/runtime failure → `engine-unavailable` (loud annotation +
+ *    fail-per-onEngineUnavailable).
+ *  - `ParseSyntaxError` → `unparsable` (no annotation — not infra — but
+ *    escalate per onUnparsable; shell-ast may reject what bash would run).
+ *  - anything else → unexpected; surface an annotation, no policy mark
+ *    (legacy fail-open). */
+function classifyParseError(cause: unknown): {
+  failure: "unparsable" | "engine-unavailable" | null;
+  annotate: boolean;
+} {
+  if (cause instanceof WasmLoadError || cause instanceof WasmRuntimeError) {
+    return { failure: "engine-unavailable", annotate: true };
+  }
+  if (cause instanceof ParseSyntaxError) {
+    return { failure: "unparsable", annotate: false };
+  }
+  return { failure: null, annotate: true };
 }
 
 /**
@@ -609,9 +664,19 @@ function buildEvalContext(
     readonly shellAstOpts: ResolveFlagsOptions | undefined;
     readonly security: SecurityOptions;
   },
-): { ctx: EvalContext; drainErrors: () => HookKitError[] } {
+): {
+  ctx: EvalContext;
+  drainErrors: () => HookKitError[];
+  getParseFailure: () => "unparsable" | "engine-unavailable" | null;
+} {
   let cached: ShellFile | null | undefined;
   const errors: HookKitError[] = [];
+  // SA-03: distinguish "command can't be parsed" (ParseSyntaxError → escalate
+  // per onUnparsable) from "the shell-AST engine itself is unavailable" (WASM
+  // load/runtime failure → fail per onEngineUnavailable) from a genuine
+  // unexpected infra error (legacy fail-open). Set only when parse() is
+  // actually attempted, so an evaluation that never needs the AST is unaffected.
+  let parseFailure: "unparsable" | "engine-unavailable" | null = null;
   return {
     ctx: {
       state,
@@ -635,11 +700,9 @@ function buildEvalContext(
         try {
           cached = await parse(command);
         } catch (cause) {
-          // ParseSyntaxError on user input is normal — bash will reject it
-          // too, and we don't want to spam an error annotation on every
-          // malformed line. WASM-load / WASM-runtime failures are coverage-
-          // loss signals we want surfaced.
-          if (!(cause instanceof ParseSyntaxError)) {
+          const { failure, annotate } = classifyParseError(cause);
+          parseFailure = failure;
+          if (annotate) {
             errors.push(new ShellAstParseError(command, cause));
           }
           cached = null;
@@ -648,6 +711,7 @@ function buildEvalContext(
       },
     },
     drainErrors: () => errors.splice(0, errors.length),
+    getParseFailure: () => parseFailure,
   };
 }
 

@@ -121,3 +121,7 @@ Then<RunPipelineWorld>("the captured decision is silent", (world: RunPipelineWor
   expect(world.state?.outcome.terminal).toBeNull();
   expect(world.state?.outcome.annotations).toEqual([]);
 });
+
+Then<RunPipelineWorld>("the captured decision is an ask", (world: RunPipelineWorld) => {
+  expect(world.state?.outcome.terminal?.kind).toBe("ask");
+});

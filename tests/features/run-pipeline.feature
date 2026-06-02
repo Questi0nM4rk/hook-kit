@@ -20,7 +20,7 @@ Feature: hook-kit run() pipeline through the raw adapter
     When the runner processes a Write event with file "/tmp/x.g.cs"
     Then the captured decision is a deny with reason "edit the generator"
 
-  Scenario: a Bash event whose command is not parseable does not block
+  Scenario: a Bash event whose command is not parseable escalates (SA-03)
     Given a hook module that denies "rm" with reason "blocked"
     When the runner processes a Bash event with command "if; then"
-    Then the captured decision is silent
+    Then the captured decision is an ask
