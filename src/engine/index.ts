@@ -12,7 +12,7 @@ import {
   WasmLoadError,
   WasmRuntimeError,
 } from "@questi0nm4rk/shell-ast";
-import { ask as askDecision, deny as denyDecision, errorAnnotation } from "../core/decision.js";
+import { deny as denyDecision, errorAnnotation } from "../core/decision.js";
 import {
   HookKitError,
   ObserverError,
@@ -526,10 +526,13 @@ async function evaluateInternal(
     if (internal.depth >= MAX_RECURSE_DEPTH) {
       drainContextErrors();
       await flushState();
-      return {
-        terminal: askDecision("[hook-kit] inline-shell nesting exceeded inspection depth — review"),
-        annotations,
-      };
+      // SA-04: depth exhaustion escalates per onDepthExceeded (default ask).
+      // `allow` falls back to whatever this frame already accumulated.
+      const esc = escalate(
+        ctx.security.onDepthExceeded,
+        "[hook-kit] inline-shell nesting exceeded inspection depth — review",
+      );
+      return { terminal: esc ?? terminal, annotations };
     }
     const ast = await ctx.getBashAst();
     if (ast !== null) {

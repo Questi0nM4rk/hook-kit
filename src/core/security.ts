@@ -15,7 +15,7 @@
  */
 
 import { ask, deny } from "./decision.js";
-import type { Decision } from "./types.js";
+import type { Terminal } from "./types.js";
 
 /** What to emit when a value can't be statically certified. `allow` keeps the
  *  legacy fail-open behavior (silent, command runs). */
@@ -82,7 +82,11 @@ export const STRICT_DENY: SecurityOptions = {
  * runs and nothing is surfaced.
  * @experimental @since 0.9.0
  */
-export function escalate(kind: EscalationDecision, reason: string, label?: string): Decision {
+export function escalate(
+  kind: EscalationDecision,
+  reason: string,
+  label?: string,
+): Terminal | null {
   if (kind === "allow") {
     return null;
   }
