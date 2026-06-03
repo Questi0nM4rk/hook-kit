@@ -432,6 +432,32 @@ describe("hk CLI", () => {
   });
 });
 
+// The security-uncertainty path (SA-01..SA-08) end-to-end through the compiled
+// binary under the default STRICT_BUT_ASKS profile: the cases that USED to slip
+// through silently now escalate (exit 1 + "needs review"). SA-03 (unparsable)
+// is covered by the "malformed syntax escalates" test above.
+describe("security-uncertainty — escalations", () => {
+  test("SA-01: dynamic command word `$CMD -rf` can't be verified → escalates", async () => {
+    const r = await runHk(stagedBin, `$CMD -rf ${NX}`);
+    expectEscalate(r, "[destructive-rm]");
+  });
+
+  test('SA-02: opaque `eval "$X"` body → escalates', async () => {
+    const r = await runHk(stagedBin, 'eval "$X"');
+    expectEscalate(r, "[hook-kit]");
+  });
+
+  test('SA-02: opaque `sh -c "$DYN"` body → escalates', async () => {
+    const r = await runHk(stagedBin, 'sh -c "$DYN"');
+    expectEscalate(r, "[hook-kit]");
+  });
+
+  test('SA-02: chained `sudo bash -c "$X"` opaque body → escalates', async () => {
+    const r = await runHk(stagedBin, 'sudo bash -c "$X"');
+    expectEscalate(r, "[hook-kit]");
+  });
+});
+
 // SECURITY NOTE: every "escalates" assertion above also proves the inner
 // command never ran — `hk` writes "needs review" to stdout and exits non-zero
 // BEFORE handing off to the shell. So even if a test's adversarial input
