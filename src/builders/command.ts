@@ -7,6 +7,7 @@ import {
   findCalls,
   isDynamic,
   isResolved,
+  resolvedCmd,
   tokensAfter,
   unwrapCall,
   wordToLit,
@@ -375,8 +376,8 @@ class CommandRuleBuilder {
             continue;
           }
 
-          // Flag predicates (alias-aware)
-          const expanded = expandFlags(u.flags);
+          // Flag predicates (alias-aware, scoped to the resolved command — SA-07)
+          const expanded = expandFlags(u.flags, resolvedCmd(u) ?? "");
           if (!cfg.flags.every((f) => hasFlag(expanded, f))) {
             continue;
           }
