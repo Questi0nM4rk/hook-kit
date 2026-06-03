@@ -6,6 +6,7 @@
 export { type RawAdapter, type RawAdapterState, rawAdapter } from "./adapters/raw.js";
 export type { ProtocolAdapter } from "./adapters/types.js";
 // Rule builders
+export { allowOnly } from "./builders/allow-only.js";
 export { cmd } from "./builders/command.js";
 export { content } from "./builders/content.js";
 export { custom } from "./builders/custom.js";
