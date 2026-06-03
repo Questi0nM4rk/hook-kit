@@ -184,6 +184,12 @@ export interface DecisionEventRecord {
    *  throw / shell-ast / state); `warning` / `note` are rule-emitted
    *  annotations; `deny` / `ask` are rule-emitted terminals. */
   readonly decision: "deny" | "ask" | "warning" | "note" | "error";
+  /** Whether this terminal came from a rule's own `.deny()`/`.ask()` (`"rule"`)
+   *  or from the security uncertainty path's `escalate()` (`"uncertainty"`), so
+   *  operators can tune escalation noise separately from rule decisions (SA-10).
+   *  Always `"rule"` for annotations and engine-emitted errors.
+   *  @experimental @since 0.9.0 */
+  readonly reasonKind: "rule" | "uncertainty";
   /** `decision.reason` for terminals; `annotation.message` for annotations. */
   readonly reason: string;
   /** `decision.label` or `annotation.label` if the rule set one. */

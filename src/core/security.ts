@@ -15,7 +15,19 @@
  */
 
 import { ask, deny } from "./decision.js";
-import type { Terminal } from "./types.js";
+import type { Decision, Terminal } from "./types.js";
+
+/** Decisions produced by {@link escalate} are tracked by object identity so the
+ *  engine can tag observer records `reasonKind: "uncertainty"` (SA-10) without
+ *  adding a field to the public `Decision` type. A WeakSet keeps it leak-free. */
+const uncertaintyDecisions = new WeakSet<object>();
+
+/** True if `decision` was produced by {@link escalate} (an uncertainty
+ *  escalation) rather than a rule's own `.deny()` / `.ask()`.
+ *  @experimental @since 0.9.0 */
+export function isUncertaintyDecision(decision: Decision): boolean {
+  return decision !== null && uncertaintyDecisions.has(decision);
+}
 
 /** What to emit when a value can't be statically certified. `allow` keeps the
  *  legacy fail-open behavior (silent, command runs). */
@@ -90,5 +102,7 @@ export function escalate(
   if (kind === "allow") {
     return null;
   }
-  return kind === "deny" ? deny(reason, label) : ask(reason, label);
+  const decision = kind === "deny" ? deny(reason, label) : ask(reason, label);
+  uncertaintyDecisions.add(decision);
+  return decision;
 }

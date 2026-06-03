@@ -56,6 +56,7 @@ export {
   type EngineUnavailablePolicy,
   type EscalationDecision,
   escalate,
+  isUncertaintyDecision,
   type SecurityOptions,
   STRICT_BUT_ASKS,
   STRICT_DENY,

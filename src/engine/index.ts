@@ -20,7 +20,12 @@ import {
   ShellAstParseError,
   StateStoreError,
 } from "../core/errors.js";
-import { escalate, type SecurityOptions, STRICT_BUT_ASKS } from "../core/security.js";
+import {
+  escalate,
+  isUncertaintyDecision,
+  type SecurityOptions,
+  STRICT_BUT_ASKS,
+} from "../core/security.js";
 import type {
   Annotation,
   Decision,
@@ -258,6 +263,8 @@ interface BuildRecordArgs {
   readonly ruleId: string;
   readonly ruleKind: string;
   readonly decision: DecisionEventRecord["decision"];
+  /** Defaults to "rule" when omitted. */
+  readonly reasonKind?: DecisionEventRecord["reasonKind"];
   readonly reason: string;
   readonly label?: string;
   readonly timingMs: number;
@@ -274,6 +281,7 @@ function buildRecord(args: BuildRecordArgs): DecisionEventRecord {
     ruleId: args.ruleId,
     ruleKind: args.ruleKind,
     decision: args.decision,
+    reasonKind: args.reasonKind ?? "rule",
     reason: args.reason,
     event: {
       eventName: args.event.eventName,
@@ -301,6 +309,8 @@ interface NotifyForArgs {
   readonly ruleId: string;
   readonly ruleKind: string;
   readonly decision: DecisionEventRecord["decision"];
+  /** Defaults to "rule" when omitted (only deny/ask escalations set it). */
+  readonly reasonKind?: DecisionEventRecord["reasonKind"];
   readonly reason: string;
   readonly label?: string;
   readonly timingMs: number;
@@ -378,6 +388,7 @@ async function evaluateInternal(
           ruleId: args.ruleId,
           ruleKind: args.ruleKind,
           decision: args.decision,
+          ...(args.reasonKind === undefined ? {} : { reasonKind: args.reasonKind }),
           reason: args.reason,
           ...(args.label === undefined ? {} : { label: args.label }),
           timingMs: args.timingMs,
@@ -479,6 +490,7 @@ async function evaluateInternal(
           ruleId,
           ruleKind: rule.kind,
           decision: "deny",
+          reasonKind: isUncertaintyDecision(decision) ? "uncertainty" : "rule",
           reason: decision.reason,
           ...(decision.label === undefined ? {} : { label: decision.label }),
           timingMs,
@@ -492,6 +504,7 @@ async function evaluateInternal(
           ruleId,
           ruleKind: rule.kind,
           decision: "ask",
+          reasonKind: isUncertaintyDecision(decision) ? "uncertainty" : "rule",
           reason: decision.reason,
           ...(decision.label === undefined ? {} : { label: decision.label }),
           timingMs,
