@@ -23,8 +23,8 @@ cd examples/my-custom-listener/
 
 The example lives under `examples/` in the hook-kit repo. When forking into a separate repository, you also need to:
 
-- Switch the `"@questi0nm4rk/hook-kit": "*"` dependency to a real published version.
-- Install with `bun install` to populate `node_modules/` (this example uses a symlinked `node_modules/@questi0nm4rk/hook-kit` for in-repo dev).
+- Switch the `"@questi0nm4rk/hook-kit": "file:../.."` dependency to a real published version. (In-repo, the `file:` path links to the local hook-kit tree — see the root `package.json` `workspaces`.)
+- Install with `bun install` to populate `node_modules/`.
 - Ship a `tsconfig.json` if you do not have one.
 
 ## What to change
