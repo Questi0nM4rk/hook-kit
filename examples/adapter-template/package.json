@@ -9,6 +9,6 @@
     "test": "bun test tests/"
   },
   "dependencies": {
-    "@questi0nm4rk/hook-kit": "*"
+    "@questi0nm4rk/hook-kit": "file:../.."
   }
 }

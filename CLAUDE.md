@@ -116,7 +116,9 @@ Add similar coverage when introducing new builder primitives or wrapper behavior
 
 `examples/adapter-template/` — fork-and-modify scaffold for authoring a custom `ProtocolAdapter` (Cursor / Cline / MCP / custom). Cross-references `docs/ADAPTERS.md` for the contract. Smoke-tested by `tests/build/adapter-template-e2e.test.ts` against the compiled binary + `examples/adapter-template/tests/` for in-process unit tests.
 
-`examples/escalation-listener-stdout/` — worked-example listener for hook-kit's escalation tree (~60-line `src/listener.ts`): polls one session spool, prompts on stdout, reads decision from stdin. Cross-references `docs/ESCALATION.md` § Listener authoring. Downstream consumers fork this for Slack / IDE / webhook / custom-UI integrations. The example's `node_modules/@questi0nm4rk/hook-kit` is symlinked to the repo root (per L-M1.3-2) so devtime resolution matches downstream consumers'.
+`examples/escalation-listener-stdout/` — worked-example listener for hook-kit's escalation tree (~60-line `src/listener.ts`): polls one session spool, prompts on stdout, reads decision from stdin. Cross-references `docs/ESCALATION.md` § Listener authoring. Downstream consumers fork this for Slack / IDE / webhook / custom-UI integrations.
+
+Both in-repo, tsconfig-included examples (`adapter-template` + `escalation-listener-stdout`) declare `@questi0nm4rk/hook-kit` as a `"file:../.."` dependency and are listed as `bun` `workspaces` members in the root `package.json`. A fresh `bun install` links each to the local tree so `bun run typecheck` and `bun test examples/*/tests/` resolve the package exactly as a downstream consumer would — no hand-made `node_modules` symlink (the older L-M1.3-2 convention this replaces), so CI's clean `--frozen-lockfile` install resolves them too. `examples/ai-guardrails/` is not a workspace member: it is built/compiled (not unit-imported) by `tests/build/*` from the repo root, which resolves via Bun's root self-reference.
 
 ## What 0.6.0 landed (workstream A — shipped)
 
