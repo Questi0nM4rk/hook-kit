@@ -8,6 +8,6 @@
     "start": "bun src/listener.ts"
   },
   "dependencies": {
-    "@questi0nm4rk/hook-kit": "*"
+    "@questi0nm4rk/hook-kit": "file:../.."
   }
 }

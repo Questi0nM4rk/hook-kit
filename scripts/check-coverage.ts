@@ -23,6 +23,7 @@
 const FN_FLOOR = 0.85; // 85% functions — M1.5 close measured 86.80 (raised 84→85 in M1-polish)
 const LN_FLOOR = 0.89; // 89% lines     — M1.5 close measured 90.09 (held at 89 for headroom)
 const PERCENT = 100; // bun text reporter prints percentages; convert ↔ fraction.
+const ESC = 27; // ASCII escape (0x1B); leads every ANSI SGR colour sequence.
 const SCRIPT = "check-coverage";
 
 // Run the regular-suite tests with coverage. Mirror current `bun run test`
@@ -59,7 +60,19 @@ if (proc.exitCode !== 0) {
 // The text reporter renders one row per file plus an `All files` aggregate row.
 // Shape: ` All files                             |   84.65 |   89.29 |`
 // We split on `|`, trim, and pull the second/third columns as percentages.
-const allFilesLine = stderr.split("\n").find((line) => /^\s*All files\s*\|/.test(line));
+//
+// Some Bun versions paint the coverage table with ANSI SGR colour codes even
+// when stderr is a pipe (not a TTY) and NO_COLOR/CI are set, so the row arrives
+// as `\x1b[0m\x1b[1m\x1b[31mAll files …`. Strip SGR sequences before matching or
+// the `^\s*All files` anchor never fires and the floor check false-negatives
+// (exit 2) on a perfectly healthy run. The ESC byte is built via fromCharCode
+// so no-control-regex doesn't flag a literal control character in the pattern.
+const SGR = new RegExp(`${String.fromCharCode(ESC)}\\[[0-9;]*m`, "g");
+const stripSgr = (line: string): string => line.replace(SGR, "");
+const allFilesLine = stderr
+  .split("\n")
+  .map(stripSgr)
+  .find((line) => /^\s*All files\s*\|/.test(line));
 
 if (allFilesLine === undefined) {
   process.stderr.write(`${SCRIPT}: could not find 'All files' row in coverage output\n`);
