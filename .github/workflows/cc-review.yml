@@ -1,0 +1,119 @@
+# ============================================================================
+#  cc-review — automated strict PR review (powered by Claude Code)
+# ----------------------------------------------------------------------------
+#  This file lives in YOUR repo's .github/workflows/. It clones the cc-review
+#  bot at runtime and runs its self-contained review workflow on your PRs.
+#
+#  WHEN does it auto-review?  Controlled by `trigger:` in .cc-review.yaml:
+#     every_push : on PR open AND every push to the PR branch
+#     pr_open    : on PR open / reopen only            (default)
+#     disabled   : never auto-reviews
+#  Regardless of `trigger`, the @cc-review comment ping ALWAYS works
+#  (see cc-review-interactive.yml). The `cc-review` label and a manual
+#  workflow_dispatch are always-on overrides; the `no-review` label suppresses.
+#
+#  The shared pipeline (clone/prefetch/install/run/push) lives ONCE in the
+#  composite action .github/actions/cc-review-run — both this and the interactive
+#  workflow call it, so the heavy logic is edited in one place.
+#
+#  Requires repo secrets: CLAUDE_CODE_OAUTH_TOKEN, REVIEWER_APP_CLIENT_ID,
+#  REVIEWER_APP_PRIVATE_KEY. See the cc-review SPEC.md for GitHub App setup.
+# ============================================================================
+name: cc-review
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+
+concurrency:
+  group: cc-review-${{ github.repository }}-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    if: >-
+      !contains(github.event.pull_request.labels.*.name, 'no-review') &&
+      !contains(github.event.pull_request.user.login, '[bot]')
+    timeout-minutes: 30
+    permissions:
+      contents: write        # push memory + ephemeral log branches
+      pull-requests: write   # post reviews, resolve threads
+      issues: write          # post the walkthrough + status comments
+
+    # Which cc-review ref the pipeline is cloned from. Consumers track `main`.
+    env:
+      CC_BOT_REF: main   # cc-review ref the pipeline is cloned from
+
+    steps:
+      - name: Checkout consumer repo (PR head)
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.REVIEWER_APP_CLIENT_ID }}
+          private-key: ${{ secrets.REVIEWER_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Resolve PR number + trigger gate
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
+          DISPATCH_PR: ${{ github.event.inputs.pr_number }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+        run: |
+          PR="${DISPATCH_PR:-$EVENT_PR}"
+          echo "pr_number=$PR" >> "$GITHUB_OUTPUT"
+
+          TRIGGER=$(grep -oP '^trigger:\s*\K\S+' .cc-review.yaml 2>/dev/null | tr -d ' "'"'" || echo "pr_open")
+          [ -z "$TRIGGER" ] && TRIGGER="pr_open"
+          echo "Configured trigger: $TRIGGER (event=$EVENT action=$ACTION)"
+
+          RUN=false
+          case "$EVENT" in
+            workflow_dispatch) RUN=true ;;
+            pull_request)
+              if [ "$ACTION" = "labeled" ] && [ "$LABEL" = "cc-review" ]; then RUN=true
+              elif [ "$ACTION" = "opened" ] || [ "$ACTION" = "reopened" ]; then
+                [ "$TRIGGER" = "pr_open" ] || [ "$TRIGGER" = "every_push" ] && RUN=true
+              elif [ "$ACTION" = "synchronize" ]; then
+                [ "$TRIGGER" = "every_push" ] && RUN=true
+              fi ;;
+          esac
+          echo "should_run=$RUN" >> "$GITHUB_OUTPUT"
+          echo "Decision: should_run=$RUN"
+
+      # The pipeline is a runtime-cloned script (scripts/ci-run.sh) in cc-review. A PRIVATE
+      # repo's composite action can't be referenced cross-repo from a personal account, so we
+      # clone the bot with the App token (which CAN read the private repo) and run it. Editing
+      # ci-run.sh updates every consumer on its next run — same runtime-update model as the brain.
+      - name: Clone cc-review bot
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          git clone --depth 1 -b "$CC_BOT_REF" \
+            "https://x-access-token:${GH_TOKEN}@github.com/Questi0nM4rk/cc-review.git" /tmp/cc-review-bot
+
+      - name: Run cc-review
+        id: cc-review
+        if: steps.gate.outputs.should_run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          PR_NUMBER: ${{ steps.gate.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+          CC_POST: "1"
+          PING_OVERRIDE: "false"
+        run: bash /tmp/cc-review-bot/scripts/ci-run.sh
