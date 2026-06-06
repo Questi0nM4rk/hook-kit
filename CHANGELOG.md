@@ -98,6 +98,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
   per-version markers); every backtick-quoted API symbol in it resolves to a real
   export.
 
+### Fixed
+
+- **`mockAskpass()` is now injection-safe.** The test-SDK helper (`./testing`
+  subpath) previously interpolated `reason` / `by` / `decidedAt` raw into a JSON
+  body emitted from an *unquoted* heredoc, so a `"` could break the JSON or forge
+  sibling fields, and a `$(…)` / backtick / newline in any field would be
+  shell-interpreted (executing a command when the script ran as
+  `HOOK_KIT_ASKPASS`). The response is now built in TypeScript and
+  `JSON.stringify`'d, emitted as a single-quoted shell string (so `$`, backtick,
+  `\` and newline are inert), with the request id spliced in via POSIX parameter
+  expansion + `printf` instead of `sed`. The emitted body is always valid JSON
+  and every field round-trips exactly for any string value. Public API unchanged.
+
 ## [0.8.0] — 2026-05-18
 
 ### Fixed
