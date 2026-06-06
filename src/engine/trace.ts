@@ -3,6 +3,7 @@
 // (adapter path) and runShell() (shell-wrapper path) so observability is
 // uniform across modes.
 
+import { isUncertaintyDecision } from "../core/security.js";
 import type { EvaluationOutcome, HookEvent } from "../core/types.js";
 
 export function isVerbose(): boolean {
@@ -32,7 +33,8 @@ export function traceLine(
   } else {
     const label = terminal.label === undefined ? "" : ` label=${terminal.label}`;
     const reason = terminal.reason === "" ? "" : ` reason=${JSON.stringify(terminal.reason)}`;
-    body = `${terminal.kind}${label}${reason}`;
+    const reasonKind = isUncertaintyDecision(terminal) ? " reasonKind=uncertainty" : "";
+    body = `${terminal.kind}${label}${reason}${reasonKind}`;
   }
 
   if (annotations.length > 0) {

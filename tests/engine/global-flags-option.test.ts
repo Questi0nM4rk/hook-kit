@@ -8,12 +8,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
-import { createModule } from "../../src/core/module.js";
 import { runModule } from "../../src/engine/index.js";
-
-function modOf(rule: Parameters<typeof createModule>[1][number]) {
-  return createModule({ id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash"] }, [rule]);
-}
+import { modOf } from "../_helpers.js";
 
 describe("shellAstOpts.globalFlags pass-through (A4)", () => {
   test("terraform without registration: -chdir=./infra shifts apply out of args[0] (no match)", async () => {

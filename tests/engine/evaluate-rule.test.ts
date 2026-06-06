@@ -6,9 +6,9 @@ import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
 import { custom } from "../../src/builders/custom.js";
 import { deny } from "../../src/core/decision.js";
-import type { HookEvent, Rule } from "../../src/core/types.js";
+import type { Rule } from "../../src/core/types.js";
 import { evaluateRule } from "../../src/engine/index.js";
-import { bashEvent } from "../_helpers.js";
+import { bashEvent, editEvent } from "../_helpers.js";
 
 describe("evaluateRule() — single-rule test helper", () => {
   test("returns the rule's decision when it fires", async () => {
@@ -40,16 +40,7 @@ describe("evaluateRule() — single-rule test helper", () => {
   });
 
   test("non-Bash event with a cmd() rule returns null (no AST to evaluate)", async () => {
-    const editEvent: HookEvent = {
-      eventName: "PreToolUse",
-      sessionId: "s1",
-      cwd: "/tmp",
-      transcriptPath: "/tmp/t.jsonl",
-      toolName: "Edit",
-      toolInput: { file_path: "/tmp/x" },
-      raw: {},
-    };
-    const d = await evaluateRule(editEvent, cmd("rm").deny("blocked"));
+    const d = await evaluateRule(editEvent("/tmp/x"), cmd("rm").deny("blocked"));
     expect(d).toBeNull();
   });
 });

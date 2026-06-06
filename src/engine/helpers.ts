@@ -4,70 +4,112 @@
 // `UnwrappedCall` (kind: "wrapped-script") and is consumed in engine/index.ts.
 // Wrapper-vs-command dispatch likewise switches on `u.kind` at the rule sites.
 
-const FLAG_GROUPS: readonly (readonly string[])[] = [
-  ["-r", "--recursive", "-R"],
+// Semantic flag aliases are SCOPED PER COMMAND (SA-07). A group lists short/
+// long forms that mean the same thing *for that command*; matching one matches
+// the rest. Global aliasing was a false-positive source: shell-ast bundle-
+// splits `gcc -Dmacro` into [-D,-m,-a,-c,-r,-o], and a global `-r → --recursive`
+// then made a stray `-r` match a `--recursive` rule on gcc. Scoping aliases to
+// the destructive file-ops (where -r/-R/--recursive and -f/--force are
+// standard) keeps those matches working while unlisted commands match flags
+// literally.
+//
+// `-n` is intentionally excluded everywhere: it means `--no-verify` for
+// `git commit`, `--dry-run` for `git push`, `--no-checkout` for `git clone`.
+// Commands needing `-n` matching should use explicit subcommand-scoped rules.
+// Alias groups must be per-command-accurate: `-r`/`-R` mean "recursive" for
+// rm/cp, but `git diff -R` is reverse and `ln -r` is relative — so those get
+// force-only. Keep this curated to commands whose aliases are reliable; the
+// tail matches flags literally.
+const RECURSIVE_FORCE: readonly (readonly string[])[] = [
+  ["-r", "-R", "--recursive"],
   ["-f", "--force"],
-  ["-d", "--delete"],
 ];
+const FORCE_ONLY: readonly (readonly string[])[] = [["-f", "--force"]];
+// chmod/chown/chgrp recurse via -R only (`-r` is not their flag) and `-f` means
+// --silent, NOT --force — so recursive-only, no force group.
+const RECURSIVE_ONLY: readonly (readonly string[])[] = [["-R", "--recursive"]];
 
-// `-n` is intentionally excluded: it means `--no-verify` for `git commit`,
-// `--dry-run` for `git push`, and `--no-checkout` for `git clone`. Commands
-// that need `-n` matching should use explicit rules with subcommand scoping.
+/** Per-command alias groups, keyed by resolved basename. */
+const COMMAND_ALIASES: Readonly<Record<string, readonly (readonly string[])[]>> = {
+  rm: RECURSIVE_FORCE,
+  cp: RECURSIVE_FORCE,
+  git: FORCE_ONLY,
+  mv: FORCE_ONLY,
+  ln: FORCE_ONLY,
+  chmod: RECURSIVE_ONLY,
+  chown: RECURSIVE_ONLY,
+  chgrp: RECURSIVE_ONLY,
+};
 
-const FLAG_ALIASES: ReadonlyMap<string, readonly string[]> = (() => {
-  const map = new Map<string, string[]>();
-  for (const group of FLAG_GROUPS) {
-    for (const flag of group) {
-      map.set(
-        flag,
-        group.filter((f) => f !== flag),
-      );
-    }
-  }
-  return map;
-})();
-
-/** Compound flag expansions: one flag expands to multiple canonical flags. */
-const FLAG_EXPANSIONS: ReadonlyMap<string, readonly string[]> = new Map([
-  ["-D", ["--delete", "--force"]],
-]);
+// Directional (one→many) short-flag expansions, keyed by resolved basename.
+// Unlike the symmetric groups above, these fan a single short flag out to the
+// long forms it bundles WITHOUT the reverse: `git branch -D` is exactly
+// `--delete --force`, and `-d` is `--delete`. Kept git-scoped (SA-07): a
+// symmetric group would make a plain `--delete` rule also match `--force`, and
+// re-introducing a global `-d` alias is the false-positive source SA-07 killed.
+// This restores the shipped `cmd("git","branch").withFlag("--delete")
+// .withFlag("--force")` rule's match on `git branch -D feature`.
+const COMMAND_FLAG_EXPANSIONS: Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+> = {
+  git: {
+    "-D": ["--delete", "--force"],
+    "-d": ["--delete"],
+  },
+};
 
 /**
- * Expand a list of flags by applying FLAG_EXPANSIONS and FLAG_ALIASES.
- * Result contains every original flag (including compound flags like `-D`)
- * plus their expansions and all alias equivalents, with full transitivity
- * through the alias graph. Duplicates are removed.
+ * Expand `flags` with the semantic aliases scoped to `command` (resolved
+ * basename). A flag present in one of the command's alias groups pulls in the
+ * rest of that group, so a rule written with the short or long form matches
+ * the other. Commands with no registered aliases match flags literally
+ * (deduped). Bundled-short splitting is shell-ast's job, not ours.
  */
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: alias-graph transitive expansion needs the full nested walk for stability; helper extraction would just move the loops.
-export function expandFlags(flags: readonly string[]): string[] {
-  const result = new Set<string>();
+export function expandFlags(flags: readonly string[], command: string): string[] {
+  const result = new Set(flags);
+  addAliasGroups(result, flags, COMMAND_ALIASES[command]);
+  addDirectionalExpansions(result, flags, COMMAND_FLAG_EXPANSIONS[command]);
+  return [...result];
+}
 
-  for (const flag of flags) {
-    result.add(flag);
-
-    const expansion = FLAG_EXPANSIONS.get(flag);
-    if (expansion !== undefined) {
-      for (const f of expansion) {
-        result.add(f);
-      }
-    }
+/** Symmetric alias groups: any member present pulls in the whole group. */
+function addAliasGroups(
+  result: Set<string>,
+  flags: readonly string[],
+  groups: readonly (readonly string[])[] | undefined,
+): void {
+  if (groups === undefined) {
+    return;
   }
-
-  // Add aliases — iterate until fixed point
-  let prevSize = 0;
-  while (result.size !== prevSize) {
-    prevSize = result.size;
-    for (const flag of [...result]) {
-      const aliases = FLAG_ALIASES.get(flag);
-      if (aliases !== undefined) {
-        for (const alias of aliases) {
+  for (const flag of flags) {
+    for (const group of groups) {
+      if (group.includes(flag)) {
+        for (const alias of group) {
           result.add(alias);
         }
       }
     }
   }
+}
 
-  return [...result];
+/** Directional short→long expansions: a short flag fans out to its long forms
+ *  WITHOUT the reverse (see COMMAND_FLAG_EXPANSIONS). */
+function addDirectionalExpansions(
+  result: Set<string>,
+  flags: readonly string[],
+  expansions: Readonly<Record<string, readonly string[]>> | undefined,
+): void {
+  if (expansions === undefined) {
+    return;
+  }
+  for (const flag of flags) {
+    const longs = expansions[flag];
+    if (longs !== undefined) {
+      for (const long of longs) {
+        result.add(long);
+      }
+    }
+  }
 }
 
 /**

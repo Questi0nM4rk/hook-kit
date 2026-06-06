@@ -1,70 +1,87 @@
 import { describe, expect, test } from "bun:test";
 import { expandFlags, hasFlag } from "../../src/engine/helpers.js";
 
-describe("expandFlags", () => {
+describe("expandFlags (command-scoped, SA-07)", () => {
   test("returns empty array for empty input", () => {
-    expect(expandFlags([])).toEqual([]);
+    expect(expandFlags([], "rm")).toEqual([]);
   });
 
   test("preserves a flag with no aliases", () => {
-    expect(expandFlags(["--json"])).toEqual(["--json"]);
+    expect(expandFlags(["--json"], "rm")).toEqual(["--json"]);
   });
 
-  test("expands -r to its aliases (-R, --recursive)", () => {
-    const out = expandFlags(["-r"]);
+  test("expands -r to its aliases (-R, --recursive) for a listed command", () => {
+    const out = expandFlags(["-r"], "rm");
     expect(out).toContain("-r");
     expect(out).toContain("-R");
     expect(out).toContain("--recursive");
   });
 
   test("expands -R to its aliases (-r, --recursive)", () => {
-    const out = expandFlags(["-R"]);
+    const out = expandFlags(["-R"], "rm");
     expect(out).toContain("-r");
     expect(out).toContain("-R");
     expect(out).toContain("--recursive");
   });
 
   test("expands --recursive to its aliases (-r, -R)", () => {
-    const out = expandFlags(["--recursive"]);
+    const out = expandFlags(["--recursive"], "rm");
     expect(out).toContain("-r");
     expect(out).toContain("-R");
     expect(out).toContain("--recursive");
   });
 
   test("expands -f to --force and back", () => {
-    expect(expandFlags(["-f"])).toContain("--force");
-    expect(expandFlags(["--force"])).toContain("-f");
+    expect(expandFlags(["-f"], "rm")).toContain("--force");
+    expect(expandFlags(["--force"], "rm")).toContain("-f");
   });
 
-  test("expands -d to --delete and back", () => {
-    expect(expandFlags(["-d"])).toContain("--delete");
-    expect(expandFlags(["--delete"])).toContain("-d");
+  test("does NOT expand aliases for an unlisted command (gcc)", () => {
+    // The SA-07 fix: gcc's bundled `-r` (from `-Dmacro`) must stay literal.
+    expect(expandFlags(["-r"], "gcc")).toEqual(["-r"]);
+    expect(expandFlags(["-f"], "gcc")).toEqual(["-f"]);
   });
 
-  test("expands compound -D to --delete + --force and their aliases", () => {
-    const out = expandFlags(["-D"]);
-    expect(out).toContain("-D");
-    expect(out).toContain("--delete");
-    expect(out).toContain("-d");
-    expect(out).toContain("--force");
-    expect(out).toContain("-f");
+  test("expands -f to --force for a FORCE_ONLY command (mv)", () => {
+    expect(expandFlags(["-f"], "mv")).toContain("--force");
+  });
+
+  test("does NOT expand -r for a FORCE_ONLY command (mv has no recursive group)", () => {
+    // mv is FORCE_ONLY: `-r` is not its flag and must stay literal.
+    expect(expandFlags(["-r"], "mv")).toEqual(["-r"]);
+  });
+
+  test("expands -R to --recursive for a RECURSIVE_ONLY command (chmod)", () => {
+    const out = expandFlags(["-R"], "chmod");
+    expect(out).toContain("-R");
+    expect(out).toContain("--recursive");
+  });
+
+  test("expands -R to --recursive for chown/chgrp (RECURSIVE_ONLY)", () => {
+    expect(expandFlags(["-R"], "chown")).toContain("--recursive");
+    expect(expandFlags(["-R"], "chgrp")).toContain("--recursive");
+  });
+
+  test("does NOT expand chmod -f to --force (chmod -f means --silent)", () => {
+    // RECURSIVE_ONLY has no force group: chmod's `-f` is --silent, not --force.
+    expect(expandFlags(["-f"], "chmod")).toEqual(["-f"]);
   });
 
   test("merges multiple input flags without duplicates", () => {
-    const out = expandFlags(["-r", "--recursive", "-R"]);
+    const out = expandFlags(["-r", "--recursive", "-R"], "rm");
     const recursiveCount = out.filter((f) => f === "--recursive").length;
     expect(recursiveCount).toBe(1);
   });
 
   test("preserves unrelated flags alongside expanded ones", () => {
-    const out = expandFlags(["-r", "--json"]);
+    const out = expandFlags(["-r", "--json"], "rm");
     expect(out).toContain("-R");
     expect(out).toContain("--json");
   });
 
   test("does not touch parameterized flag values like --field=x", () => {
     // biome-ignore lint/security/noSecrets: test fixture string for shell-AST flag parsing; not a credential.
-    const out = expandFlags(["--field=event=COMMENT"]);
+    const out = expandFlags(["--field=event=COMMENT"], "gh");
     // biome-ignore lint/security/noSecrets: test fixture string for shell-AST flag parsing; not a credential.
     expect(out).toEqual(["--field=event=COMMENT"]);
   });
@@ -89,7 +106,7 @@ describe("hasFlag", () => {
 
   test("requires the caller to pre-expand for alias matching", () => {
     expect(hasFlag(["-r"], "--recursive")).toBe(false);
-    expect(hasFlag(expandFlags(["-r"]), "--recursive")).toBe(true);
+    expect(hasFlag(expandFlags(["-r"], "rm"), "--recursive")).toBe(true);
   });
 
   test("returns false on empty input", () => {

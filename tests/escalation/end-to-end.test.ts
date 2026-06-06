@@ -1,14 +1,9 @@
-/* eslint-disable @typescript-eslint/no-floating-promises -- file drives spawned binaries through proc.stdin.write / .end whose Bun FileSink return type is `number | Promise<number>` (sync for small buffers, async for large); the meaningful success signal is the awaited proc.exited race on `Promise.all([new Response(proc.stdout).text(), proc.exited])` below each write block. Awaiting the FileSink calls individually adds no signal and would serialize the writes-then-await pattern that the kernel pipe already handles. */
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { runBuild } from "../../src/build/bundle.js";
+import { mockAskpass } from "../../src/testing/mock-askpass.js";
 import { parseCcStdout } from "../_helpers.js";
+import { stageBinary } from "../build/_staged.js";
 
 const BUILD_TIMEOUT_MS = 60_000;
-
-const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
 
 const FIXTURE_HOOKS_TS = `
 import { cmd, createModule } from "@questi0nm4rk/hook-kit";
@@ -20,56 +15,6 @@ export default [
   ),
 ];
 `;
-
-function stagePlugin(): { dir: string; entry: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), "hook-kit-esc-e2e-"));
-  const nm = join(dir, "node_modules", "@questi0nm4rk");
-  mkdirSync(nm, { recursive: true });
-  symlinkSync(HOOK_KIT_ROOT, join(nm, "hook-kit"), "dir");
-  symlinkSync(
-    resolve(HOOK_KIT_ROOT, "node_modules", "@questi0nm4rk", "shell-ast"),
-    join(nm, "shell-ast"),
-    "dir",
-  );
-  symlinkSync(
-    resolve(HOOK_KIT_ROOT, "node_modules", "zod"),
-    join(dir, "node_modules", "zod"),
-    "dir",
-  );
-  const srcDir = join(dir, "src");
-  mkdirSync(srcDir, { recursive: true });
-  const entry = join(srcDir, "hooks.ts");
-  writeFileSync(entry, FIXTURE_HOOKS_TS, "utf8");
-  return {
-    dir,
-    entry,
-    cleanup: () => {
-      rmSync(dir, { recursive: true, force: true });
-    },
-  };
-}
-
-function stageAskpass(
-  workDir: string,
-  decision: "allow" | "deny" | "harness-ask",
-  reason?: string,
-): string {
-  // Heredoc avoids POSIX printf's implementation-defined `\"` handling
-  // (dash on Ubuntu CI rejects what bash on developer laptops accepts).
-  const reasonField = reason === undefined ? "" : `,"reason":"${reason}"`;
-  const body = `#!/bin/sh
-REQ=$(cat)
-ID=$(printf %s "$REQ" | grep -oE '"id":"[^"]*"' | head -1 | sed 's/"id":"//; s/"$//')
-cat <<EOF
-{"id":"$ID","decision":"${decision}"${reasonField},"decidedAt":"2026-01-01T00:00:00Z"}
-EOF
-`;
-  const path = join(workDir, "askpass.sh");
-  writeFileSync(path, body, "utf8");
-  // biome-ignore lint/style/noMagicNumbers: rwxr-xr-x literal file mode for executable askpass-script test fixture.
-  chmodSync(path, 0o755);
-  return path;
-}
 
 const ESCALATE_EVENT = JSON.stringify({
   session_id: "e2e-session",
@@ -84,28 +29,20 @@ describe("escalation — compiled binary + askpass", () => {
   test(
     "askpass returns allow → binary stays silent",
     async () => {
-      const { dir, entry, cleanup } = stagePlugin();
-      const out = join(dir, "dist", "hooks");
-      mkdirSync(join(dir, "dist"), { recursive: true });
+      const staged = await stageBinary({
+        hooksFixture: FIXTURE_HOOKS_TS,
+        adapter: "cc-tools",
+        binName: "hooks",
+        prefix: "hook-kit-esc-e2e-",
+      });
+      const askpass = mockAskpass({ decision: "allow" });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
-        const askpass = stageAskpass(dir, "allow");
-        const proc = Bun.spawn([out], {
-          stdin: "pipe",
-          stdout: "pipe",
-          stderr: "pipe",
-          env: { ...process.env, HOOK_KIT_ASKPASS: askpass },
-        });
-        proc.stdin.write(ESCALATE_EVENT);
-        proc.stdin.end();
-        const [stdout, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          proc.exited,
-        ]);
-        expect(exitCode).toBe(0);
-        expect(stdout).toBe("");
+        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass.path });
+        expect(r.exit).toBe(0);
+        expect(r.stdout).toBe("");
       } finally {
-        cleanup();
+        askpass.cleanup();
+        staged.cleanup();
       }
     },
     BUILD_TIMEOUT_MS,
@@ -114,30 +51,22 @@ describe("escalation — compiled binary + askpass", () => {
   test(
     "askpass returns deny → binary emits CC block JSON",
     async () => {
-      const { dir, entry, cleanup } = stagePlugin();
-      const out = join(dir, "dist", "hooks");
-      mkdirSync(join(dir, "dist"), { recursive: true });
+      const staged = await stageBinary({
+        hooksFixture: FIXTURE_HOOKS_TS,
+        adapter: "cc-tools",
+        binName: "hooks",
+        prefix: "hook-kit-esc-e2e-",
+      });
+      const askpass = mockAskpass({ decision: "deny", reason: "policy violation" });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
-        const askpass = stageAskpass(dir, "deny", "policy violation");
-        const proc = Bun.spawn([out], {
-          stdin: "pipe",
-          stdout: "pipe",
-          stderr: "pipe",
-          env: { ...process.env, HOOK_KIT_ASKPASS: askpass },
-        });
-        proc.stdin.write(ESCALATE_EVENT);
-        proc.stdin.end();
-        const [stdout, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          proc.exited,
-        ]);
-        expect(exitCode).toBe(0);
-        const parsed = parseCcStdout(stdout);
+        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass.path });
+        expect(r.exit).toBe(0);
+        const parsed = parseCcStdout(r.stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("policy violation");
       } finally {
-        cleanup();
+        askpass.cleanup();
+        staged.cleanup();
       }
     },
     BUILD_TIMEOUT_MS,
@@ -146,32 +75,24 @@ describe("escalation — compiled binary + askpass", () => {
   test(
     "askpass returns harness-ask → binary emits CC ask JSON",
     async () => {
-      const { dir, entry, cleanup } = stagePlugin();
-      const out = join(dir, "dist", "hooks");
-      mkdirSync(join(dir, "dist"), { recursive: true });
+      const staged = await stageBinary({
+        hooksFixture: FIXTURE_HOOKS_TS,
+        adapter: "cc-tools",
+        binName: "hooks",
+        prefix: "hook-kit-esc-e2e-",
+      });
+      const askpass = mockAskpass({ decision: "harness-ask" });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
-        const askpass = stageAskpass(dir, "harness-ask");
-        const proc = Bun.spawn([out], {
-          stdin: "pipe",
-          stdout: "pipe",
-          stderr: "pipe",
-          env: { ...process.env, HOOK_KIT_ASKPASS: askpass },
-        });
-        proc.stdin.write(ESCALATE_EVENT);
-        proc.stdin.end();
-        const [stdout, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          proc.exited,
-        ]);
-        expect(exitCode).toBe(0);
-        const parsed = parseCcStdout(stdout);
+        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass.path });
+        expect(r.exit).toBe(0);
+        const parsed = parseCcStdout(r.stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
           "review this rm before running",
         );
       } finally {
-        cleanup();
+        askpass.cleanup();
+        staged.cleanup();
       }
     },
     BUILD_TIMEOUT_MS,
@@ -180,35 +101,31 @@ describe("escalation — compiled binary + askpass", () => {
   test(
     "no askpass set → binary emits CC ask JSON (delegate to harness UI)",
     async () => {
-      const { dir, entry, cleanup } = stagePlugin();
-      const out = join(dir, "dist", "hooks");
-      mkdirSync(join(dir, "dist"), { recursive: true });
+      const staged = await stageBinary({
+        hooksFixture: FIXTURE_HOOKS_TS,
+        adapter: "cc-tools",
+        binName: "hooks",
+        prefix: "hook-kit-esc-e2e-",
+      });
       try {
-        await runBuild({ entrypoint: entry, out, adapter: "cc-tools" });
-        // Strip HOOK_KIT_ASKPASS so the binary has no broker infra configured.
-        const env = Object.fromEntries(
-          Object.entries(process.env).filter(([k]) => k !== "HOOK_KIT_ASKPASS"),
-        );
-        const proc = Bun.spawn([out], {
-          stdin: "pipe",
-          stdout: "pipe",
-          stderr: "pipe",
-          env,
-        });
-        proc.stdin.write(ESCALATE_EVENT);
-        proc.stdin.end();
-        const [stdout, exitCode] = await Promise.all([
-          new Response(proc.stdout).text(),
-          proc.exited,
-        ]);
-        expect(exitCode).toBe(0);
-        const parsed = parseCcStdout(stdout);
+        // Strip HOOK_KIT_ASKPASS so the binary has no broker infra configured
+        // and delegates to the harness UI (CC ask JSON). runBin merges the
+        // passed env over process.env (`{ ...process.env, ...env }`), so to
+        // guarantee the key is neutralized regardless of what another test in
+        // this bun process may have leaked into process.env, we override it to
+        // "". The binary treats "" identically to unset (callAskpass: `askpass
+        // === undefined || askpass === ""`), so this restores the pre-refactor
+        // hermeticity (the old code built a filtered full env via
+        // Object.fromEntries) without depending on no other test having set it.
+        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: "" });
+        expect(r.exit).toBe(0);
+        const parsed = parseCcStdout(r.stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain(
           "review this rm before running",
         );
       } finally {
-        cleanup();
+        staged.cleanup();
       }
     },
     BUILD_TIMEOUT_MS,

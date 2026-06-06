@@ -22,13 +22,9 @@
 // And for deny + annotations: annotations are DROPPED, only deny output.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { runBuild } from "../../src/build/bundle.js";
+import { type StagedBinary, stageBinary } from "./_staged.js";
 
 const BUILD_TIMEOUT_MS = 120_000;
-const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
 
 const HOOKS_FIXTURE = `\
 import { cmd, createModule } from "@questi0nm4rk/hook-kit";
@@ -69,54 +65,20 @@ const idWarning = createModule(
 export default [lsWarning, lsNote, whoamiEscalate, whoamiWarning, idDeny, idWarning];
 `;
 
-interface HkResult {
-  exit: number;
-  stdout: string;
-  stderr: string;
-}
-
-async function runHk(bin: string, command: string): Promise<HkResult> {
-  const proc = Bun.spawn([bin, "-c", command], {
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exit] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { exit, stdout, stderr };
-}
-
-let stagedBin: string;
-// Defensive: beforeAll could throw before the assignment, leaving cleanup undefined.
+let staged: StagedBinary;
+// Captured only AFTER stageBinary resolves, so a beforeAll that throws (e.g. a
+// failed build) leaves this undefined and afterAll's `cleanup?.()` is a no-op —
+// surfacing the real build failure instead of a TypeError on `staged.cleanup`.
 let cleanup: (() => void) | undefined;
 
 beforeAll(async () => {
-  const dir = mkdtempSync(join(tmpdir(), "hook-kit-warn-"));
-  mkdirSync(join(dir, "src"), { recursive: true });
-  writeFileSync(join(dir, "src", "hooks.ts"), HOOKS_FIXTURE, "utf8");
-  const nm = join(dir, "node_modules", "@questi0nm4rk");
-  mkdirSync(nm, { recursive: true });
-  symlinkSync(HOOK_KIT_ROOT, join(nm, "hook-kit"), "dir");
-  symlinkSync(
-    resolve(HOOK_KIT_ROOT, "node_modules", "@questi0nm4rk", "shell-ast"),
-    join(nm, "shell-ast"),
-    "dir",
-  );
-  symlinkSync(
-    resolve(HOOK_KIT_ROOT, "node_modules", "zod"),
-    join(dir, "node_modules", "zod"),
-    "dir",
-  );
-  const bin = join(dir, "dist", "hk");
-  mkdirSync(join(dir, "dist"), { recursive: true });
-  await runBuild({ entrypoint: join(dir, "src", "hooks.ts"), out: bin, adapter: "shell" });
-  stagedBin = bin;
-  cleanup = () => {
-    rmSync(dir, { recursive: true, force: true });
-  };
+  staged = await stageBinary({
+    hooksFixture: HOOKS_FIXTURE,
+    adapter: "shell",
+    prefix: "hook-kit-warn-",
+  });
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- StagedBinary.cleanup is an arrow-function property in _staged.ts (closes over staged/sandbox, never reads `this`); detaching it is safe. The rule cannot distinguish arrow-property from prototype method.
+  cleanup = staged.cleanup;
 }, BUILD_TIMEOUT_MS);
 
 afterAll(() => {
@@ -130,7 +92,7 @@ describe("annotations-only path — emit + separator + exec", () => {
     //   [ls-note] note: output may be paginated ...
     //   ---
     //   <ls /tmp output>
-    const r = await runHk(stagedBin, "ls /tmp");
+    const r = await staged.run("ls /tmp");
 
     expect(r.exit).toBe(0);
     expect(r.stderr).toBe("");
@@ -146,7 +108,7 @@ describe("annotations-only path — emit + separator + exec", () => {
 
   test("annotations preserve module-declaration order", async () => {
     // ls-warn comes before ls-note in the modules array, so warning emits first.
-    const r = await runHk(stagedBin, "ls /tmp");
+    const r = await staged.run("ls /tmp");
     const warningIdx = r.stdout.indexOf("[ls-warn]");
     const noteIdx = r.stdout.indexOf("[ls-note]");
     expect(warningIdx).toBeGreaterThan(-1);
@@ -155,13 +117,13 @@ describe("annotations-only path — emit + separator + exec", () => {
   });
 
   test("the separator is exactly `---` on its own line", async () => {
-    const r = await runHk(stagedBin, "ls /tmp");
+    const r = await staged.run("ls /tmp");
     expect(r.stdout).toMatch(/\n---\n/);
   });
 
   test("no annotations fire → no separator, command runs silently", async () => {
     // `echo hello` doesn't match any rule in the fixture. Pass-through path.
-    const r = await runHk(stagedBin, "echo hello");
+    const r = await staged.run("echo hello");
     expect(r.exit).toBe(0);
     expect(r.stdout).toBe("hello\n");
     expect(r.stdout).not.toContain("---");
@@ -173,7 +135,7 @@ describe("annotations-only path — emit + separator + exec", () => {
 
 describe("escalate + annotations bundle — no exec, annotations preserved", () => {
   test("`whoami` → escalate header + warning annotation, exit 1, no exec", async () => {
-    const r = await runHk(stagedBin, "whoami");
+    const r = await staged.run("whoami");
 
     expect(r.exit).toBe(1);
     expect(r.stderr).toBe("");
@@ -192,7 +154,7 @@ describe("escalate + annotations bundle — no exec, annotations preserved", () 
 
 describe("deny + annotations — deny wins, annotations DROPPED", () => {
   test("`id` → deny on stderr, NO annotations in output, exit 2", async () => {
-    const r = await runHk(stagedBin, "id");
+    const r = await staged.run("id");
 
     expect(r.exit).toBe(2);
     expect(r.stderr).toContain("[id-deny] denied: blocked");
@@ -214,7 +176,7 @@ describe("annotation prefix fallback", () => {
   // assertion below verifies the helper hasn't drifted by checking that
   // every annotation line above contains a non-empty `[...]` prefix.
   test("every annotation line starts with a non-empty bracket-prefix", async () => {
-    const r = await runHk(stagedBin, "ls /tmp");
+    const r = await staged.run("ls /tmp");
     const annotationLines = r.stdout
       .split("\n")
       .filter((l) => l.includes(" warning: ") || l.includes(" note: "));

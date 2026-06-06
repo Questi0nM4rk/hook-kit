@@ -7,13 +7,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 ## [Unreleased]
 
 > Staged for the 1.0.0 release. This collects the consumer-facing surface that
-> landed across the 1.0 milestones: a programmatic observability hook, three
-> extension-contract docs, an adapter-authoring scaffold, and escalation/state
-> contract hardening. Internal tooling and refactors are omitted; see the git
-> history for per-commit detail.
+> landed across the 1.0 milestones: an unknown-is-not-safe command-gating
+> guardrail, a programmatic observability hook, three extension-contract docs, an
+> adapter-authoring scaffold, and escalation/state contract hardening. Internal
+> tooling and refactors are omitted; see the git history for per-commit detail.
 
 ### Added
 
+- **Unknown-is-not-safe command gating (`SecurityOptions`).** The engine now
+  ESCALATES on uncertainty instead of failing open: unparsable commands, opaque
+  inline-shell bodies, dynamic command words, and unresolvable flag values route
+  to `ask` rather than silently passing. Configurable via `SecurityOptions` — the
+  `STRICT_BUT_ASKS` (default) and `STRICT_DENY` profiles, an
+  `EngineUnavailablePolicy` for when shell-AST can't load, and an `onDepthExceeded`
+  hook for the wrapper-recursion limit. New STABLE exports: `SecurityOptions`,
+  `STRICT_BUT_ASKS`, `STRICT_DENY`, `EngineUnavailablePolicy`, `EscalationDecision`,
+  `escalate`, `isUncertaintyDecision`.
+- **`protectPath()` builder.** Gate shell-side access to sensitive file paths from
+  a command rule, with read/write modes via `ProtectMode`. New STABLE exports:
+  `protectPath`, `ProtectMode`.
+- **`allowOnly(...)` builder.** Whitelist-inverter — deny every command except an
+  explicit allowlist (the dual of per-command `deny`). New STABLE export:
+  `allowOnly`.
+- **`reasonKind` on decision records + verbose trace.** Every decision now carries
+  a machine-readable `reasonKind` (why a terminal/escalation fired), and the engine
+  can emit a verbose evaluation trace for debugging rule decisions.
 - **`DecisionObserver` — programmatic observability hook.** Register observers
   via `EvaluateOptions.observers` to receive a `DecisionEventRecord` for every
   decision the engine produces — terminal (`deny` / `ask`) and annotation
@@ -79,6 +97,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
   status banner and the timeless "default adapter" framing (replacing stale
   per-version markers); every backtick-quoted API symbol in it resolves to a real
   export.
+
+### Fixed
+
+- **`mockAskpass()` is now injection-safe.** The test-SDK helper (`./testing`
+  subpath) previously interpolated `reason` / `by` / `decidedAt` raw into a JSON
+  body emitted from an *unquoted* heredoc, so a `"` could break the JSON or forge
+  sibling fields, and a `$(…)` / backtick / newline in any field would be
+  shell-interpreted (executing a command when the script ran as
+  `HOOK_KIT_ASKPASS`). The response is now built in TypeScript and
+  `JSON.stringify`'d, emitted as a single-quoted shell string (so `$`, backtick,
+  `\` and newline are inert), with the request id spliced in via POSIX parameter
+  expansion + `printf` instead of `sed`. The emitted body is always valid JSON
+  and every field round-trips exactly for any string value. Public API unchanged.
 
 ## [0.8.0] — 2026-05-18
 

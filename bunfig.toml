@@ -6,3 +6,9 @@
 # belt-and-suspenders enforcement and delete the custom script.
 [test]
 coverage = true
+# The coverage FLOOR (scripts/check-coverage.ts) applies only to the src/
+# surface. scripts/ are CI guards, not shipped library code; tests that import
+# them in-process (e.g. tests/build/verify.test.ts) would otherwise drag the
+# `All files` aggregate row the floor parser reads. Exclude scripts/ from the
+# coverage report so the floor measures src/ alone, as documented in CLAUDE.md.
+coveragePathIgnorePatterns = ["scripts/**"]

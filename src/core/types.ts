@@ -5,6 +5,7 @@
 
 import type { ResolveFlagsOptions, ShellFile } from "@questi0nm4rk/shell-ast";
 import type { HookKitErrorCode } from "./errors.js";
+import type { SecurityOptions } from "./security.js";
 
 // === Decisions ===
 //
@@ -118,6 +119,14 @@ export interface EvalContext {
    * built-in `GLOBAL_VALUE_FLAGS` table only.
    */
   readonly shellAstOpts?: ResolveFlagsOptions;
+  /**
+   * Resolved security policy for the uncertainty path (issue #14). Always a
+   * full {@link SecurityOptions} — the engine default-fills it to
+   * `STRICT_BUT_ASKS` from `EvaluateOptions.security` at entry, so matchers
+   * read concrete knobs without re-defaulting. Builders consult this to decide
+   * how to surface dynamic / unparsable values via `escalate`.
+   */
+  readonly security: SecurityOptions;
 }
 
 // === Modules ===
@@ -175,6 +184,12 @@ export interface DecisionEventRecord {
    *  throw / shell-ast / state); `warning` / `note` are rule-emitted
    *  annotations; `deny` / `ask` are rule-emitted terminals. */
   readonly decision: "deny" | "ask" | "warning" | "note" | "error";
+  /** Whether this terminal came from a rule's own `.deny()`/`.ask()` (`"rule"`)
+   *  or from the security uncertainty path's `escalate()` (`"uncertainty"`), so
+   *  operators can tune escalation noise separately from rule decisions (SA-10).
+   *  Always `"rule"` for annotations and engine-emitted errors.
+   *  @experimental @since 0.9.0 */
+  readonly reasonKind: "rule" | "uncertainty";
   /** `decision.reason` for terminals; `annotation.message` for annotations. */
   readonly reason: string;
   /** `decision.label` or `annotation.label` if the rule set one. */

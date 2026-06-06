@@ -17,53 +17,23 @@
 // codebases — kept inline (not added as a new SDK function) per scope.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  appendFileSync,
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { appendFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { DecisionEventRecord, DecisionObserver, HookModule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
 import { writeEvent } from "../../src/testing/events.js";
 import { mockObserver } from "../../src/testing/mock-observer.js";
 import { bashEvent } from "../_helpers.js";
+import { HOOK_KIT_ROOT, type StagedDir, stageDir } from "../build/_staged.js";
 
-const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
-const EXAMPLE_ROOT = resolve(HOOK_KIT_ROOT, "examples", "ai-guardrails");
+const EXAMPLE_ROOT = join(HOOK_KIT_ROOT, "examples", "ai-guardrails");
 
 /** Stage the example into a tmpdir with node_modules symlinks so its
- *  `import { … } from "@questi0nm4rk/hook-kit"` resolves. Mirrors the
- *  `stageExample` helper in `tests/build/example-ai-guardrails.test.ts`
- *  but skips the build step — we dynamic-import the source directly. */
-function stageExampleForLibMode(): { dir: string; entry: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), "hook-kit-ag-libmode-"));
-  cpSync(join(EXAMPLE_ROOT, "src"), join(dir, "src"), { recursive: true });
-  const nm = join(dir, "node_modules", "@questi0nm4rk");
-  mkdirSync(nm, { recursive: true });
-  symlinkSync(HOOK_KIT_ROOT, join(nm, "hook-kit"), "dir");
-  symlinkSync(
-    resolve(HOOK_KIT_ROOT, "node_modules", "@questi0nm4rk", "shell-ast"),
-    join(nm, "shell-ast"),
-    "dir",
-  );
-  symlinkSync(
-    resolve(HOOK_KIT_ROOT, "node_modules", "zod"),
-    join(dir, "node_modules", "zod"),
-    "dir",
-  );
-  return {
-    dir,
-    entry: join(dir, "src", "hooks.ts"),
-    cleanup: () => {
-      rmSync(dir, { recursive: true, force: true });
-    },
-  };
+ *  `import { … } from "@questi0nm4rk/hook-kit"` resolves. Uses the shared
+ *  `stageDir` (copy example src + symlink farm), then dynamic-imports the
+ *  source directly — NO build step (library mode). */
+function stageExampleForLibMode(): StagedDir {
+  return stageDir({ copyExampleSrc: EXAMPLE_ROOT, prefix: "hook-kit-ag-libmode-" });
 }
 
 let stage: ReturnType<typeof stageExampleForLibMode>;
