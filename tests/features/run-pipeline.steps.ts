@@ -4,37 +4,14 @@ import { expect } from "bun:test";
 import { Given, Then, When } from "@questi0nm4rk/feats";
 import { rawAdapter } from "../../src/adapters/raw.js";
 import { createModule } from "../../src/core/module.js";
-import type { HookEvent, HookModule, RawAdapterState } from "../../src/index.js";
+import type { HookModule, RawAdapterState } from "../../src/index.js";
 import { cmd, path, run } from "../../src/index.js";
+import { bashEvent, writeEvent } from "../_helpers.js";
 
 interface RunPipelineWorld {
   modules: HookModule[];
   state?: RawAdapterState;
   [key: string]: unknown;
-}
-
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: {},
-  };
-}
-
-function writeEvent(filePath: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Write",
-    toolInput: { file_path: filePath },
-    raw: {},
-  };
 }
 
 function asString(v: unknown): string {

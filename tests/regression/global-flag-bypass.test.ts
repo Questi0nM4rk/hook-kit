@@ -15,12 +15,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
-import { createModule } from "../../src/core/module.js";
 import { runModule } from "../../src/engine/index.js";
-
-function modOf(rule: Parameters<typeof createModule>[1][number]) {
-  return createModule({ id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash"] }, [rule]);
-}
+import { modOf } from "../_helpers.js";
 
 describe("shell-ast BUG-000 regression — global value-flag positional shift", () => {
   test("git -C /tmp worktree add → cmd('git', 'worktree', 'add') fires", async () => {

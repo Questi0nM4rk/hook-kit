@@ -3,27 +3,14 @@ import { describe, expect, spyOn, test } from "bun:test";
 import * as shellAst from "@questi0nm4rk/shell-ast";
 import { pipe } from "../../src/builders/pipe.js";
 import { STRICT_DENY } from "../../src/core/security.js";
-import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
+import type { Rule, Terminal } from "../../src/core/types.js";
 import { evaluate, runModule } from "../../src/engine/index.js";
+import { bashEvent, editEvent, moduleWith } from "../_helpers.js";
 
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: {},
-  };
-}
-
-function moduleWith(rule: Rule): HookModule {
-  return { id: "m", name: "test", events: ["PreToolUse"], rules: [rule] };
-}
+const mod = (rule: Rule) => moduleWith([rule]);
 
 async function run(command: string, rule: Rule): Promise<Terminal | null> {
-  const outcome = await evaluate(bashEvent(command), [moduleWith(rule)]);
+  const outcome = await evaluate(bashEvent(command), [mod(rule)]);
   return outcome.terminal;
 }
 
@@ -73,16 +60,8 @@ describe("pipe()", () => {
   });
 
   test("ignores non-Bash events", async () => {
-    const event: HookEvent = {
-      eventName: "PreToolUse",
-      sessionId: "s1",
-      cwd: "/tmp",
-      transcriptPath: "/tmp/t.jsonl",
-      toolName: "Edit",
-      toolInput: { file_path: "/tmp/x" },
-      raw: {},
-    };
-    const outcome = await evaluate(event, [moduleWith(pipe(FETCHERS, SHELLS).deny("x"))]);
+    const event = editEvent("/tmp/x");
+    const outcome = await evaluate(event, [mod(pipe(FETCHERS, SHELLS).deny("x"))]);
     expect(outcome.terminal).toBeNull();
     expect(outcome.annotations).toEqual([]);
   });
@@ -97,7 +76,7 @@ describe("pipe()", () => {
 // matches its set, or both sides are dynamic). A fully-resolved unrelated
 // pipeline never escalates.
 describe("pipe() dynamic-command-word escalation", () => {
-  const denyRce = () => moduleWith(pipe(FETCHERS, SHELLS).deny("RCE risk"));
+  const denyRce = () => mod(pipe(FETCHERS, SHELLS).deny("RCE risk"));
 
   test("escalates to ask when the sink is dynamic and the source matches (default)", async () => {
     const out = await runModule({ module: denyRce(), command: "curl x | $SHELL" });
@@ -142,7 +121,7 @@ describe("pipe() dynamic-command-word escalation", () => {
 
   test("does NOT escalate a note (annotation) rule on a dynamic sink", async () => {
     const out = await runModule({
-      module: moduleWith(pipe(FETCHERS, SHELLS).note("heads up")),
+      module: mod(pipe(FETCHERS, SHELLS).note("heads up")),
       command: "curl x | $SHELL",
     });
     expect(out.terminal).toBeNull();
@@ -187,7 +166,7 @@ describe("pipe() dynamic-command-word escalation", () => {
 
   test("carries the rule's label onto the escalation", async () => {
     const out = await runModule({
-      module: moduleWith(pipe(FETCHERS, SHELLS).deny("RCE risk", "[guard]")),
+      module: mod(pipe(FETCHERS, SHELLS).deny("RCE risk", "[guard]")),
       command: "curl x | $SHELL",
     });
     expect(out.terminal?.label).toBe("[guard]");
@@ -209,7 +188,7 @@ describe("pipe() threads shellAstOpts into unwrapCall", () => {
     const spy = spyOn(shellAst, "unwrapCall");
     try {
       await runModule({
-        module: moduleWith(pipe(FETCHERS, SHELLS).deny("RCE risk")),
+        module: mod(pipe(FETCHERS, SHELLS).deny("RCE risk")),
         command: "curl x | bash",
         shellAstOpts: opts,
       });

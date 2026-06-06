@@ -12,13 +12,12 @@ import { createModule } from "../../src/core/module.js";
 import { expectModule, expectRule } from "../../src/testing/expect.js";
 import { STRICT_BUT_ASKS, STRICT_DENY } from "../../src/testing/index.js";
 import { mockState } from "../../src/testing/mock-state.js";
+import { modOf as modOfHelper } from "../_helpers.js";
 
-function modOf(rule: Parameters<typeof createModule>[1][number]) {
-  return createModule(
-    { id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash", "Edit", "Write", "Read"] },
-    [rule],
-  );
-}
+// expect tests mix Bash + file-tool rules, so widen the shared `modOf` matchers
+// to all four tool channels via its second arg.
+const modOf = (rule: Parameters<typeof createModule>[1][number]) =>
+  modOfHelper(rule, ["Bash", "Edit", "Write", "Read"]);
 
 describe("expectModule.toDeny", () => {
   test("fires on matching rule", async () => {

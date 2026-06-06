@@ -1,27 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { redirect } from "../../src/builders/redirect.js";
 import { STRICT_DENY } from "../../src/core/security.js";
-import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
+import type { Rule, Terminal } from "../../src/core/types.js";
 import { evaluate, runModule } from "../../src/engine/index.js";
+import { bashEvent, moduleWith } from "../_helpers.js";
 
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: {},
-  };
-}
-
-function moduleWith(rule: Rule): HookModule {
-  return { id: "m", name: "test", events: ["PreToolUse"], rules: [rule] };
-}
+const mod = (rule: Rule) => moduleWith([rule]);
 
 async function run(command: string, rule: Rule): Promise<Terminal | null> {
-  const outcome = await evaluate(bashEvent(command), [moduleWith(rule)]);
+  const outcome = await evaluate(bashEvent(command), [mod(rule)]);
   return outcome.terminal;
 }
 
@@ -73,7 +60,7 @@ describe("redirect()", () => {
 // It now escalates per SecurityOptions.uncertaintyDecision for terminal rules.
 // Annotation (warning/note) rules stay silent: escalating them inverts severity.
 describe("redirect() dynamic-target escalation", () => {
-  const denyEtc = () => moduleWith(redirect(/^\/etc\//).deny("system path"));
+  const denyEtc = () => mod(redirect(/^\/etc\//).deny("system path"));
 
   test("escalates a terminal rule to ask under the default profile", async () => {
     const out = await runModule({ module: denyEtc(), command: "echo evil > $TARGET" });
@@ -100,7 +87,7 @@ describe("redirect() dynamic-target escalation", () => {
 
   test("does NOT escalate an annotation (note) rule on a dynamic target", async () => {
     const out = await runModule({
-      module: moduleWith(redirect(/^\/etc\//).note("heads up")),
+      module: mod(redirect(/^\/etc\//).note("heads up")),
       command: "echo evil > $TARGET",
     });
     expect(out.terminal).toBeNull();
@@ -127,7 +114,7 @@ describe("redirect() dynamic-target escalation", () => {
 
   test("undefined pattern (match-any) is unaffected by the dynamic path", async () => {
     const out = await runModule({
-      module: moduleWith(redirect().deny("any redirect")),
+      module: mod(redirect().deny("any redirect")),
       command: "echo evil > $TARGET",
     });
     expect(out.terminal?.kind).toBe("deny");
@@ -135,7 +122,7 @@ describe("redirect() dynamic-target escalation", () => {
 
   test("carries the rule's label onto the escalation", async () => {
     const out = await runModule({
-      module: moduleWith(redirect(/^\/etc\//).deny("system path", "[guard]")),
+      module: mod(redirect(/^\/etc\//).deny("system path", "[guard]")),
       command: "echo evil > $TARGET",
     });
     expect(out.terminal?.label).toBe("[guard]");

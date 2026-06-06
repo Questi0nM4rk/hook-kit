@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mockAskpass } from "../../src/testing/mock-askpass.js";
 import { parseCcStdout } from "../_helpers.js";
 import { stageBinary } from "../build/_staged.js";
 
@@ -16,28 +15,6 @@ export default [
   ),
 ];
 `;
-
-function stageAskpass(
-  workDir: string,
-  decision: "allow" | "deny" | "harness-ask",
-  reason?: string,
-): string {
-  // Heredoc avoids POSIX printf's implementation-defined `\"` handling
-  // (dash on Ubuntu CI rejects what bash on developer laptops accepts).
-  const reasonField = reason === undefined ? "" : `,"reason":"${reason}"`;
-  const body = `#!/bin/sh
-REQ=$(cat)
-ID=$(printf %s "$REQ" | grep -oE '"id":"[^"]*"' | head -1 | sed 's/"id":"//; s/"$//')
-cat <<EOF
-{"id":"$ID","decision":"${decision}"${reasonField},"decidedAt":"2026-01-01T00:00:00Z"}
-EOF
-`;
-  const path = join(workDir, "askpass.sh");
-  writeFileSync(path, body, "utf8");
-  // biome-ignore lint/style/noMagicNumbers: rwxr-xr-x literal file mode for executable askpass-script test fixture.
-  chmodSync(path, 0o755);
-  return path;
-}
 
 const ESCALATE_EVENT = JSON.stringify({
   session_id: "e2e-session",
@@ -58,12 +35,13 @@ describe("escalation — compiled binary + askpass", () => {
         binName: "hooks",
         prefix: "hook-kit-esc-e2e-",
       });
+      const askpass = mockAskpass({ decision: "allow" });
       try {
-        const askpass = stageAskpass(staged.dir, "allow");
-        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass });
+        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass.path });
         expect(r.exit).toBe(0);
         expect(r.stdout).toBe("");
       } finally {
+        askpass.cleanup();
         staged.cleanup();
       }
     },
@@ -79,14 +57,15 @@ describe("escalation — compiled binary + askpass", () => {
         binName: "hooks",
         prefix: "hook-kit-esc-e2e-",
       });
+      const askpass = mockAskpass({ decision: "deny", reason: "policy violation" });
       try {
-        const askpass = stageAskpass(staged.dir, "deny", "policy violation");
-        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass });
+        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass.path });
         expect(r.exit).toBe(0);
         const parsed = parseCcStdout(r.stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("block");
         expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain("policy violation");
       } finally {
+        askpass.cleanup();
         staged.cleanup();
       }
     },
@@ -102,9 +81,9 @@ describe("escalation — compiled binary + askpass", () => {
         binName: "hooks",
         prefix: "hook-kit-esc-e2e-",
       });
+      const askpass = mockAskpass({ decision: "harness-ask" });
       try {
-        const askpass = stageAskpass(staged.dir, "harness-ask");
-        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass });
+        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: askpass.path });
         expect(r.exit).toBe(0);
         const parsed = parseCcStdout(r.stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");
@@ -112,6 +91,7 @@ describe("escalation — compiled binary + askpass", () => {
           "review this rm before running",
         );
       } finally {
+        askpass.cleanup();
         staged.cleanup();
       }
     },
