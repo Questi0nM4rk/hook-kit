@@ -12,10 +12,11 @@
 // biome-ignore-all lint/suspicious/noMisplacedAssertion: assertion helpers (expectEscalate/expectDeny) factor repeated expect-blocks for the table-driven adversarial battery; each call site is inside a test().
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runBuild } from "../../src/build/bundle.js";
+import { makeSandbox, type Sandbox } from "./_sandbox.js";
 
 const BUILD_TIMEOUT_MS = 120_000;
 const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
@@ -33,8 +34,14 @@ interface HkResult {
   stderr: string;
 }
 
+// Throwaway non-git cwd for the staged binary. hk EXECUTES any command it does
+// not block, so spawning from the repo root would let an allowed command (e.g.
+// `git checkout main`) mutate the real tree — see tests/build/_sandbox.ts.
+let sandbox: Sandbox;
+
 async function runHk(bin: string, command: string): Promise<HkResult> {
   const proc = Bun.spawn([bin, "-c", command], {
+    cwd: sandbox.dir,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -67,6 +74,7 @@ let stagedBin: string;
 let cleanup: (() => void) | undefined;
 
 beforeAll(async () => {
+  sandbox = makeSandbox();
   const dir = mkdtempSync(join(tmpdir(), "hook-kit-adv-"));
   cpSync(join(EXAMPLE_ROOT, "src"), join(dir, "src"), { recursive: true });
   const nm = join(dir, "node_modules", "@questi0nm4rk");
@@ -93,6 +101,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   cleanup?.();
+  sandbox.cleanup();
 });
 
 // ─── rm: alias expansion, sudo unwrap, inline-shell, structural wraps ──────
@@ -278,6 +287,31 @@ describe("protect-from-redirects — escalations", () => {
     expect(r.stdout).not.toContain("needs review");
     // Cleanup the side-effect file (the redirect actually ran).
     rmSync("/tmp/__hk_adv_safe.txt", { force: true });
+  });
+});
+
+// ─── cwd isolation (regression guard) ─────────────────────────────────────
+
+describe("cwd isolation — allowed commands must never touch the real repo", () => {
+  // Regression for the CI corruption: hk EXECUTES any command it does not block.
+  // Spawned from the repo root, an allowed branch checkout (`git checkout main`)
+  // reverts the working tree to main mid-run (old tests, new files gone), which
+  // only manifests where main is freely checkout-able (CI's detached PR-merge
+  // checkout) — see tests/build/_sandbox.ts. The binary must run in an isolated,
+  // non-git sandbox cwd. Probe: an allowed relative-path write must land in the
+  // sandbox, never in the hook-kit repo (its presence there proves a leak).
+  const PROBE = "__hk_cwd_isolation_probe__";
+  const repoProbe = join(HOOK_KIT_ROOT, PROBE);
+
+  test("an allowed relative-path write lands in the sandbox, not the repo", async () => {
+    try {
+      const r = await runHk(stagedBin, `touch ${PROBE}`);
+      expect(r.stdout).not.toContain("needs review");
+      expect(existsSync(repoProbe)).toBe(false);
+      expect(existsSync(join(sandbox.dir, PROBE))).toBe(true);
+    } finally {
+      rmSync(repoProbe, { force: true });
+    }
   });
 });
 

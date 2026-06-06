@@ -14,6 +14,13 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runBuild } from "../../src/build/bundle.js";
+import { makeSandbox } from "./_sandbox.js";
+
+// Throwaway non-git cwd for the staged binary: hk EXECUTES any command it does
+// not block, so spawning from the repo root would let allowed commands (and
+// relative-path redirects like `echo x > .env`) touch the real tree — see
+// tests/build/_sandbox.ts.
+const sandbox = makeSandbox();
 
 const BUILD_TIMEOUT_MS = 90_000;
 const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
@@ -57,6 +64,7 @@ async function runHk(
   command: string,
 ): Promise<{ exit: number; stdout: string; stderr: string }> {
   const proc = Bun.spawn([bin, "-c", command], {
+    cwd: sandbox.dir,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -80,6 +88,7 @@ describe("examples/ai-guardrails — shell wrapper binary (hk)", () => {
 
   afterAll(() => {
     staged.cleanup();
+    sandbox.cleanup();
   });
 
   test("rm -rf escalates: stdout '[destructive-rm] needs review' + non-zero exit", async () => {
