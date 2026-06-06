@@ -7,13 +7,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
 ## [Unreleased]
 
 > Staged for the 1.0.0 release. This collects the consumer-facing surface that
-> landed across the 1.0 milestones: a programmatic observability hook, three
-> extension-contract docs, an adapter-authoring scaffold, and escalation/state
-> contract hardening. Internal tooling and refactors are omitted; see the git
-> history for per-commit detail.
+> landed across the 1.0 milestones: an unknown-is-not-safe command-gating
+> guardrail, a programmatic observability hook, three extension-contract docs, an
+> adapter-authoring scaffold, and escalation/state contract hardening. Internal
+> tooling and refactors are omitted; see the git history for per-commit detail.
 
 ### Added
 
+- **Unknown-is-not-safe command gating (`SecurityOptions`).** The engine now
+  ESCALATES on uncertainty instead of failing open: unparsable commands, opaque
+  inline-shell bodies, dynamic command words, and unresolvable flag values route
+  to `ask` rather than silently passing. Configurable via `SecurityOptions` — the
+  `STRICT_BUT_ASKS` (default) and `STRICT_DENY` profiles, an
+  `EngineUnavailablePolicy` for when shell-AST can't load, and an `onDepthExceeded`
+  hook for the wrapper-recursion limit. New STABLE exports: `SecurityOptions`,
+  `STRICT_BUT_ASKS`, `STRICT_DENY`, `EngineUnavailablePolicy`, `EscalationDecision`,
+  `escalate`, `isUncertaintyDecision`.
+- **`protectPath()` builder.** Gate shell-side access to sensitive file paths from
+  a command rule, with read/write modes via `ProtectMode`. New STABLE exports:
+  `protectPath`, `ProtectMode`.
+- **`allowOnly(...)` builder.** Whitelist-inverter — deny every command except an
+  explicit allowlist (the dual of per-command `deny`). New STABLE export:
+  `allowOnly`.
+- **`reasonKind` on decision records + verbose trace.** Every decision now carries
+  a machine-readable `reasonKind` (why a terminal/escalation fired), and the engine
+  can emit a verbose evaluation trace for debugging rule decisions.
 - **`DecisionObserver` — programmatic observability hook.** Register observers
   via `EvaluateOptions.observers` to receive a `DecisionEventRecord` for every
   decision the engine produces — terminal (`deny` / `ask`) and annotation
