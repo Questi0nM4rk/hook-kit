@@ -24,7 +24,7 @@ import {
   note as noteDecision,
   warning as warningDecision,
 } from "../core/decision.js";
-import { escalate } from "../core/security.js";
+import { escalateUncertain } from "../core/security.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 
 /** Which file-access direction a `protectPath` rule guards. */
@@ -336,7 +336,6 @@ class ProtectPathRuleBuilder {
   private buildRule(decision: NonNullable<Decision>): Rule {
     const pattern = this.pattern;
     const mode = this.mode;
-    const isTerminalRule = decision.kind === "deny" || decision.kind === "ask";
     return {
       kind: "protect-path",
       async evaluate(_event: HookEvent, ctx: EvalContext): Promise<Decision> {
@@ -354,11 +353,11 @@ class ProtectPathRuleBuilder {
         }
         // A protected slot held an unresolvable target — for terminal rules,
         // escalate rather than silently allow (annotation rules stay silent).
-        if ((red.dynamic || cmd.dynamic) && isTerminalRule) {
-          const esc = escalate(
-            ctx.security.uncertaintyDecision,
+        if (red.dynamic || cmd.dynamic) {
+          const esc = escalateUncertain(
+            decision,
+            ctx.security,
             `protected ${mode} path has a dynamic target — cannot verify`,
-            decision.label,
           );
           if (esc !== null) {
             return esc;

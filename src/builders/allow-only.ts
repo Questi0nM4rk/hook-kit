@@ -11,7 +11,7 @@ import {
   note as noteDecision,
   warning as warningDecision,
 } from "../core/decision.js";
-import { escalate } from "../core/security.js";
+import { escalateUncertain } from "../core/security.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 
 /** Scan every call against the allowlist. `disallowed` = a concrete command
@@ -82,7 +82,6 @@ class AllowOnlyRuleBuilder {
 
   private buildRule(decision: NonNullable<Decision>): Rule {
     const allowedSet = new Set(this.allowed);
-    const isTerminalRule = decision.kind === "deny" || decision.kind === "ask";
     return {
       kind: "allow-only",
       async evaluate(_event: HookEvent, ctx: EvalContext): Promise<Decision> {
@@ -94,11 +93,11 @@ class AllowOnlyRuleBuilder {
         if (disallowed) {
           return decision;
         }
-        if (dynamic && isTerminalRule) {
-          const esc = escalate(
-            ctx.security.uncertaintyDecision,
+        if (dynamic) {
+          const esc = escalateUncertain(
+            decision,
+            ctx.security,
             "command word is dynamic — cannot verify it is in the allowlist",
-            decision.label,
           );
           if (esc !== null) {
             return esc;

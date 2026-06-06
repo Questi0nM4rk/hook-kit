@@ -83,9 +83,6 @@ export {
   type RunModuleOptions,
   runModule,
 } from "./engine/index.js";
-// Resolution — the three-state vocabulary the uncertainty path classifies
-// inspected values into. @experimental until the SA-01..SA-10 epic completes.
-export { type Resolution, resolutionOf } from "./engine/resolution.js";
 // Entry point — adapter mode (used by cc-tools binary, library consumers)
 export { type RunOptions, run } from "./run.js";
 // Entry point — shell-wrapper mode (the v0.3 default for compiled binaries)
