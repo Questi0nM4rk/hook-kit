@@ -6,8 +6,3 @@
 # belt-and-suspenders enforcement and delete the custom script.
 [test]
 coverage = true
-# Don't instrument test files for coverage (coverage targets src/, not the
-# tests themselves). Also stops bun's coverage pass from reading the duplicate
-# *.test.ts under the examples' `file:../..` workspace copy in node_modules —
-# in GitHub Actions that read intermittently `ENOENT`s and corrupts the run.
-coverageSkipTestFiles = true

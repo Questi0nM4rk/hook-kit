@@ -30,10 +30,6 @@
   "publishConfig": {
     "access": "public"
   },
-  "workspaces": [
-    "examples/adapter-template",
-    "examples/escalation-listener-stdout"
-  ],
   "exports": {
     ".": {
       "import": "./src/index.ts",
