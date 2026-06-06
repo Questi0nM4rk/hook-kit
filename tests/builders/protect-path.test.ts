@@ -195,16 +195,41 @@ describe("protectPath — protected source moved/linked out (BUG 5)", () => {
     expect(o.terminal?.kind).toBe("deny");
   });
 
-  test("write mode still ignores a protected mv source", async () => {
+  test("write mode denies a protected mv source (move mutates/destroys it)", async () => {
     const o = await run(
       "mv /etc/important /tmp/exfil",
       protectPath(ETC, { mode: "write" }).deny("no"),
     );
-    expect(o.terminal).toBeNull();
+    expect(o.terminal?.kind).toBe("deny");
   });
 
   test("mv into a protected dest still fires under write mode (last = write preserved)", async () => {
     const o = await run("mv /tmp/x /etc/passwd", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("write mode denies mv of a protected source (move mutates/destroys the source)", async () => {
+    const o = await run("mv /etc/passwd /tmp/x", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("read mode still denies mv of a protected source (exfil read)", async () => {
+    const o = await run("mv /etc/passwd /tmp/x", protectPath(ETC, { mode: "read" }).deny("no"));
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("mv between unprotected paths runs", async () => {
+    const o = await run("mv /tmp/a /tmp/b", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal).toBeNull();
+  });
+
+  test("write mode ignores ln of a protected source (link does not mutate the source)", async () => {
+    const o = await run("ln /etc/x /tmp", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal).toBeNull();
+  });
+
+  test("read mode denies ln of a protected source (exfil read)", async () => {
+    const o = await run("ln /etc/x /tmp", protectPath(ETC, { mode: "read" }).deny("no"));
     expect(o.terminal?.kind).toBe("deny");
   });
 });

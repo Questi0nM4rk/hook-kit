@@ -355,7 +355,14 @@ class CommandRuleBuilder {
             continue;
           }
           // See `unwrappedName` in engine/helpers.ts for the dispatch policy.
-          if (unwrappedName(u, cfg.strictPath) !== cfg.command) {
+          // `resolved` is the basename-scoped name (resolvedCmd(u) ?? ""); in
+          // the default non-strict path it IS unwrappedName, so reuse it for the
+          // guard. In strict mode the guard needs the verbatim path, so recompute
+          // via unwrappedName(u, true). Either way expandFlags below scopes its
+          // aliases by `resolved` — alias groups are keyed by resolved basename.
+          const resolved = resolvedCmd(u) ?? "";
+          const name = cfg.strictPath ? unwrappedName(u, true) : resolved;
+          if (name !== cfg.command) {
             continue;
           }
 
@@ -395,17 +402,22 @@ class CommandRuleBuilder {
           // Value matchers (argMatches + flag values) are three-state: a
           // resolved match fires; a definitive non-match skips this call; a
           // value the matcher TARGETS being dynamic is "uncertain" (SA-05/08).
-          // Per-flag `tokensAfter` cache avoids re-walking call.args; polymorphic
-          // dispatch sees u.innerRaw for wrapped variants.
-          const tokensCache = new Map<string, readonly ResolvedArg[]>();
-          const tokensFor = (flag: string): readonly ResolvedArg[] => {
-            let cached = tokensCache.get(flag);
-            if (cached === undefined) {
-              cached = tokensAfter(u, flag);
-              tokensCache.set(flag, cached);
-            }
-            return cached;
-          };
+          // The per-flag `tokensAfter` cache/closure is only consulted when
+          // flagPredicates exist (flagValuesState never calls tokensFor for an
+          // empty predicate list — vacuous match), so skip the Map+closure
+          // allocation in the common empty-predicates case.
+          let tokensFor = noTokens;
+          if (cfg.flagPredicates.length > 0) {
+            const tokensCache = new Map<string, readonly ResolvedArg[]>();
+            tokensFor = (flag: string): readonly ResolvedArg[] => {
+              let cached = tokensCache.get(flag);
+              if (cached === undefined) {
+                cached = tokensAfter(u, flag);
+                tokensCache.set(flag, cached);
+              }
+              return cached;
+            };
+          }
           const valueState = combineStates(
             argMatchesState(u.args, cfg.argMatchPatterns),
             flagValuesState(cfg.flagPredicates, tokensFor),
@@ -440,4 +452,12 @@ class CommandRuleBuilder {
 /** True if the call's raw arg list contains the POSIX `--` separator. */
 function hasDdash(call: CallExprNode): boolean {
   return call.args.some((w) => wordToLit(w) === "--");
+}
+
+/** No-flag-predicate sentinel for the evaluate() loop's `tokensFor`: when a rule
+ *  has zero flag predicates, `flagValuesState` never invokes it, so the empty
+ *  result is never observed — it just avoids the per-call Map+closure allocation.
+ *  Takes (and ignores) the flag arg to share the cached closure's signature. */
+function noTokens(_flag: string): readonly ResolvedArg[] {
+  return [];
 }

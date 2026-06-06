@@ -72,10 +72,14 @@ const FILE_COMMANDS: Readonly<Record<string, readonly FileArgSelector[]>> = {
     { role: "read", kind: "positional", which: "allButLast" },
     { role: "write", kind: "positional", which: "last" },
   ],
-  // The non-last positionals are SOURCES — a protected file moved/linked OUT is
-  // a read of that path (caught under mode:"read"/"both"). See BUG 5.
+  // The non-last positionals are SOURCES. For `mv` a source is BOTH an exfil
+  // read (caught under mode:"read"/"both") AND a destructive write — the move
+  // mutates/destroys the original, so a write-mode rule must catch it too. See
+  // BUG 5. `ln` deliberately omits the write-source role: a hard/symlink does
+  // not mutate its source, so an ln source stays read-only.
   mv: [
     { role: "read", kind: "positional", which: "allButLast" },
+    { role: "write", kind: "positional", which: "allButLast" },
     { role: "write", kind: "positional", which: "last" },
   ],
   ln: [
@@ -189,15 +193,21 @@ function prefixCandidates(u: UnwrappedCall, prefix: string): ResolvedArg[] {
   return out;
 }
 
-/** Concrete candidate path strings/DYNAMIC for one selector against a call. */
-function selectorCandidates(u: UnwrappedCall, sel: FileArgSelector): readonly ResolvedArg[] {
+/** Concrete candidate path strings/DYNAMIC for one selector against a call.
+ *  `targetDirs` is the pre-computed target-directory flag value list (shared
+ *  with the selector-set guard), used as-is for the `targetDir` selector. */
+function selectorCandidates(
+  u: UnwrappedCall,
+  sel: FileArgSelector,
+  targetDirs: readonly ResolvedArg[],
+): readonly ResolvedArg[] {
   if (sel.kind === "positional") {
     return positionalArgs(u.args, sel.which);
   }
   if (sel.kind === "prefix") {
     return prefixCandidates(u, sel.prefix);
   }
-  return targetDirValues(u);
+  return targetDirs;
 }
 
 /** Scan the candidate args for one selector against `pattern`. Every entry is
@@ -223,36 +233,37 @@ function targetDirValues(u: UnwrappedCall): readonly ResolvedArg[] {
   return [...tokensAfter(u, TARGET_DIR_SPACE_FLAG), ...prefixCandidates(u, TARGET_DIR_EQ_PREFIX)];
 }
 
-/** True when a cp/mv/install call carries a target-directory flag — flips the
- *  selector set so the flag value is the write target and ALL positionals are
- *  sources (BUG 4). */
-function hasTargetDir(u: UnwrappedCall): boolean {
-  return targetDirValues(u).length > 0;
-}
-
-/** Selectors for one command, applying the `-t` target-directory override. */
+/** Selectors for one command, applying the `-t` target-directory override. A
+ *  non-empty `targetDirs` on a cp/mv/install call flips the selector set so the
+ *  flag value is the write target and ALL positionals are sources (BUG 4).
+ *  `name` and `targetDirs` are computed once in `scanCall` and threaded in. */
 function selectorsFor(
-  u: UnwrappedCall,
+  name: string,
   base: readonly FileArgSelector[],
+  targetDirs: readonly ResolvedArg[],
 ): readonly FileArgSelector[] {
-  if (TARGET_DIR_COMMANDS.has(resolvedCmd(u) ?? "") && hasTargetDir(u)) {
+  if (TARGET_DIR_COMMANDS.has(name) && targetDirs.length > 0) {
     return TARGET_DIR_SELECTORS;
   }
   return base;
 }
 
-/** Scan ONE resolved call against the curated file-command table. */
+/** Scan ONE resolved call against the curated file-command table. The shell-ast
+ *  dispatch (`resolvedCmd`, `targetDirValues`) runs once here and feeds both the
+ *  selector-set guard and the `targetDir` selector candidates. */
 function scanCall(u: UnwrappedCall, mode: ProtectMode, pattern: RegExp): ScanResult {
-  const base = FILE_COMMANDS[resolvedCmd(u) ?? ""];
+  const name = resolvedCmd(u) ?? "";
+  const base = FILE_COMMANDS[name];
   if (base === undefined) {
     return { match: false, dynamic: false };
   }
+  const targetDirs = targetDirValues(u);
   let dynamic = false;
-  for (const sel of selectorsFor(u, base)) {
+  for (const sel of selectorsFor(name, base, targetDirs)) {
     if (!modeIncludes(mode, sel.role)) {
       continue;
     }
-    const result = scanArgs(selectorCandidates(u, sel), pattern);
+    const result = scanArgs(selectorCandidates(u, sel, targetDirs), pattern);
     if (result.match) {
       return { match: true, dynamic };
     }

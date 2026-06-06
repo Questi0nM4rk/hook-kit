@@ -57,4 +57,23 @@ describe("SA-02 opaque inline-shell body", () => {
     const out = await runModule({ module: mod(), command: "bash -c 'rm -rf /'" });
     expect(out.terminal?.kind).toBe("deny");
   });
+
+  // SA-02 merge-contract (mirror of BUG 12 / depth-deny-drops-annotations):
+  // when the opaque-shell escalation resolves to deny (STRICT_DENY), the deny
+  // branch must drop warning/note per the merge policy (only error annotations
+  // survive a deny). `cmd("bash")` fires on the OUTER `bash -c "$VAR"` call,
+  // accruing a warning in the same frame BEFORE the opaque-body deny trips.
+  test("opaque-shell deny under STRICT_DENY drops accrued warning/note", async () => {
+    const out = await runModule({
+      module: moduleWith([
+        cmd("bash").warning("inline-shell warning"),
+        cmd("rm").deny("rm blocked"),
+      ]),
+      command: 'bash -c "$VAR"',
+      security: STRICT_DENY,
+    });
+    expect(out.terminal?.kind).toBe("deny");
+    expect(out.annotations.filter((a) => a.kind === "warning")).toHaveLength(0);
+    expect(out.annotations.filter((a) => a.kind === "note")).toHaveLength(0);
+  });
 });

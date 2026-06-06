@@ -72,7 +72,7 @@ describe("SA-09 allowOnly", () => {
     expect(o.terminal?.kind).toBe("deny");
   });
 
-  test("wrapper with a dynamic inner where wrapper is NOT allowlisted still denies", async () => {
+  test("wrapper with a dynamic inner where wrapper is NOT allowlisted escalates to ask", async () => {
     const o = await run("sudo $cmd", allowOnly("git").deny("not allowed"));
     expect(o.terminal?.kind).toBe("ask");
   });
