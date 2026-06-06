@@ -17,6 +17,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          # Disable the cross-run install cache. bun caches the examples'
+          # `file:../..` dep (a LOCAL, mutable path) as an immutable store entry
+          # in ~/.bun/install/cache; setup-bun then caches that store keyed by
+          # bun.lock. A PR restores main's cached copy (pre-branch test code), so
+          # `bun install` serves STALE source — CI runs phantom/old tests and
+          # hits ENOENT on files added in the branch. Re-install fresh every run.
+          no-cache: true
       - name: Install deps
         run: bun install --frozen-lockfile
       - name: Lint
@@ -71,6 +78,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+          # Disable the cross-run install cache. bun caches the examples'
+          # `file:../..` dep (a LOCAL, mutable path) as an immutable store entry
+          # in ~/.bun/install/cache; setup-bun then caches that store keyed by
+          # bun.lock. A PR restores main's cached copy (pre-branch test code), so
+          # `bun install` serves STALE source — CI runs phantom/old tests and
+          # hits ENOENT on files added in the branch. Re-install fresh every run.
+          no-cache: true
       - name: Install deps
         run: bun install --frozen-lockfile
       - name: Markdownlint
