@@ -4,8 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { content } from "../../src/builders/content.js";
 import { deny, warning } from "../../src/core/decision.js";
-import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
+import type { Annotation, HookModule, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
+import { bashEvent } from "../../src/testing/events.js";
+import { writeEvent } from "../_helpers.js";
 
 let workDir: string;
 
@@ -16,57 +18,36 @@ afterEach(() => {
   rmSync(workDir, { recursive: true, force: true });
 });
 
-function postToolUseEvent(toolName: string, filePath: string): HookEvent {
-  return {
-    eventName: "PostToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName,
-    toolInput: { file_path: filePath },
-    raw: {},
-  };
-}
-
-function preToolUseEvent(toolName: string, filePath: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName,
-    toolInput: { file_path: filePath },
-    raw: {},
-  };
-}
-
+// content() rules read disk content keyed by `file_path`; every case here uses
+// a Write event, so the testing-SDK `writeEvent` (PreToolUse default, override
+// to PostToolUse via opts) supplies the exact shape. The local `moduleWith`
+// stays because content() fires on PostToolUse — it parameterizes `events`,
+// which the shared PreToolUse-only `_helpers.moduleWith` cannot express.
 function moduleWith(rule: Rule, events: string[] = ["PostToolUse"]): HookModule {
   return { id: "m", name: "test", events, rules: [rule] };
 }
 
 async function runOnFile(
-  toolName: string,
+  _toolName: string,
   filePath: string,
   rule: Rule,
   evt: "Pre" | "Post" = "Post",
 ): Promise<Terminal | null> {
-  const event =
-    evt === "Post" ? postToolUseEvent(toolName, filePath) : preToolUseEvent(toolName, filePath);
-  const events = evt === "Post" ? ["PostToolUse"] : ["PreToolUse"];
-  const outcome = await evaluate(event, [moduleWith(rule, events)]);
+  const eventName = evt === "Post" ? "PostToolUse" : "PreToolUse";
+  const event = writeEvent(filePath, undefined, { eventName });
+  const outcome = await evaluate(event, [moduleWith(rule, [eventName])]);
   return outcome.terminal;
 }
 
 async function runOnFileAnnotations(
-  toolName: string,
+  _toolName: string,
   filePath: string,
   rule: Rule,
   evt: "Pre" | "Post" = "Post",
 ): Promise<readonly Annotation[]> {
-  const event =
-    evt === "Post" ? postToolUseEvent(toolName, filePath) : preToolUseEvent(toolName, filePath);
-  const events = evt === "Post" ? ["PostToolUse"] : ["PreToolUse"];
-  const outcome = await evaluate(event, [moduleWith(rule, events)]);
+  const eventName = evt === "Post" ? "PostToolUse" : "PreToolUse";
+  const event = writeEvent(filePath, undefined, { eventName });
+  const outcome = await evaluate(event, [moduleWith(rule, [eventName])]);
   return outcome.annotations;
 }
 
@@ -179,15 +160,7 @@ describe("content() — event filtering", () => {
       called = true;
       return deny("no");
     });
-    const event: HookEvent = {
-      eventName: "PostToolUse",
-      sessionId: "s1",
-      cwd: "/tmp",
-      transcriptPath: "/tmp/t.jsonl",
-      toolName: "Bash",
-      toolInput: { command: "ls" },
-      raw: {},
-    };
+    const event = bashEvent("ls", { eventName: "PostToolUse" });
     const outcome = await evaluate(event, [moduleWith(rule)]);
     expect(called).toBe(false);
     expect(outcome.terminal).toBeNull();

@@ -2,7 +2,10 @@
 # unparseable — valid English variant ("cannot be parsed"); codespell suggests "unparsable" but both are widely used.
 # absout — variable name (absolute output path) in src/build/bundle.ts; not a typo.
 # afterall — Bun test API (`afterAll` hook); codespell suggests "after all" but the API name is a single token.
+# doesnot — camelCase test variable `doesNot` (negative-case outcome) in tests/builders/basename-match.test.ts; not a typo.
+# writed — camelCase test variable `writeD` (Write-event decision) in tests/builders/path.test.ts; not a typo.
+# readd — camelCase test variable `readD` (Read-event decision) in tests/builders/path.test.ts; codespell suggests "re-add" but it is an identifier.
 [codespell]
 skip = ./node_modules,./dist,./bun.lock,./.claude,./docs/plans,./docs/specs,./tests/build,./.git
-ignore-words-list = unparseable,absout,afterall
+ignore-words-list = unparseable,absout,afterall,doesnot,writed,readd
 quiet-level = 3

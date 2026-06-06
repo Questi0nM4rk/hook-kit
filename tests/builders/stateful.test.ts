@@ -11,6 +11,7 @@ import type { Annotation, HookEvent, HookModule } from "../../src/core/types.js"
 import { evaluate } from "../../src/engine/index.js";
 import { MemoryStore } from "../../src/state/memory-store.js";
 import { __resetOpenPathsForTests, TmpdirStore } from "../../src/state/tmpdir-store.js";
+import { bashEvent as sdkBashEvent } from "../../src/testing/events.js";
 import { silenceConsoleWarn } from "../_helpers.js";
 
 let workDir: string;
@@ -33,16 +34,12 @@ afterEach(() => {
   restoreWarn();
 });
 
+// Wraps the testing-SDK `bashEvent`, threading the per-call `sessionId`
+// override through its `opts` so the stateful counter tests can key state on a
+// distinct session. Keeps this suite's historical `s1` / transcriptPath
+// defaults.
 function bashEvent(command: string, sessionId = "s1"): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId,
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: {},
-  };
+  return sdkBashEvent(command, { sessionId, transcriptPath: "/tmp/t.jsonl" });
 }
 
 function repetitionModule(threshold: number): HookModule {

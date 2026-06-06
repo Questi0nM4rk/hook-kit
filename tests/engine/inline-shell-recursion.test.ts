@@ -1,26 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
-import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
+import type { Rule, Terminal } from "../../src/core/types.js";
 import { __setMaxRecurseDepthForTests, evaluate } from "../../src/engine/index.js";
+import { bashEvent, moduleWith } from "../_helpers.js";
 
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: {},
-  };
-}
-
-function moduleWith(rule: Rule): HookModule {
-  return { id: "m", name: "test", events: ["PreToolUse"], rules: [rule] };
-}
+const mod = (rule: Rule) => moduleWith([rule]);
 
 async function runTerminal(command: string, rule: Rule): Promise<Terminal | null> {
-  const outcome = await evaluate(bashEvent(command), [moduleWith(rule)]);
+  const outcome = await evaluate(bashEvent(command), [mod(rule)]);
   return outcome.terminal;
 }
 
@@ -69,7 +56,7 @@ describe("inline-shell recursion", () => {
     const event = bashEvent(`bash -c 'rm -rf /'`);
     const outcome = await evaluate(
       event,
-      [moduleWith(cmd("rm").withFlag("-r").withFlag("-f").deny("no rm -rf"))],
+      [mod(cmd("rm").withFlag("-r").withFlag("-f").deny("no rm -rf"))],
       { recurseInlineShells: false },
     );
     expect(outcome.terminal).toBeNull();
@@ -82,7 +69,7 @@ describe("inline-shell recursion", () => {
     __setMaxRecurseDepthForTests(0);
     try {
       const outcome = await evaluate(bashEvent("bash -c 'rm -rf /'"), [
-        moduleWith(cmd("rm").deny("never matches")),
+        mod(cmd("rm").deny("never matches")),
       ]);
       expect(outcome.terminal?.kind).toBe("ask");
       expect(outcome.terminal?.kind === "ask" && outcome.terminal.reason).toContain(
