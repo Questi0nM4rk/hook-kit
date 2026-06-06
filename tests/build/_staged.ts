@@ -25,6 +25,22 @@ export interface HkResult {
   stderr: string;
 }
 
+/** Drain a piped subprocess — stdout + stderr (concurrently) + exit code — into
+ *  an HkResult. Structural param so both the `runHk` and `runBin` spawns (which
+ *  differ only in their stdin handling) reuse it. */
+async function capture(proc: {
+  readonly stdout: ReadableStream<Uint8Array>;
+  readonly stderr: ReadableStream<Uint8Array>;
+  readonly exited: Promise<number>;
+}): Promise<HkResult> {
+  const [stdout, stderr, exit] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { exit, stdout, stderr };
+}
+
 /**
  * Symlink `@questi0nm4rk/hook-kit` (+ `shell-ast`, `zod`) into
  * `<dir>/node_modules` so a staged entrypoint resolves the package at build time
@@ -91,12 +107,7 @@ export async function runHk(bin: string, command: string, cwd: string): Promise<
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [stdout, stderr, exit] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { exit, stdout, stderr };
+  return capture(proc);
 }
 
 /**
@@ -120,12 +131,7 @@ export async function runBin(
   // await covers both and satisfies no-floating-promises without `void` (noVoid).
   await proc.stdin.write(stdinJson);
   await proc.stdin.end();
-  const [stdout, stderr, exit] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  return { exit, stdout, stderr };
+  return capture(proc);
 }
 
 export interface StagedBinary {
