@@ -34,22 +34,34 @@ import { git } from "./_lib.js";
 
 const SCRIPT = "verify";
 
-interface Check {
+export interface Check {
   /** Stable identifier used by --only / --skip and in the summary. */
   readonly name: string;
-  /** argv for Bun.spawnSync (argv[0] is the executable). */
-  readonly argv: readonly string[];
+  /** argv for Bun.spawnSync. Non-empty tuple: argv[0] is the executable, so
+   *  destructuring `[exe, ...rest]` yields a guaranteed `string` for `exe`
+   *  (no empty-argv silent-spawn path). */
+  readonly argv: readonly [string, ...string[]];
   /** PR-only checks need a base ref; skipped when none resolves. */
   readonly prOnly: boolean;
 }
 
-interface Args {
+export interface Args {
   readonly base: string | null;
   readonly only: ReadonlySet<string> | null;
   readonly skip: ReadonlySet<string>;
 }
 
-function parseList(value: string | undefined): Set<string> {
+export interface CheckResult {
+  readonly name: string;
+  readonly ok: boolean;
+}
+
+export interface Summary {
+  readonly code: number;
+  readonly message: string;
+}
+
+export function parseList(value: string | undefined): Set<string> {
   const out = new Set<string>();
   for (const part of (value ?? "").split(",")) {
     const trimmed = part.trim();
@@ -60,34 +72,61 @@ function parseList(value: string | undefined): Set<string> {
   return out;
 }
 
-function parseArgs(argv: readonly string[]): Args {
+/** Thrown by parseArgs on a usage error. `code` is the intended exit code;
+ *  the top-level entrypoint prints the message + help and exits with it.
+ *  Modelled as an exception (not an exit-in-place) so parseArgs stays pure
+ *  and unit-testable without trapping `process.exit`. */
+export class ArgError extends Error {
+  readonly code: number;
+  constructor(message: string, code: number) {
+    super(message);
+    this.name = "ArgError";
+    this.code = code;
+  }
+}
+
+/** Read the value following a value-taking flag at `argv[i]`, requiring one
+ *  exists. Throws ArgError(2) when the flag is last with no value. */
+function requireValue(argv: readonly string[], i: number, flag: string): string {
+  if (i + 1 >= argv.length) {
+    throw new ArgError(`${SCRIPT}: ${flag} expects a value`, 2);
+  }
+  return argv[i + 1] ?? "";
+}
+
+export function parseArgs(argv: readonly string[]): Args {
   let base: string | null = null;
   let only: Set<string> | null = null;
   let skip = new Set<string>();
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === "--base" && i + 1 < argv.length) {
-      base = argv[i + 1] ?? null;
+    if (a === "--base") {
+      const value = requireValue(argv, i, "--base");
+      // Reject a flag-shaped value: `--base --only x` would otherwise consume
+      // `--only` as the base ref and silently drop the real flag. Git refs
+      // cannot begin with `-` (git check-ref-format), so reject-on-leading-dash
+      // is a safe, unambiguous guard.
+      if (value.startsWith("-")) {
+        throw new ArgError(`${SCRIPT}: --base expects a ref, got flag-shaped '${value}'`, 2);
+      }
+      base = value;
       i += 1;
-    } else if (a === "--only" && i + 1 < argv.length) {
-      only = parseList(argv[i + 1]);
+    } else if (a === "--only") {
+      only = parseList(requireValue(argv, i, "--only"));
       i += 1;
-    } else if (a === "--skip" && i + 1 < argv.length) {
-      skip = parseList(argv[i + 1]);
+    } else if (a === "--skip") {
+      skip = parseList(requireValue(argv, i, "--skip"));
       i += 1;
     } else if (a === "--help" || a === "-h") {
-      printHelp();
-      process.exit(0);
+      throw new ArgError("--help", 0);
     } else {
-      process.stderr.write(`${SCRIPT}: unrecognized arg '${String(a)}'\n`);
-      printHelp();
-      process.exit(2);
+      throw new ArgError(`${SCRIPT}: unrecognized arg '${String(a)}'`, 2);
     }
   }
   return { base, only, skip };
 }
 
-function printHelp(): void {
+export function printHelp(): void {
   process.stderr.write(`\
 ${SCRIPT} — run every repo gate, collect failures, summarize.
 
@@ -104,7 +143,8 @@ resolves — the PR-only checks check-stable-exports and check-changelog.
   --skip <list>  Comma-separated check names; run all but those.
 
 Exits 0 if every selected check passes; non-zero with a summary naming
-each failed check otherwise. Exits 2 on argument errors.
+each failed check otherwise. Exits 2 on argument errors or when --only /
+--skip names an unknown check, or when nothing was selected to run.
 `);
 }
 
@@ -112,7 +152,7 @@ each failed check otherwise. Exits 2 on argument errors.
  *  given; otherwise auto-detects the default branch and returns it only when
  *  HEAD differs from it (i.e. we're plausibly on a PR branch). Returns null
  *  to mean "skip the PR-only checks". */
-function resolveBase(explicit: string | null): string | null {
+export function resolveBase(explicit: string | null): string | null {
   if (explicit !== null && explicit !== "") {
     return explicit;
   }
@@ -132,42 +172,61 @@ function resolveBase(explicit: string | null): string | null {
   return defaultRef;
 }
 
-function buildChecks(base: string | null): readonly Check[] {
-  const checks: Check[] = [
-    { name: "typecheck", argv: ["bun", "run", "typecheck"], prOnly: false },
-    { name: "lint", argv: ["bun", "run", "lint"], prOnly: false },
-    { name: "test", argv: ["bun", "run", "test"], prOnly: false },
+/** The non-PR-only checks — always present regardless of base. */
+const CORE_CHECKS: readonly Check[] = [
+  { name: "typecheck", argv: ["bun", "run", "typecheck"], prOnly: false },
+  { name: "lint", argv: ["bun", "run", "lint"], prOnly: false },
+  { name: "test", argv: ["bun", "run", "test"], prOnly: false },
+  {
+    name: "check-suppress-comments",
+    argv: ["bun", "scripts/check-suppress-comments.ts", "--all"],
+    prOnly: false,
+  },
+  { name: "check-doc-counts", argv: ["bun", "scripts/check-doc-counts.ts"], prOnly: false },
+  { name: "check-output-table", argv: ["bun", "scripts/check-output-table.ts"], prOnly: false },
+  {
+    name: "markdownlint",
+    argv: ["bunx", "--bun", "markdownlint-cli2", "**/*.md", "#node_modules/**", "#dist/**"],
+    prOnly: false,
+  },
+];
+
+/** Names of the PR-only checks. Their argv depends on the resolved base ref,
+ *  so the runnable Check objects are built lazily in buildChecks — but the
+ *  NAMES are static so --only / --skip validation has a complete universe
+ *  even when no base resolves (otherwise `--only check-changelog` on a push
+ *  run would wrongly report an unknown check). */
+const PR_ONLY_CHECK_NAMES = ["check-stable-exports", "check-changelog"] as const;
+
+/** Every check name verify knows about, base-independent. Validation of
+ *  --only / --skip uses THIS set, not the base-dependent runnable list. */
+export const ALL_CHECK_NAMES: ReadonlySet<string> = new Set<string>([
+  ...CORE_CHECKS.map((c) => c.name),
+  ...PR_ONLY_CHECK_NAMES,
+]);
+
+export function buildChecks(base: string | null): readonly Check[] {
+  if (base === null) {
+    return CORE_CHECKS;
+  }
+  return [
+    ...CORE_CHECKS,
     {
-      name: "check-suppress-comments",
-      argv: ["bun", "scripts/check-suppress-comments.ts", "--all"],
-      prOnly: false,
-    },
-    { name: "check-doc-counts", argv: ["bun", "scripts/check-doc-counts.ts"], prOnly: false },
-    { name: "check-output-table", argv: ["bun", "scripts/check-output-table.ts"], prOnly: false },
-    {
-      name: "markdownlint",
-      argv: ["bunx", "--bun", "markdownlint-cli2", "**/*.md", "#node_modules/**", "#dist/**"],
-      prOnly: false,
-    },
-  ];
-  if (base !== null) {
-    checks.push({
       name: "check-stable-exports",
       argv: ["bun", "scripts/check-stable-exports.ts", "--base", base],
       prOnly: true,
-    });
-    checks.push({
+    },
+    {
       name: "check-changelog",
       argv: ["bun", "scripts/check-changelog.ts", "--base", base],
       prOnly: true,
-    });
-  }
-  return checks;
+    },
+  ];
 }
 
 /** Validate that every name in --only / --skip refers to a real check.
- *  Returns the set of unknown names (empty when all valid). */
-function unknownNames(selectors: ReadonlySet<string>, known: ReadonlySet<string>): string[] {
+ *  Returns the sorted list of unknown names (empty when all valid). */
+export function unknownNames(selectors: ReadonlySet<string>, known: ReadonlySet<string>): string[] {
   const unknown: string[] = [];
   for (const name of selectors) {
     if (!known.has(name)) {
@@ -177,18 +236,48 @@ function unknownNames(selectors: ReadonlySet<string>, known: ReadonlySet<string>
   return unknown.sort();
 }
 
-function selected(check: Check, args: Args): boolean {
+export function selected(check: Check, args: Args): boolean {
   if (args.only !== null && !args.only.has(check.name)) {
     return false;
   }
   return !args.skip.has(check.name);
 }
 
+/** Aggregate per-check results into an exit code + summary message. Pure over
+ *  its inputs (no spawning, no process state) so the failure / all-pass /
+ *  zero-selection logic is unit-testable in isolation. `requestedOnly` is the
+ *  --only set (or null) and `baseResolved` whether a PR base was found — both
+ *  used only to explain WHY nothing ran when `results` is empty. */
+export function summarize(
+  results: readonly CheckResult[],
+  requestedOnly: ReadonlySet<string> | null,
+  baseResolved: boolean,
+): Summary {
+  if (results.length === 0) {
+    // Nothing ran. This is NEVER success — a valid-but-out-of-context --only
+    // (e.g. a PR-only check on a push run with no base) or an all-skip would
+    // otherwise masquerade as green. Exit non-zero and explain.
+    const onlyList = requestedOnly === null ? "" : ` (--only ${[...requestedOnly].join(",")})`;
+    const why = baseResolved
+      ? ""
+      : " — note: PR-only checks (check-stable-exports, check-changelog) are skipped when no base ref resolves";
+    return { code: 2, message: `${SCRIPT}: no checks selected to run${onlyList}${why}` };
+  }
+  const failed = results.filter((r) => !r.ok).map((r) => r.name);
+  if (failed.length > 0) {
+    return {
+      code: 1,
+      message: `${SCRIPT}: FAILED — ${String(failed.length)}/${String(results.length)} check(s): ${failed.join(", ")}`,
+    };
+  }
+  return { code: 0, message: `${SCRIPT}: all ${String(results.length)} check(s) passed` };
+}
+
 function runCheck(check: Check): boolean {
   const [exe, ...rest] = check.argv;
   const tag = check.prOnly ? " [pr-only]" : "";
   process.stderr.write(`\n${SCRIPT}: >> ${check.name}${tag} (${check.argv.join(" ")})\n`);
-  const result = Bun.spawnSync([exe ?? "bun", ...rest], {
+  const result = Bun.spawnSync([exe, ...rest], {
     stdout: "inherit",
     stderr: "inherit",
     stdin: "inherit",
@@ -200,49 +289,54 @@ function runCheck(check: Check): boolean {
   return ok;
 }
 
-function main(): number {
-  const args = parseArgs(process.argv.slice(2));
-  const base = resolveBase(args.base);
-  const checks = buildChecks(base);
-  const knownNames = new Set(checks.map((c) => c.name));
+export function main(argv: readonly string[]): number {
+  let args: Args;
+  try {
+    args = parseArgs(argv);
+  } catch (err) {
+    if (err instanceof ArgError) {
+      if (err.message !== "--help") {
+        process.stderr.write(`${err.message}\n`);
+      }
+      printHelp();
+      return err.code;
+    }
+    throw err;
+  }
 
+  // Finding 4: validate --only / --skip against the FULL static universe of
+  // check names, independent of whether a base resolved. A PR-only name is a
+  // real check even when this run won't execute it.
   const bad = [
-    ...unknownNames(args.only ?? new Set(), knownNames),
-    ...unknownNames(args.skip, knownNames),
+    ...unknownNames(args.only ?? new Set(), ALL_CHECK_NAMES),
+    ...unknownNames(args.skip, ALL_CHECK_NAMES),
   ];
   if (bad.length > 0) {
     process.stderr.write(
       `${SCRIPT}: unknown check name(s): ${bad.join(", ")}\n` +
-        `${SCRIPT}: known checks: ${[...knownNames].join(", ")}\n`,
+        `${SCRIPT}: known checks: ${[...ALL_CHECK_NAMES].join(", ")}\n`,
     );
     return 2;
   }
 
+  const base = resolveBase(args.base);
   if (base === null) {
     process.stderr.write(`${SCRIPT}: skipping PR-only checks (no base ref)\n`);
   }
 
-  const failed: string[] = [];
-  let ran = 0;
-  for (const check of checks) {
+  const results: CheckResult[] = [];
+  for (const check of buildChecks(base)) {
     if (!selected(check, args)) {
       continue;
     }
-    ran += 1;
-    if (!runCheck(check)) {
-      failed.push(check.name);
-    }
+    results.push({ name: check.name, ok: runCheck(check) });
   }
 
-  process.stderr.write("\n");
-  if (failed.length > 0) {
-    process.stderr.write(
-      `${SCRIPT}: FAILED — ${String(failed.length)}/${String(ran)} check(s): ${failed.join(", ")}\n`,
-    );
-    return 1;
-  }
-  process.stderr.write(`${SCRIPT}: all ${String(ran)} check(s) passed\n`);
-  return 0;
+  const summary = summarize(results, args.only, base !== null);
+  process.stderr.write(`\n${summary.message}\n`);
+  return summary.code;
 }
 
-process.exit(main());
+if (import.meta.main) {
+  process.exit(main(process.argv.slice(2)));
+}
