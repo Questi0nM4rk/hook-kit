@@ -40,7 +40,7 @@ jobs:
     if: >-
       !contains(github.event.pull_request.labels.*.name, 'no-review') &&
       !contains(github.event.pull_request.user.login, '[bot]')
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write        # push memory + ephemeral log branches
       pull-requests: write   # post reviews, resolve threads
