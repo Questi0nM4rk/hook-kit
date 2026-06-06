@@ -1,0 +1,26 @@
+diff --git a/.github/workflows/cc-review-interactive.yml b/.github/workflows/cc-review-interactive.yml
+index ed36b0d..284dc17 100644
+--- a/.github/workflows/cc-review-interactive.yml
++++ b/.github/workflows/cc-review-interactive.yml
+@@ -31,7 +31,7 @@ jobs:
+       contains(github.event.comment.body, '@cc-review') &&
+       (github.event_name == 'pull_request_review_comment' ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null))
+-    timeout-minutes: 30
++    timeout-minutes: 60
+     permissions:
+       contents: write
+       pull-requests: write
+diff --git a/.github/workflows/cc-review.yml b/.github/workflows/cc-review.yml
+index 31599e2..698998c 100644
+--- a/.github/workflows/cc-review.yml
++++ b/.github/workflows/cc-review.yml
+@@ -40,7 +40,7 @@ jobs:
+     if: >-
+       !contains(github.event.pull_request.labels.*.name, 'no-review') &&
+       !contains(github.event.pull_request.user.login, '[bot]')
+-    timeout-minutes: 30
++    timeout-minutes: 60
+     permissions:
+       contents: write        # push memory + ephemeral log branches
+       pull-requests: write   # post reviews, resolve threads
