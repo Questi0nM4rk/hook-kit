@@ -11,12 +11,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
-import { createModule } from "../../src/core/module.js";
 import { runModule } from "../../src/engine/index.js";
-
-function modOf(rule: Parameters<typeof createModule>[1][number]) {
-  return createModule({ id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash"] }, [rule]);
-}
+import { modOf } from "../_helpers.js";
 
 describe("basename-match default (A1)", () => {
   test("cmd('git') fires on bare 'git'", async () => {

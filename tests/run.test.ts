@@ -1,20 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { rawAdapter } from "../src/adapters/raw.js";
 import { createModule } from "../src/core/module.js";
-import type { HookEvent, ProtocolAdapter } from "../src/index.js";
+import type { ProtocolAdapter } from "../src/index.js";
 import { cmd, path, run } from "../src/index.js";
-
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: {},
-  };
-}
+import { bashEvent, writeEvent } from "./_helpers.js";
 
 describe("run() — adapter round-trip", () => {
   test("reads, evaluates, writes through the raw adapter", async () => {
@@ -58,15 +47,7 @@ describe("run() — adapter round-trip", () => {
   });
 
   test("captures path() rule decisions through the same flow", async () => {
-    const event: HookEvent = {
-      eventName: "PreToolUse",
-      sessionId: "s1",
-      cwd: "/tmp",
-      transcriptPath: "/tmp/t.jsonl",
-      toolName: "Write",
-      toolInput: { file_path: "/tmp/x.g.cs" },
-      raw: {},
-    };
+    const event = writeEvent("/tmp/x.g.cs");
     const { adapter, state } = rawAdapter(event);
     const modules = [
       createModule(

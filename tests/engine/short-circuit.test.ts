@@ -13,9 +13,13 @@
 
 import { describe, expect, test } from "bun:test";
 import { ask, deny, note, warning } from "../../src/core/decision.js";
-import type { Decision, HookEvent, HookModule, Rule } from "../../src/core/types.js";
+import type { Decision, HookEvent, Rule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
+import { moduleWith } from "../_helpers.js";
 
+// Bespoke command-less Bash event (`toolInput: {}`): these merge-policy tests
+// use spy rules that never read the command, and the testing-SDK `bashEvent`
+// always populates `{ command }`, so the empty-input shape stays hand-rolled.
 const event: HookEvent = {
   eventName: "PreToolUse",
   sessionId: "s1",
@@ -28,10 +32,6 @@ const event: HookEvent = {
 
 function alwaysReturn(value: Decision): Rule {
   return { kind: "spy", evaluate: () => value };
-}
-
-function moduleWith(rules: Rule[]): HookModule {
-  return { id: "m", name: "test", events: ["PreToolUse"], rules };
 }
 
 describe("evaluate() — deny merge policy", () => {

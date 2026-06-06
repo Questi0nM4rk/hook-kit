@@ -1,8 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { path } from "../../src/builders/path.js";
-import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
+import type { Annotation, HookEvent, Rule, Terminal } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
+import { moduleWith } from "../_helpers.js";
 
+// Polymorphic event factory: path() tests probe arbitrary tool channels
+// (Write/Edit/Read/NotebookEdit/Bash/MysteryTool) and malformed inputs
+// (missing/empty file_path, `{}`). The typed SDK factories (writeEvent/editEvent/
+// readEvent) deliberately can't express those shapes, so this stays hand-rolled.
 function event(toolName: string, toolInput: Record<string, unknown>): HookEvent {
   return {
     eventName: "PreToolUse",
@@ -15,16 +20,12 @@ function event(toolName: string, toolInput: Record<string, unknown>): HookEvent 
   };
 }
 
-function moduleWith(rule: Rule): HookModule {
-  return { id: "m", name: "test", events: ["PreToolUse"], rules: [rule] };
-}
-
 async function run(
   toolName: string,
   toolInput: Record<string, unknown>,
   rule: Rule,
 ): Promise<Terminal | null> {
-  const outcome = await evaluate(event(toolName, toolInput), [moduleWith(rule)]);
+  const outcome = await evaluate(event(toolName, toolInput), [moduleWith([rule])]);
   return outcome.terminal;
 }
 
@@ -33,7 +34,7 @@ async function runAnnotations(
   toolInput: Record<string, unknown>,
   rule: Rule,
 ): Promise<readonly Annotation[]> {
-  const outcome = await evaluate(event(toolName, toolInput), [moduleWith(rule)]);
+  const outcome = await evaluate(event(toolName, toolInput), [moduleWith([rule])]);
   return outcome.annotations;
 }
 
