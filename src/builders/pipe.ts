@@ -59,7 +59,7 @@ class PipeRuleBuilder {
           if (effectOf(node) !== "pipe") {
             continue;
           }
-          const status = classifyPipeStage(node.x, node.y, fromSet, intoSet);
+          const status = classifyPipeStage(node, fromSet, intoSet, ctx.shellAstOpts);
           if (status === "match") {
             return decision;
           }
@@ -90,12 +90,18 @@ class PipeRuleBuilder {
  *  a dynamic word can't be proven non-matching, a non-command can. */
 const DYNAMIC_WORD = Symbol("dynamic-command-word");
 
-function stmtToCmdName(stmt: Stmt): string | typeof DYNAMIC_WORD | null {
+function stmtToCmdName(
+  stmt: Stmt,
+  shellAstOpts: EvalContext["shellAstOpts"],
+): string | typeof DYNAMIC_WORD | null {
   const cmd = stmt.cmd;
   if (cmd?.type !== "CallExpr") {
     return null;
   }
-  const u = unwrapCall(cmd);
+  // Thread the consumer's resolver options (globalFlags) — same as command.ts,
+  // protect-path.ts, allow-only.ts. Dropping it here let a wrapped pipe stage
+  // resolve differently than in every other builder.
+  const u = unwrapCall(cmd, shellAstOpts);
   if (u === null) {
     // unwrapCall returns null when the command WORD is dynamic ($SHELL,
     // $(which sh)) — the same one-token signal command.ts (SA-01) escalates on.
@@ -117,13 +123,13 @@ function stmtToCmdName(stmt: Stmt): string | typeof DYNAMIC_WORD | null {
  *    escalates (a fully-resolved unrelated pipeline never reaches here).
  *  - `"none"`    — a resolved side rules the stage out. */
 function classifyPipeStage(
-  x: Stmt,
-  y: Stmt,
+  node: { readonly x: Stmt; readonly y: Stmt },
   fromSet: ReadonlySet<string>,
   intoSet: ReadonlySet<string>,
+  shellAstOpts: EvalContext["shellAstOpts"],
 ): "match" | "uncertain" | "none" {
-  const left = stmtToCmdName(x);
-  const right = stmtToCmdName(y);
+  const left = stmtToCmdName(node.x, shellAstOpts);
+  const right = stmtToCmdName(node.y, shellAstOpts);
   const leftMatch = left !== null && left !== DYNAMIC_WORD && fromSet.has(left);
   const rightMatch = right !== null && right !== DYNAMIC_WORD && intoSet.has(right);
   if (leftMatch && rightMatch) {

@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+// biome-ignore lint/performance/noNamespaceImport: spyOn needs the live shell-ast namespace object to stub unwrapCall in place (no mock.module, so this stays in tests/ not tests-isolated/).
+import * as shellAst from "@questi0nm4rk/shell-ast";
 import { pipe } from "../../src/builders/pipe.js";
 import { STRICT_DENY } from "../../src/core/security.js";
 import type { HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
@@ -189,5 +191,35 @@ describe("pipe() dynamic-command-word escalation", () => {
       command: "curl x | $SHELL",
     });
     expect(out.terminal?.label).toBe("[guard]");
+  });
+});
+
+// Consistency bug: every other builder (command.ts, protect-path.ts,
+// allow-only.ts) passes `ctx.shellAstOpts` into `unwrapCall(call, opts)`, but
+// pipe's `stmtToCmdName` called `unwrapCall(cmd)` with NO opts — so a consumer's
+// `globalFlags` registration (EvaluateOptions.shellAstOpts) was silently ignored
+// for pipe rules only, letting a wrapped pipe stage resolve differently here
+// than in every other builder. pipe matches command NAMES, so globalFlags can't
+// flip a pipe DECISION (it only shifts the post-command-word args/flags split),
+// which is why this is asserted at the threading boundary: the resolver options
+// must REACH unwrapCall for both stages.
+describe("pipe() threads shellAstOpts into unwrapCall", () => {
+  test("passes ctx.shellAstOpts to every unwrapCall (both pipe stages)", async () => {
+    const opts = { globalFlags: { runner: ["-x"] } } as const;
+    const spy = spyOn(shellAst, "unwrapCall");
+    try {
+      await runModule({
+        module: moduleWith(pipe(FETCHERS, SHELLS).deny("RCE risk")),
+        command: "curl x | bash",
+        shellAstOpts: opts,
+      });
+      // Both stages (x and y) get unwrapped; neither may drop the options.
+      expect(spy.mock.calls.length).toBeGreaterThanOrEqual(2);
+      for (const call of spy.mock.calls) {
+        expect(call[1]).toEqual(opts);
+      }
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

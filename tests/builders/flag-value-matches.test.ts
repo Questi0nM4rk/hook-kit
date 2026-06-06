@@ -265,4 +265,12 @@ describe(".flagValueEquals() — exact-string predicate (A2)", () => {
     });
     expect(out.terminal).toBeNull();
   });
+
+  test("dynamic value with { onDynamic: 'skip' } restores the legacy silent skip", async () => {
+    const mod = modOf(
+      cmd("gcc").flagValueEquals("-o", "/etc/x", { onDynamic: "skip" }).deny("system path"),
+    );
+    const out = await runModule({ module: mod, command: "gcc -o $TARGET src.c" });
+    expect(out.terminal).toBeNull();
+  });
 });

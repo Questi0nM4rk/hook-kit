@@ -374,6 +374,13 @@ async function evaluateInternal(
   let notifyEngineError: (source: EngineErrorSource, err: HookKitError) => void = () => {
     /* noop when observersActive=false; closure replaced below */
   };
+  // SA-10: route an engine-side security terminal (depth / opaque-shell /
+  // unparsable / engine-unavailable) through the observer-notify path, tagged
+  // reasonKind:"uncertainty". A null `esc` (allow → nothing surfaced) is a
+  // no-op so the legacy silent fail-open path emits no record.
+  let notifyEscalation: (ruleKind: string, esc: Terminal | null) => void = () => {
+    /* noop when observersActive=false; closure replaced below */
+  };
   if (observersActive) {
     // Cache the toolInputHash per evaluation: multiple decisions in this
     // frame share the same input → compute once, reuse for every record.
@@ -408,6 +415,24 @@ async function evaluateInternal(
         ruleKind: source,
         decision: "error",
         reason: err.message,
+        timingMs: 0,
+      });
+    };
+    // Engine-side security terminals share the synthetic `<engine>:<ruleKind>`
+    // ruleId + timingMs=0 convention; reasonKind:"uncertainty" lets SA-10 noise
+    // tuning treat them like builder-emitted escalations. `allow` (esc=null)
+    // surfaces nothing, so no record is emitted.
+    notifyEscalation = (ruleKind, esc): void => {
+      if (esc === null) {
+        return;
+      }
+      notifyFor({
+        ruleId: `<engine>:${ruleKind}`,
+        ruleKind,
+        decision: esc.kind,
+        reasonKind: "uncertainty",
+        reason: esc.reason,
+        ...(esc.label === undefined ? {} : { label: esc.label }),
         timingMs: 0,
       });
     };
@@ -549,6 +574,11 @@ async function evaluateInternal(
         ctx.security.onDepthExceeded,
         "[hook-kit] inline-shell nesting exceeded inspection depth — review",
       );
+      // Route the escalation through the observer-notify path (tagged
+      // reasonKind:"uncertainty") BEFORE returning, so SA-10's reasonKind
+      // tuning can see engine-side security terminals — not just builder-emitted
+      // ones. No-op when no observers are registered.
+      notifyEscalation("depth", esc);
       // A deny here is still a deny: drop warning/note per the merge contract
       // (only error annotations survive a deny). Mirrors every other deny exit.
       if (esc?.kind === "deny") {
@@ -579,11 +609,18 @@ async function evaluateInternal(
             notifyEngineError("shell-ast", err);
           }
           if (failure === "engine-unavailable" && ctx.security.onEngineUnavailable === "deny-all") {
+            // Fail-closed hard deny on a dead WASM engine. Not an escalate()
+            // product, but observers must still get the audit record — tag it
+            // reasonKind:"uncertainty" (per SA-10; the reasonKind type permits
+            // only "rule" | "uncertainty", and a fail-closed deny is not a rule
+            // decision).
+            const engineDeny = denyDecision(
+              "[hook-kit] shell-AST engine unavailable — denying (fail-closed)",
+            );
+            notifyEscalation("engine-unavailable", engineDeny);
             await flushState();
             return {
-              terminal: denyDecision(
-                "[hook-kit] shell-AST engine unavailable — denying (fail-closed)",
-              ),
+              terminal: engineDeny,
               annotations: keepOnlyErrors(annotations),
             };
           }
@@ -605,6 +642,9 @@ async function evaluateInternal(
             ctx.security.uncertaintyDecision,
             `opaque inline-shell body (${opaqueShell.wrapper} with a dynamic script) — cannot inspect`,
           );
+          // Fire the observer record once for this escalation (deny OR ask),
+          // tagged reasonKind:"uncertainty", before returning/accumulating.
+          notifyEscalation("opaque-shell", esc);
           if (esc?.kind === "deny") {
             drainContextErrors();
             await flushState();
@@ -654,9 +694,13 @@ async function evaluateInternal(
   // (non-AST) rule may have produced — deny-all overrides ask. (No deny can
   // reach here; every rule-produced deny short-circuits above.)
   if (parseFailure === "engine-unavailable" && ctx.security.onEngineUnavailable === "deny-all") {
+    const engineDeny = denyDecision(
+      "[hook-kit] shell-AST engine unavailable — denying (fail-closed)",
+    );
+    notifyEscalation("engine-unavailable", engineDeny);
     await flushState();
     return {
-      terminal: denyDecision("[hook-kit] shell-AST engine unavailable — denying (fail-closed)"),
+      terminal: engineDeny,
       annotations: keepOnlyErrors(annotations),
     };
   }
@@ -670,6 +714,10 @@ async function evaluateInternal(
       ctx.security.onUnparsable,
       "[hook-kit] command could not be parsed — cannot verify",
     );
+    // Fire the observer record once for this escalation (deny OR ask), tagged
+    // reasonKind:"uncertainty", covering BOTH the deny-return and ask-accumulate
+    // branches below.
+    notifyEscalation("unparsable", esc);
     if (esc?.kind === "deny") {
       await flushState();
       return { terminal: esc, annotations: keepOnlyErrors(annotations) };

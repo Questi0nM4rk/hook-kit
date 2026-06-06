@@ -42,6 +42,31 @@ describe("expandFlags (command-scoped, SA-07)", () => {
     expect(expandFlags(["-f"], "gcc")).toEqual(["-f"]);
   });
 
+  test("expands -f to --force for a FORCE_ONLY command (mv)", () => {
+    expect(expandFlags(["-f"], "mv")).toContain("--force");
+  });
+
+  test("does NOT expand -r for a FORCE_ONLY command (mv has no recursive group)", () => {
+    // mv is FORCE_ONLY: `-r` is not its flag and must stay literal.
+    expect(expandFlags(["-r"], "mv")).toEqual(["-r"]);
+  });
+
+  test("expands -R to --recursive for a RECURSIVE_ONLY command (chmod)", () => {
+    const out = expandFlags(["-R"], "chmod");
+    expect(out).toContain("-R");
+    expect(out).toContain("--recursive");
+  });
+
+  test("expands -R to --recursive for chown/chgrp (RECURSIVE_ONLY)", () => {
+    expect(expandFlags(["-R"], "chown")).toContain("--recursive");
+    expect(expandFlags(["-R"], "chgrp")).toContain("--recursive");
+  });
+
+  test("does NOT expand chmod -f to --force (chmod -f means --silent)", () => {
+    // RECURSIVE_ONLY has no force group: chmod's `-f` is --silent, not --force.
+    expect(expandFlags(["-f"], "chmod")).toEqual(["-f"]);
+  });
+
   test("merges multiple input flags without duplicates", () => {
     const out = expandFlags(["-r", "--recursive", "-R"], "rm");
     const recursiveCount = out.filter((f) => f === "--recursive").length;
