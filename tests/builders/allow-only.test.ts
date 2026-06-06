@@ -60,6 +60,39 @@ describe("SA-09 allowOnly", () => {
     expect(o.annotations).toHaveLength(0);
   });
 
+  test("an allowlisted wrapper with a dynamic inner escalates (sudo $cmd, sudo allowed)", async () => {
+    // Fail-open guard: the wrapper "sudo" being allowlisted must NOT certify the
+    // unverifiable inner `$cmd`. The inner command can't be proven in-allowlist.
+    const o = await run("sudo $cmd", allowOnly("sudo", "git").deny("not allowed"));
+    expect(o.terminal?.kind).toBe("ask");
+  });
+
+  test("allowlisted wrapper with a dynamic inner denies under STRICT_DENY", async () => {
+    const o = await run("sudo $cmd", allowOnly("sudo", "git").deny("not allowed"), STRICT_DENY);
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("wrapper with a dynamic inner where wrapper is NOT allowlisted still denies", async () => {
+    const o = await run("sudo $cmd", allowOnly("git").deny("not allowed"));
+    expect(o.terminal?.kind).toBe("ask");
+  });
+
+  test("sudo with an allowlisted concrete inner still runs (sudo git)", async () => {
+    const o = await run("sudo git status", allowOnly("sudo", "git").deny("not allowed"));
+    expect(o.terminal).toBeNull();
+  });
+
+  test("sudo with a non-allowlisted concrete inner still denies (sudo wget)", async () => {
+    const o = await run("sudo wget x", allowOnly("sudo", "git").deny("not allowed"));
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("annotation rule stays silent on an allowlisted wrapper with dynamic inner", async () => {
+    const o = await run("sudo $cmd", allowOnly("sudo", "git").warning("heads up"));
+    expect(o.terminal).toBeNull();
+    expect(o.annotations).toHaveLength(0);
+  });
+
   test("ask() surfaces a disallowed command as an ask", async () => {
     const o = await run("rm -rf /x", allowOnly("git").ask("review"));
     expect(o.terminal?.kind).toBe("ask");

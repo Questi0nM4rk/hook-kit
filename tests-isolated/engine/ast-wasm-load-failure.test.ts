@@ -20,7 +20,7 @@
 //   2. Non-Bash events skip parse entirely, no annotation produced
 //   3. Iron Law 4: rules still contribute null (no terminal) under infra failure
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // biome-ignore lint/performance/noNamespaceImport: namespace import needed to spread the real module into mock.module()'s factory return.
 import * as realShellAst from "@questi0nm4rk/shell-ast";
 import { cmd } from "../../src/builders/command.js";
@@ -29,20 +29,53 @@ import { STRICT_BUT_ASKS } from "../../src/core/security.js";
 import { evaluate } from "../../src/engine/index.js";
 import { bashEvent } from "../../tests/_helpers.js";
 
+// Single process-wide mock for `@questi0nm4rk/shell-ast` — `mock.module()` is
+// process-sticky (oven-sh/bun#14516), so all WASM-failure scenarios in this
+// process MUST share ONE registration. Two test files registering competing
+// factories for the same specifier collide (whichever `parse` wins dominates
+// the whole process). The two injection points (`parse` and `unwrapDeepParsed`)
+// read from mutable refs each test configures, then afterEach restores the real
+// implementations. This is why BUG 11 (deep-unwrap throw) lives HERE and not in
+// a sibling file.
+//
+// CRITICAL: capture the real implementations into consts BEFORE mock.module
+// rebinds the live namespace. After the mock registers, `realShellAst.parse`
+// resolves to the WRAPPER below — defaulting the ref to it would make the
+// wrapper call itself (infinite recursion → hang). The eager consts are the
+// genuine implementations.
+const REAL_PARSE = realShellAst.parse;
+const REAL_UNWRAP_DEEP = realShellAst.unwrapDeepParsed;
+let parseImpl: typeof REAL_PARSE = REAL_PARSE;
+let unwrapDeepParsedImpl: typeof REAL_UNWRAP_DEEP = REAL_UNWRAP_DEEP;
+
 // eslint-disable-next-line @typescript-eslint/no-floating-promises -- bun's mock.module returns `void | Promise<void>`; at module-load time we install the mock as a side-effect, no awaitable boundary exists here (top-level await would block the test runner's module graph).
 mock.module("@questi0nm4rk/shell-ast", () => ({
   ...realShellAst,
-  // eslint-disable-next-line @typescript-eslint/require-await -- mocked `parse` must keep the real shell-ast `parse(): Promise<Script>` signature; an async-throw rejects the Promise (which is what the engine's error path consumes), a sync throw would skip that path entirely and the test would assert against the wrong code path.
-  parse: async () => {
-    throw new realShellAst.WasmLoadError("test injection: WASM unavailable");
-  },
+  parse: (...args: Parameters<typeof REAL_PARSE>) => parseImpl(...args),
+  unwrapDeepParsed: (...args: Parameters<typeof REAL_UNWRAP_DEEP>) => unwrapDeepParsedImpl(...args),
 }));
+
+const PARSE_THROWS: typeof REAL_PARSE =
+  // eslint-disable-next-line @typescript-eslint/require-await -- mocked `parse` must keep the real `parse(): Promise<Script>` signature; an async-throw rejects the Promise (what the engine's error path consumes); a sync throw would skip that path.
+  async () => {
+    throw new realShellAst.WasmLoadError("test injection: WASM unavailable");
+  };
+
+afterEach(() => {
+  parseImpl = REAL_PARSE;
+  unwrapDeepParsedImpl = REAL_UNWRAP_DEEP;
+});
 
 const denyRm = createModule({ id: "x", name: "test", events: ["PreToolUse"], matchers: ["Bash"] }, [
   cmd("rm").deny("blocked"),
 ]);
 
 describe("engine — WasmLoadError surfaces as ShellAstParseError annotation", () => {
+  beforeEach(() => {
+    // These tests inject the failure at `parse()`.
+    parseImpl = PARSE_THROWS;
+  });
+
   test("first WASM failure emits a ShellAstParseError annotation with the cause message", async () => {
     const outcome = await evaluate(bashEvent("rm -rf /"), [denyRm]);
     const errors = outcome.annotations.filter((a) => a.kind === "error");
@@ -96,5 +129,39 @@ describe("engine — WasmLoadError surfaces as ShellAstParseError annotation", (
       [denyRm],
     );
     expect(outcome.annotations.filter((a) => a.kind === "error")).toEqual([]);
+  });
+});
+
+describe("BUG 11 — deep-unwrap throw routes to engine-unavailable fail-closed", () => {
+  // Here `parse` SUCCEEDS (so the engine enters the inline-shell recursion) and
+  // `unwrapDeepParsed` throws a WASM runtime fault MID-recursion — precisely the
+  // boundary the top-level getBashAst try/catch did NOT cover. Before the fix,
+  // the throw propagated uncaught out of evaluateInternal, bypassing the SA-03
+  // fail-closed path. (Same-process mock; see the module-top comment for why
+  // this lives alongside the parse-throw cases rather than a sibling file.)
+  beforeEach(() => {
+    // eslint-disable-next-line @typescript-eslint/require-await -- mocked deep-unwrap keeps the async signature the engine awaits; an async-throw rejects the awaited Promise (the path under test).
+    unwrapDeepParsedImpl = async () => {
+      throw new realShellAst.WasmRuntimeError("test injection: deep-unwrap WASM runtime fault");
+    };
+  });
+
+  test("a WASM runtime throw during recursion denies (deny-all default) instead of crashing", async () => {
+    const outcome = await evaluate(bashEvent("bash -c 'rm -rf /'"), [denyRm]);
+    expect(outcome.terminal?.kind).toBe("deny");
+    const errors = outcome.annotations.filter((a) => a.kind === "error");
+    expect(errors).toHaveLength(1);
+    // eslint-disable-next-line @typescript-eslint/non-nullable-type-assertion-style -- Extract narrows to the error variant; `!` would lose kind discrimination.
+    const err = errors[0] as Extract<(typeof errors)[number], { kind: "error" }>;
+    expect(err.errorCode).toBe("ShellAstParseError");
+    expect(err.message).toContain("test injection: deep-unwrap WASM runtime fault");
+  });
+
+  test("onEngineUnavailable 'allow-all' preserves the legacy fail-open path", async () => {
+    const outcome = await evaluate(bashEvent("bash -c 'rm -rf /'"), [denyRm], {
+      security: { ...STRICT_BUT_ASKS, onEngineUnavailable: "allow-all" },
+    });
+    expect(outcome.terminal).toBeNull();
+    expect(outcome.annotations.filter((a) => a.kind === "error")).toHaveLength(1);
   });
 });

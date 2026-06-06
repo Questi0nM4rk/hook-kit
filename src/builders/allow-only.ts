@@ -24,6 +24,16 @@ function scanAllowlist(
   let dynamic = false;
   for (const call of findCalls(ast)) {
     const u = unwrapCall(call, shellAstOpts);
+    // `wrapped-opaque` = a privilege/exec wrapper (sudo/doas/pkexec/run0/…)
+    // whose INNER command word is dynamic, so shell-ast can't resolve it.
+    // `resolvedCmd` falls back to the WRAPPER name here, which would let an
+    // allowlisted wrapper certify an unverifiable inner — a fail-open. Treat
+    // it as dynamic (like a bare dynamic word): the allowlist can't prove the
+    // inner command is allowed. Mirrors the bare-`$cmd` path below.
+    if (u !== null && u.kind === "wrapped-opaque") {
+      dynamic = true;
+      continue;
+    }
     const name = u === null ? undefined : resolvedCmd(u);
     if (name === undefined) {
       dynamic = true; // dynamic command word — unverifiable

@@ -41,6 +41,23 @@ const COMMAND_ALIASES: Readonly<Record<string, readonly (readonly string[])[]>> 
   chgrp: RECURSIVE_ONLY,
 };
 
+// Directional (one→many) short-flag expansions, keyed by resolved basename.
+// Unlike the symmetric groups above, these fan a single short flag out to the
+// long forms it bundles WITHOUT the reverse: `git branch -D` is exactly
+// `--delete --force`, and `-d` is `--delete`. Kept git-scoped (SA-07): a
+// symmetric group would make a plain `--delete` rule also match `--force`, and
+// re-introducing a global `-d` alias is the false-positive source SA-07 killed.
+// This restores the shipped `cmd("git","branch").withFlag("--delete")
+// .withFlag("--force")` rule's match on `git branch -D feature`.
+const COMMAND_FLAG_EXPANSIONS: Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+> = {
+  git: {
+    "-D": ["--delete", "--force"],
+    "-d": ["--delete"],
+  },
+};
+
 /**
  * Expand `flags` with the semantic aliases scoped to `command` (resolved
  * basename). A flag present in one of the command's alias groups pulls in the
@@ -50,19 +67,49 @@ const COMMAND_ALIASES: Readonly<Record<string, readonly (readonly string[])[]>> 
  */
 export function expandFlags(flags: readonly string[], command: string): string[] {
   const result = new Set(flags);
-  const groups = COMMAND_ALIASES[command];
-  if (groups !== undefined) {
-    for (const flag of flags) {
-      for (const group of groups) {
-        if (group.includes(flag)) {
-          for (const alias of group) {
-            result.add(alias);
-          }
+  addAliasGroups(result, flags, COMMAND_ALIASES[command]);
+  addDirectionalExpansions(result, flags, COMMAND_FLAG_EXPANSIONS[command]);
+  return [...result];
+}
+
+/** Symmetric alias groups: any member present pulls in the whole group. */
+function addAliasGroups(
+  result: Set<string>,
+  flags: readonly string[],
+  groups: readonly (readonly string[])[] | undefined,
+): void {
+  if (groups === undefined) {
+    return;
+  }
+  for (const flag of flags) {
+    for (const group of groups) {
+      if (group.includes(flag)) {
+        for (const alias of group) {
+          result.add(alias);
         }
       }
     }
   }
-  return [...result];
+}
+
+/** Directional short→long expansions: a short flag fans out to its long forms
+ *  WITHOUT the reverse (see COMMAND_FLAG_EXPANSIONS). */
+function addDirectionalExpansions(
+  result: Set<string>,
+  flags: readonly string[],
+  expansions: Readonly<Record<string, readonly string[]>> | undefined,
+): void {
+  if (expansions === undefined) {
+    return;
+  }
+  for (const flag of flags) {
+    const longs = expansions[flag];
+    if (longs !== undefined) {
+      for (const long of longs) {
+        result.add(long);
+      }
+    }
+  }
 }
 
 /**
