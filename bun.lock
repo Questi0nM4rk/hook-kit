@@ -19,20 +19,6 @@
         "typescript-eslint": "8.59.4",
       },
     },
-    "examples/adapter-template": {
-      "name": "hook-kit-adapter-template",
-      "version": "0.0.0",
-      "dependencies": {
-        "@questi0nm4rk/hook-kit": "file:../..",
-      },
-    },
-    "examples/escalation-listener-stdout": {
-      "name": "hook-kit-escalation-listener-stdout",
-      "version": "0.0.0",
-      "dependencies": {
-        "@questi0nm4rk/hook-kit": "file:../..",
-      },
-    },
   },
   "packages": {
     "@biomejs/biome": ["@biomejs/biome@2.4.16", "", { "optionalDependencies": { "@biomejs/cli-darwin-arm64": "2.4.16", "@biomejs/cli-darwin-x64": "2.4.16", "@biomejs/cli-linux-arm64": "2.4.16", "@biomejs/cli-linux-arm64-musl": "2.4.16", "@biomejs/cli-linux-x64": "2.4.16", "@biomejs/cli-linux-x64-musl": "2.4.16", "@biomejs/cli-win32-arm64": "2.4.16", "@biomejs/cli-win32-x64": "2.4.16" }, "bin": { "biome": "bin/biome" } }, "sha512-x9ajFh1zChVybCiM3TN6OD4phAqLgtPZjFrZF+aTMYCPjwBO+k529TX7PPsAqtGNLeV4UgzwQnowEgS7bGmzcA=="],
@@ -90,8 +76,6 @@
     "@nodelib/fs.walk": ["@nodelib/fs.walk@1.2.8", "", { "dependencies": { "@nodelib/fs.scandir": "2.1.5", "fastq": "^1.6.0" } }, "sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg=="],
 
     "@questi0nm4rk/feats": ["@questi0nm4rk/feats@1.0.1", "", { "dependencies": { "@cucumber/cucumber-expressions": "^19.0.0", "@cucumber/gherkin": "^37.0.0", "@cucumber/messages": "^32.0.0", "smol-toml": "^1.5.0", "yaml": "^2.7.0" } }, "sha512-Hdz1IMllNs08EIuYr9nT09NplqekvVdfoi+a8uKZotu95seSgqCjMSkaFaO78m/mAEDTj8K1sLpntQt86Q4IEg=="],
-
-    "@questi0nm4rk/hook-kit": ["@questi0nm4rk/hook-kit@root:", { "bin": { "hook-kit": "./src/build/cli.ts" } }],
 
     "@questi0nm4rk/shell-ast": ["@questi0nm4rk/shell-ast@0.7.0", "", {}, "sha512-3iWq0pkctfZocjRNZOOctOqATFQimjt82E5fJ+NRJ4NLh94jCucUfjaR4/PPNnQT3JZkdXaHttBKEcSSmq3B3Q=="],
 
@@ -222,10 +206,6 @@
     "glob-parent": ["glob-parent@6.0.2", "", { "dependencies": { "is-glob": "^4.0.3" } }, "sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A=="],
 
     "globby": ["globby@16.2.0", "", { "dependencies": { "@sindresorhus/merge-streams": "^4.0.0", "fast-glob": "^3.3.3", "ignore": "^7.0.5", "is-path-inside": "^4.0.0", "slash": "^5.1.0", "unicorn-magic": "^0.4.0" } }, "sha512-QrJia2qDf5BB/V6HYlDTs0I0lBahyjLzpGQg3KT7FnCdTonAyPy2RtY802m2k4ALx6Dp752f82WsOczEVr3l6Q=="],
-
-    "hook-kit-adapter-template": ["hook-kit-adapter-template@workspace:examples/adapter-template"],
-
-    "hook-kit-escalation-listener-stdout": ["hook-kit-escalation-listener-stdout@workspace:examples/escalation-listener-stdout"],
 
     "ignore": ["ignore@5.3.2", "", {}, "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g=="],
 

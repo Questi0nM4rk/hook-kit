@@ -35,6 +35,17 @@
  *      badge). README drifted to `Current: 0.7.0` while package.json was
  *      0.8.0; this guards the regression.
  *
+ *   5. tsconfig paths ↔ package.json exports mirror — the
+ *      `@questi0nm4rk/hook-kit*` entries in tsconfig.json `paths` must
+ *      mirror the `exports` subpath map in package.json, bidirectionally
+ *      (same key-set, same import target per key). The in-repo examples
+ *      resolve the package solely through tsconfig paths during typecheck +
+ *      `bun test examples/*`, so a new `exports` subpath without a matching
+ *      `paths` entry (or vice versa) silently breaks example resolution with
+ *      no guard. The mapping is irregular (`./state` → `src/state/types.ts`,
+ *      `./state/tmpdir` → `src/state/tmpdir-store.ts`) so no wildcard can
+ *      express it — the duplication is unavoidable and must be guarded.
+ *
  * Extending: add new audits as count-claims accumulate. Each audit
  * returns its violations into `violations[]`; the main loop reports all
  * and exits 1 on any non-empty.
@@ -88,6 +99,8 @@ Audits:
   3. Test-count claims (README.md, CLAUDE.md) vs the summed
      'Ran N tests' across the three npm-test suites
   4. README version markers (Current:/Status: vX.Y.Z) vs package.json
+  5. tsconfig.json paths (@questi0nm4rk/hook-kit*) mirror the
+     package.json exports subpath map, bidirectionally
 
 Exits 0 if all audits pass.
 Exits 1 if any audit found drift.
@@ -444,6 +457,188 @@ function auditReadmeVersionMarker(violations: Violation[]): boolean {
   return !anyFailure;
 }
 
+const PACKAGE_NAME = "@questi0nm4rk/hook-kit";
+
+interface TsconfigPaths {
+  readonly compilerOptions?: {
+    readonly paths?: Record<string, readonly string[]>;
+  };
+}
+
+/** Normalize a target path so the two files' `./`-prefix conventions compare
+ *  equal: package.json writes `./src/index.ts`, a tsconfig paths target could
+ *  be `./src/index.ts` or `src/index.ts`. Strip a single leading `./`. */
+function normalizeTarget(target: string): string {
+  return target.startsWith("./") ? target.slice(2) : target;
+}
+
+const TSCONFIG_MIRROR_AUDIT = "tsconfig-exports-mirror";
+
+/** Map a package.json export key to its bare import specifier:
+ *  `"."` → `@questi0nm4rk/hook-kit`, `"./testing"` →
+ *  `@questi0nm4rk/hook-kit/testing`. Returns null for keys that are not plain
+ *  subpaths (none today; forward-defence against future `import`-condition or
+ *  glob keys that have no 1:1 tsconfig-paths analogue). */
+function exportKeyToSpecifier(key: string): string | null {
+  if (key === ".") {
+    return PACKAGE_NAME;
+  }
+  if (key.startsWith("./")) {
+    return `${PACKAGE_NAME}/${key.slice(2)}`;
+  }
+  return null;
+}
+
+/** Parse `path` as JSON, pushing a `tsconfig-exports-mirror` violation and
+ *  returning null on read/parse failure (so the caller bails). Returns
+ *  `unknown` — the caller casts to the shape it expects, matching the
+ *  `JSON.parse(raw) as Shape` idiom the other audits use. */
+function parseJsonFile(path: string, violations: Violation[]): unknown {
+  const raw = readFile(path);
+  if (raw === null) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    violations.push({ audit: TSCONFIG_MIRROR_AUDIT, detail: `${path}: parse failed (${msg})` });
+    return null;
+  }
+}
+
+/** Build the exports specifier → normalized-import-target map. Skip entries
+ *  with no `import` condition or non-subpath key (none today; forward-defence). */
+function buildExportMap(pkg: PackageExports): Map<string, string> {
+  const exportMap = new Map<string, string>();
+  const exportsField = pkg.exports;
+  if (exportsField === undefined || typeof exportsField !== "object") {
+    return exportMap;
+  }
+  for (const [key, entry] of Object.entries(exportsField)) {
+    if (typeof entry !== "object" || entry === null) {
+      continue;
+    }
+    const importTarget = (entry as Record<string, unknown>).import;
+    const specifier = exportKeyToSpecifier(key);
+    if (typeof importTarget === "string" && specifier !== null) {
+      exportMap.set(specifier, normalizeTarget(importTarget));
+    }
+  }
+  return exportMap;
+}
+
+/** Build the tsconfig paths specifier → normalized-target map, keeping only
+ *  the `@questi0nm4rk/hook-kit` package keys (EXCLUDE the internal `@/*`
+ *  alias). A keyed entry with no target path is itself a violation. */
+function buildPathsMap(tsconfig: TsconfigPaths, violations: Violation[]): Map<string, string> {
+  const pathsMap = new Map<string, string>();
+  const pathsField = tsconfig.compilerOptions?.paths;
+  if (pathsField === undefined || typeof pathsField !== "object") {
+    return pathsMap;
+  }
+  for (const [key, targets] of Object.entries(pathsField)) {
+    if (key !== PACKAGE_NAME && !key.startsWith(`${PACKAGE_NAME}/`)) {
+      continue;
+    }
+    const target = targets[0];
+    if (typeof target !== "string") {
+      violations.push({
+        audit: TSCONFIG_MIRROR_AUDIT,
+        detail: `tsconfig.json paths: '${key}' has no target path`,
+      });
+      continue;
+    }
+    pathsMap.set(key, normalizeTarget(target));
+  }
+  return pathsMap;
+}
+
+/** Compare the two specifier→target maps in both directions, pushing one
+ *  violation per missing/mismatched specifier. Returns true if any pushed. */
+function diffMirrorMaps(
+  exportMap: ReadonlyMap<string, string>,
+  pathsMap: ReadonlyMap<string, string>,
+  violations: Violation[],
+): boolean {
+  let anyFailure = false;
+  // Direction 1: every export subpath needs a matching paths entry.
+  for (const [specifier, exportTarget] of exportMap) {
+    const pathsTarget = pathsMap.get(specifier);
+    if (pathsTarget === undefined) {
+      violations.push({
+        audit: TSCONFIG_MIRROR_AUDIT,
+        detail: `package.json exports advertises '${specifier}' but tsconfig.json paths has no matching entry`,
+      });
+      anyFailure = true;
+    } else if (pathsTarget !== exportTarget) {
+      violations.push({
+        audit: TSCONFIG_MIRROR_AUDIT,
+        detail: `'${specifier}' target mismatch: exports → '${exportTarget}', tsconfig paths → '${pathsTarget}'`,
+      });
+      anyFailure = true;
+    }
+  }
+  // Direction 2: every hook-kit paths entry needs a matching export subpath.
+  for (const specifier of pathsMap.keys()) {
+    if (!exportMap.has(specifier)) {
+      violations.push({
+        audit: TSCONFIG_MIRROR_AUDIT,
+        detail: `tsconfig.json paths declares '${specifier}' but package.json exports has no matching subpath`,
+      });
+      anyFailure = true;
+    }
+  }
+  return anyFailure;
+}
+
+/** Audit 5: the `@questi0nm4rk/hook-kit*` entries in tsconfig.json `paths`
+ *  must mirror the package.json `exports` subpath map, bidirectionally. The
+ *  in-repo examples resolve the package solely through tsconfig paths during
+ *  typecheck + `bun test examples/*`, so a new `exports` subpath without a
+ *  matching `paths` entry (or vice versa) silently breaks example resolution.
+ *  Asserts (a) identical key-sets and (b) matching import target per shared
+ *  key (normalizing the `./`-prefix). The internal `@/*` alias is excluded. */
+function auditTsconfigExportsMirror(violations: Violation[]): boolean {
+  // Both files absent (e.g. synthetic fixtures stage a package.json but no
+  // tsconfig.json) → no mirror to check; skip rather than fail. Matches the
+  // no-claim-is-fine philosophy of the version-marker and test-count audits.
+  const haveBothFiles =
+    existsSync(resolve(process.cwd(), "package.json")) &&
+    existsSync(resolve(process.cwd(), "tsconfig.json"));
+  if (!haveBothFiles) {
+    return true;
+  }
+
+  const pkg = parseJsonFile("package.json", violations) as PackageExports | null;
+  if (pkg === null) {
+    return false;
+  }
+  const tsconfig = parseJsonFile("tsconfig.json", violations) as TsconfigPaths | null;
+  if (tsconfig === null) {
+    return false;
+  }
+
+  const exportMap = buildExportMap(pkg);
+  const pathsMap = buildPathsMap(tsconfig, violations);
+  const anyFailure = diffMirrorMaps(exportMap, pathsMap, violations);
+  return !anyFailure;
+}
+
+/** The audit roster. `id` must equal the `audit` tag each function pushes into
+ *  `violations[]` — main() uses it to tell a read-failure (false + 0 pushes)
+ *  apart from drift (false + N pushes). Add new audits here. */
+const AUDITS: readonly {
+  readonly id: string;
+  readonly run: (violations: Violation[]) => boolean;
+}[] = [
+  { id: "hookkit-error-count", run: auditHookKitErrorCount },
+  { id: "package-json-export-targets", run: auditPackageJsonExportTargets },
+  { id: "test-count", run: auditTestCount },
+  { id: "readme-version-marker", run: auditReadmeVersionMarker },
+  { id: "tsconfig-exports-mirror", run: auditTsconfigExportsMirror },
+];
+
 function main(): number {
   const args = parseArgs(process.argv.slice(2));
   if (args === null) {
@@ -457,24 +652,11 @@ function main(): number {
   // with violations.push: ok=true + 0 pushes; drift=false + N pushes;
   // read-failure=false + 0 pushes (the file was unreadable before any
   // claim could be checked). Distinguish by inspecting violations after.
-  const errCountOk = auditHookKitErrorCount(violations);
-  if (!(errCountOk || violations.some((v) => v.audit === "hookkit-error-count"))) {
-    readFailure = true;
-  }
-
-  const exportsOk = auditPackageJsonExportTargets(violations);
-  if (!(exportsOk || violations.some((v) => v.audit === "package-json-export-targets"))) {
-    readFailure = true;
-  }
-
-  const testCountOk = auditTestCount(violations);
-  if (!(testCountOk || violations.some((v) => v.audit === "test-count"))) {
-    readFailure = true;
-  }
-
-  const versionMarkerOk = auditReadmeVersionMarker(violations);
-  if (!(versionMarkerOk || violations.some((v) => v.audit === "readme-version-marker"))) {
-    readFailure = true;
+  for (const audit of AUDITS) {
+    const ok = audit.run(violations);
+    if (!(ok || violations.some((v) => v.audit === audit.id))) {
+      readFailure = true;
+    }
   }
 
   if (readFailure) {
