@@ -40,7 +40,7 @@ jobs:
     if: >-
       !contains(github.event.pull_request.labels.*.name, 'no-review') &&
       !contains(github.event.pull_request.user.login, '[bot]')
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write        # push memory + ephemeral log branches
       pull-requests: write   # post reviews, resolve threads
@@ -48,7 +48,7 @@ jobs:
 
     # Which cc-review ref the pipeline is cloned from. Consumers track `main`.
     env:
-      CC_BOT_REF: main   # cc-review ref the pipeline is cloned from
+      CC_BOT_REF: fix/headless-ci-adapter-path   # TEMP: final e2e of the #44-48 fix branch
 
     steps:
       - name: Checkout consumer repo (PR head)
