@@ -128,11 +128,16 @@ describe("escalation — compiled binary + askpass", () => {
         prefix: "hook-kit-esc-e2e-",
       });
       try {
-        // No HOOK_KIT_ASKPASS in the env → the binary has no broker infra
-        // configured, so it delegates to the harness UI (CC ask JSON). The
-        // test process never sets HOOK_KIT_ASKPASS itself, so inheriting
-        // process.env (runStdin with no env) leaves it unset.
-        const r = await staged.runStdin(ESCALATE_EVENT);
+        // Strip HOOK_KIT_ASKPASS so the binary has no broker infra configured
+        // and delegates to the harness UI (CC ask JSON). runBin merges the
+        // passed env over process.env (`{ ...process.env, ...env }`), so to
+        // guarantee the key is neutralized regardless of what another test in
+        // this bun process may have leaked into process.env, we override it to
+        // "". The binary treats "" identically to unset (callAskpass: `askpass
+        // === undefined || askpass === ""`), so this restores the pre-refactor
+        // hermeticity (the old code built a filtered full env via
+        // Object.fromEntries) without depending on no other test having set it.
+        const r = await staged.runStdin(ESCALATE_EVENT, { HOOK_KIT_ASKPASS: "" });
         expect(r.exit).toBe(0);
         const parsed = parseCcStdout(r.stdout);
         expect(parsed.hookSpecificOutput.permissionDecision).toBe("ask");

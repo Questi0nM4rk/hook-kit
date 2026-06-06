@@ -41,6 +41,10 @@ function expectSilentPassthrough(r: HkResult, expectedStdout?: string): void {
 }
 
 let staged: StagedBinary;
+// Captured only AFTER stageBinary resolves, so a beforeAll that throws (e.g. a
+// failed build) leaves this undefined and afterAll's `cleanup?.()` is a no-op —
+// surfacing the real build failure instead of a TypeError on `staged.cleanup`.
+let cleanup: (() => void) | undefined;
 
 beforeAll(async () => {
   staged = await stageBinary({
@@ -48,10 +52,12 @@ beforeAll(async () => {
     adapter: "shell",
     prefix: "hook-kit-adv-",
   });
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- StagedBinary.cleanup is an arrow-function property in _staged.ts (closes over staged/sandbox, never reads `this`); detaching it is safe. The rule cannot distinguish arrow-property from prototype method.
+  cleanup = staged.cleanup;
 }, BUILD_TIMEOUT_MS);
 
 afterAll(() => {
-  staged.cleanup();
+  cleanup?.();
 });
 
 // ─── rm: alias expansion, sudo unwrap, inline-shell, structural wraps ──────

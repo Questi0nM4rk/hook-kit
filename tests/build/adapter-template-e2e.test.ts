@@ -42,9 +42,10 @@ function stageTemplate(): Staged {
   return {
     dir: staged.dir,
     binPath: join(staged.dir, "dist", "hk-template"),
-    cleanup: () => {
-      staged.cleanup();
-    },
+    // Direct reference — StagedDir.cleanup is an arrow-function closure over its
+    // dir (no `this` binding) so no wrapper is needed.
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- StagedDir.cleanup is an arrow-function property in _staged.ts (closes over `dir`, never reads `this`); detaching it is safe. The rule cannot distinguish arrow-property from prototype method.
+    cleanup: staged.cleanup,
   };
 }
 
