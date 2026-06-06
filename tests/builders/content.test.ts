@@ -28,7 +28,6 @@ function moduleWith(rule: Rule, events: string[] = ["PostToolUse"]): HookModule 
 }
 
 async function runOnFile(
-  _toolName: string,
   filePath: string,
   rule: Rule,
   evt: "Pre" | "Post" = "Post",
@@ -40,7 +39,6 @@ async function runOnFile(
 }
 
 async function runOnFileAnnotations(
-  _toolName: string,
   filePath: string,
   rule: Rule,
   evt: "Pre" | "Post" = "Post",
@@ -62,7 +60,7 @@ describe("content() — basic", () => {
       receivedBody = b;
       return null;
     });
-    await runOnFile("Write", file, rule);
+    await runOnFile(file, rule);
     expect(receivedPath).toBe(file);
     expect(receivedBody).toContain("# Hello");
     expect(receivedBody).toContain("## Problem");
@@ -74,7 +72,7 @@ describe("content() — basic", () => {
     const rule = content().validate((_p, body) =>
       body.startsWith("#") ? null : deny("missing header"),
     );
-    const d = await runOnFile("Write", file, rule);
+    const d = await runOnFile(file, rule);
     expect(d).toEqual({ kind: "deny", reason: "missing header" });
   });
 
@@ -85,7 +83,7 @@ describe("content() — basic", () => {
       // biome-ignore lint/style/noMagicNumbers: 100-char threshold is the literal validator parameter under test.
       body.length < 100 ? warning("could be longer") : null,
     );
-    const anns = await runOnFileAnnotations("Write", file, rule);
+    const anns = await runOnFileAnnotations(file, rule);
     expect(anns).toEqual([{ kind: "warning", message: "could be longer" }]);
   });
 
@@ -93,7 +91,7 @@ describe("content() — basic", () => {
     const file = join(workDir, "x.md");
     writeFileSync(file, "# all good", "utf8");
     const rule = content().validate(() => null);
-    const d = await runOnFile("Write", file, rule);
+    const d = await runOnFile(file, rule);
     expect(d).toBeNull();
   });
 
@@ -104,7 +102,7 @@ describe("content() — basic", () => {
       await Promise.resolve();
       return body === "body" ? deny("yep") : null;
     });
-    const d = await runOnFile("Write", file, rule);
+    const d = await runOnFile(file, rule);
     expect(d).toEqual({ kind: "deny", reason: "yep" });
   });
 });
@@ -120,7 +118,7 @@ describe("content() — matchPath filter", () => {
         called = true;
         return null;
       });
-    await runOnFile("Write", file, rule);
+    await runOnFile(file, rule);
     expect(called).toBe(true);
   });
 
@@ -134,7 +132,7 @@ describe("content() — matchPath filter", () => {
         called = true;
         return deny("nope");
       });
-    const d = await runOnFile("Write", file, rule);
+    const d = await runOnFile(file, rule);
     expect(called).toBe(false);
     expect(d).toBeNull();
   });
@@ -149,7 +147,7 @@ describe("content() — event filtering", () => {
       called = true;
       return deny("no");
     });
-    const d = await runOnFile("Write", file, rule, "Pre");
+    const d = await runOnFile(file, rule, "Pre");
     expect(called).toBe(false);
     expect(d).toBeNull();
   });
@@ -176,7 +174,7 @@ describe("content() — fail-open IO", () => {
       called = true;
       return deny("no");
     });
-    const d = await runOnFile("Write", ghost, rule);
+    const d = await runOnFile(ghost, rule);
     expect(called).toBe(false);
     expect(d).toBeNull();
   });
@@ -187,7 +185,7 @@ describe("content() — fail-open IO", () => {
     const rule = content().validate(() => {
       throw new Error("boom");
     });
-    const d = await runOnFile("Write", file, rule);
+    const d = await runOnFile(file, rule);
     expect(d).toBeNull();
   });
 });
