@@ -5,14 +5,18 @@
 // See docs/SPEC.md § Rule Builders.
 
 import {
+  DYNAMIC,
   findCalls,
   findRedirects,
   isDynamic,
   type ResolvedArg,
   resolvedCmd,
+  tokensAfter,
   type UnwrappedCall,
   unwrapCall,
+  type Word,
   wordToLit,
+  wordToParts,
 } from "@questi0nm4rk/shell-ast";
 import {
   ask as askDecision,
@@ -30,14 +34,26 @@ type FileRole = "read" | "write";
 
 /** How to pick file-path args out of a resolved call's `u.args` (flags are
  *  already separated). `positional` selects by index; `prefix` matches the
- *  `key=value` operand form (`dd of=…`). */
+ *  `key=value` operand form (`dd of=…`); `targetDir` reads the value of a
+ *  `-t`/`--target-directory` flag (cp/mv/install), which is NOT a positional. */
 type FileArgSelector =
   | {
       readonly role: FileRole;
       readonly kind: "positional";
       readonly which: "all" | "last" | "allButLast";
     }
-  | { readonly role: FileRole; readonly kind: "prefix"; readonly prefix: string };
+  | { readonly role: FileRole; readonly kind: "prefix"; readonly prefix: string }
+  | { readonly role: FileRole; readonly kind: "targetDir" };
+
+/** The flag whose VALUE is the write destination for cp/mv/install, given in
+ *  space form (`-t DIR`). The next token is the value — read via the polymorphic
+ *  `tokensAfter`, which surfaces a dynamic value (`-t $DST`) as DYNAMIC. */
+const TARGET_DIR_SPACE_FLAG = "-t";
+/** The `=`-attached long form (`--target-directory=DIR`). Read off the operand's
+ *  literal prefix so the dynamic-value form (`--target-directory=$DST`, which
+ *  shell-ast can't recognize as a flag) still escalates instead of falling
+ *  through to the default last-positional write target. */
+const TARGET_DIR_EQ_PREFIX = "--target-directory=";
 
 /**
  * Curated file-touching commands (SA-06 clean core). Keyed by resolved
@@ -56,8 +72,16 @@ const FILE_COMMANDS: Readonly<Record<string, readonly FileArgSelector[]>> = {
     { role: "read", kind: "positional", which: "allButLast" },
     { role: "write", kind: "positional", which: "last" },
   ],
-  mv: [{ role: "write", kind: "positional", which: "last" }],
-  ln: [{ role: "write", kind: "positional", which: "last" }],
+  // The non-last positionals are SOURCES — a protected file moved/linked OUT is
+  // a read of that path (caught under mode:"read"/"both"). See BUG 5.
+  mv: [
+    { role: "read", kind: "positional", which: "allButLast" },
+    { role: "write", kind: "positional", which: "last" },
+  ],
+  ln: [
+    { role: "read", kind: "positional", which: "allButLast" },
+    { role: "write", kind: "positional", which: "last" },
+  ],
   tee: [{ role: "write", kind: "positional", which: "all" }],
   rm: [{ role: "write", kind: "positional", which: "all" }],
   cat: [{ role: "read", kind: "positional", which: "all" }],
@@ -66,6 +90,17 @@ const FILE_COMMANDS: Readonly<Record<string, readonly FileArgSelector[]>> = {
     { role: "write", kind: "prefix", prefix: "of=" },
   ],
 };
+
+/** When a cp/mv/install call carries `-t DIR`/`--target-directory=DIR`, the
+ *  write target is that flag value and EVERY positional is a source — replacing
+ *  the default `which:last` write / `which:allButLast` read shape. */
+const TARGET_DIR_SELECTORS: readonly FileArgSelector[] = [
+  { role: "write", kind: "targetDir" },
+  { role: "read", kind: "positional", which: "all" },
+];
+
+/** Commands whose `-t`/`--target-directory` flag redirects the write target. */
+const TARGET_DIR_COMMANDS = new Set(["cp", "mv", "install"]);
 
 function modeIncludes(mode: ProtectMode, role: FileRole): boolean {
   return mode === "both" || mode === role;
@@ -113,49 +148,111 @@ function scanRedirects(
   return { match: false, dynamic };
 }
 
-/** Resolve a single selected arg to the path string it protects, or null when
- *  it isn't a `pattern` candidate (wrong prefix). Dynamic args are handled by
- *  the caller before this is reached. */
-function selectorValue(arg: string, sel: FileArgSelector): string | null {
-  if (sel.kind === "positional") {
-    return arg;
+/** The inner command's argument words (post-command-word, post-wrapper) — the
+ *  raw `Word`s aligned with the operands shell-ast resolved into `u.args`. Used
+ *  to recover the literal prefix of an operand whose VALUE is dynamic, which
+ *  `u.args` collapses to a bare DYNAMIC (`of=$X` and `bs=$X` are both DYNAMIC).
+ *  `plain` → `raw.args.slice(1)`; `wrapped` → `innerRaw.args.slice(1)`; the
+ *  script/opaque variants have no resolvable inner operands. */
+function innerArgWords(u: UnwrappedCall): readonly Word[] {
+  if (u.kind === "plain") {
+    return u.raw.args.slice(1);
   }
-  return arg.startsWith(sel.prefix) ? arg.slice(sel.prefix.length) : null;
+  if (u.kind === "wrapped") {
+    return u.innerRaw.args.slice(1);
+  }
+  return [];
 }
 
-/** Scan the candidate args for one selector against `pattern`. */
-function scanArgs(
-  candidates: readonly ResolvedArg[],
-  sel: FileArgSelector,
-  pattern: RegExp,
-): ScanResult {
+/** Candidate path values for a `prefix` selector (`dd of=`/`if=`), recovering
+ *  the prefix even on dynamic-VALUE operands so an UNRELATED dynamic operand
+ *  (`bs=$SIZE`) is dropped instead of poisoning the dynamic flag (BUG 8).
+ *  Each prefix-matching operand contributes its resolved value, or DYNAMIC when
+ *  only its value (not its prefix) is dynamic. */
+function prefixCandidates(u: UnwrappedCall, prefix: string): ResolvedArg[] {
+  const out: ResolvedArg[] = [];
+  for (const word of innerArgWords(u)) {
+    const parts = wordToParts(word);
+    const head = parts[0];
+    if (head?.kind !== "literal") {
+      continue; // leading fragment isn't a literal — can't be a `prefix` operand
+    }
+    if (head.value === prefix && parts.length > 1) {
+      // `prefix` followed by a dynamic value (`of=$OUT`) — selector-relevant.
+      out.push(DYNAMIC);
+      continue;
+    }
+    if (head.value.startsWith(prefix) && parts.length === 1) {
+      out.push(head.value.slice(prefix.length)); // fully-literal `of=/etc/x`
+    }
+  }
+  return out;
+}
+
+/** Concrete candidate path strings/DYNAMIC for one selector against a call. */
+function selectorCandidates(u: UnwrappedCall, sel: FileArgSelector): readonly ResolvedArg[] {
+  if (sel.kind === "positional") {
+    return positionalArgs(u.args, sel.which);
+  }
+  if (sel.kind === "prefix") {
+    return prefixCandidates(u, sel.prefix);
+  }
+  return targetDirValues(u);
+}
+
+/** Scan the candidate args for one selector against `pattern`. Every entry is
+ *  already selector-relevant, so a DYNAMIC entry IS an uncertain protected slot. */
+function scanArgs(candidates: readonly ResolvedArg[], pattern: RegExp): ScanResult {
   let dynamic = false;
   for (const arg of candidates) {
     if (isDynamic(arg)) {
       dynamic = true;
       continue;
     }
-    const value = selectorValue(arg, sel);
-    if (value !== null && pattern.test(value)) {
+    if (pattern.test(arg)) {
       return { match: true, dynamic };
     }
   }
   return { match: false, dynamic };
 }
 
+/** Values of the target-directory flag (cp/mv/install): the `-t DIR` space form
+ *  (via `tokensAfter`) plus the `--target-directory=DIR` operand form (via the
+ *  prefix scan, so the dynamic-value `=$DST` form is caught too). */
+function targetDirValues(u: UnwrappedCall): readonly ResolvedArg[] {
+  return [...tokensAfter(u, TARGET_DIR_SPACE_FLAG), ...prefixCandidates(u, TARGET_DIR_EQ_PREFIX)];
+}
+
+/** True when a cp/mv/install call carries a target-directory flag — flips the
+ *  selector set so the flag value is the write target and ALL positionals are
+ *  sources (BUG 4). */
+function hasTargetDir(u: UnwrappedCall): boolean {
+  return targetDirValues(u).length > 0;
+}
+
+/** Selectors for one command, applying the `-t` target-directory override. */
+function selectorsFor(
+  u: UnwrappedCall,
+  base: readonly FileArgSelector[],
+): readonly FileArgSelector[] {
+  if (TARGET_DIR_COMMANDS.has(resolvedCmd(u) ?? "") && hasTargetDir(u)) {
+    return TARGET_DIR_SELECTORS;
+  }
+  return base;
+}
+
 /** Scan ONE resolved call against the curated file-command table. */
 function scanCall(u: UnwrappedCall, mode: ProtectMode, pattern: RegExp): ScanResult {
-  const spec = FILE_COMMANDS[resolvedCmd(u) ?? ""];
-  if (spec === undefined) {
+  const base = FILE_COMMANDS[resolvedCmd(u) ?? ""];
+  if (base === undefined) {
     return { match: false, dynamic: false };
   }
   let dynamic = false;
-  for (const sel of spec) {
+  for (const sel of selectorsFor(u, base)) {
     if (!modeIncludes(mode, sel.role)) {
       continue;
     }
-    const candidates = sel.kind === "positional" ? positionalArgs(u.args, sel.which) : u.args;
-    const result = scanArgs(candidates, sel, pattern);
+    const result = scanArgs(selectorCandidates(u, sel), pattern);
     if (result.match) {
       return { match: true, dynamic };
     }
@@ -193,9 +290,11 @@ function scanCommands(
 /**
  * Guard file access to paths matching `pattern` on the Bash side. Catches
  * shell redirects and a curated set of file commands (`cp`/`mv`/`install`/`ln`
- * last-arg writes, `tee`/`rm` all-arg writes, `cat` reads, `dd if=`/`of=`).
- * A dynamic target (`> $OUT`, `cp x $DST`) escalates per
- * `SecurityOptions.uncertaintyDecision` for terminal (deny/ask) rules;
+ * last-arg writes + non-last-arg source reads, `cp`/`mv`/`install`
+ * `-t`/`--target-directory=` write targets, `tee`/`rm` all-arg writes, `cat`
+ * reads, `dd if=`/`of=`). A dynamic target (`> $OUT`, `cp x $DST`, `cp -t $D x`)
+ * escalates per `SecurityOptions.uncertaintyDecision` for terminal (deny/ask)
+ * rules; an UNRELATED dynamic operand (`dd bs=$N of=/tmp/x`) does not;
  * annotation rules stay silent on dynamics.
  *
  *   protectPath(/^\/etc\//, { mode: "write" }).deny("no writes to /etc")

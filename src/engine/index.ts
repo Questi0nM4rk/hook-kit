@@ -120,6 +120,10 @@ const INLINE_SHELL_WRAPPERS: ReadonlySet<string> = new Set([
   "ash",
   "eval",
   "su",
+  // `runuser` is `su`'s sibling — same `-c "<script>"` shell-script wrapper
+  // shape (shell-ast classifies both as wrapped-script / wrapped-opaque). Was
+  // missing, so `runuser -c "$EVIL"` escaped the SA-02 opaque escalation.
+  "runuser",
 ]);
 
 /**
@@ -545,13 +549,48 @@ async function evaluateInternal(
         ctx.security.onDepthExceeded,
         "[hook-kit] inline-shell nesting exceeded inspection depth — review",
       );
+      // A deny here is still a deny: drop warning/note per the merge contract
+      // (only error annotations survive a deny). Mirrors every other deny exit.
+      if (esc?.kind === "deny") {
+        return { terminal: esc, annotations: keepOnlyErrors(annotations) };
+      }
       return { terminal: esc ?? terminal, annotations };
     }
     const ast = await ctx.getBashAst();
     if (ast !== null) {
       for (const call of findCalls(ast)) {
-        // biome-ignore lint/performance/noAwaitInLoops: shell-ast deep-unwrap is sync-ish but typed async; chained-wrapper recursion needs per-call ordering for the depth cap.
-        const chain = await unwrapDeepParsed(call, parse, ctx.shellAstOpts);
+        // BUG 11: the deep-unwrap re-parse is NOT covered by getBashAst's
+        // try/catch — a shell-ast WASM runtime throw here would propagate
+        // UNCAUGHT out of evaluateInternal, bypassing the SA-03 fail-closed
+        // path. Wrap it and route a throw through the same engine-unavailable
+        // handling (deny-all per policy, loud ShellAstParseError annotation;
+        // never a silent catch — 0-silent-fails).
+        let chain: Awaited<ReturnType<typeof unwrapDeepParsed>>;
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: shell-ast deep-unwrap is sync-ish but typed async; chained-wrapper recursion needs per-call ordering for the depth cap.
+          chain = await unwrapDeepParsed(call, parse, ctx.shellAstOpts);
+        } catch (cause) {
+          const { failure, annotate } = classifyParseError(cause);
+          const command =
+            typeof event.toolInput.command === "string" ? event.toolInput.command : "";
+          if (annotate) {
+            const err = new ShellAstParseError(command, cause);
+            annotations.push(errorAnnotation(err));
+            notifyEngineError("shell-ast", err);
+          }
+          if (failure === "engine-unavailable" && ctx.security.onEngineUnavailable === "deny-all") {
+            await flushState();
+            return {
+              terminal: denyDecision(
+                "[hook-kit] shell-AST engine unavailable — denying (fail-closed)",
+              ),
+              annotations: keepOnlyErrors(annotations),
+            };
+          }
+          // allow-all (or a non-WASM unexpected throw): fail open — skip this
+          // call's recursion, the annotation already surfaced the failure.
+          continue;
+        }
         // SA-02: a shell-interpreter layer with a DYNAMIC body (eval "$X",
         // sh -c "$DYN", bash -c "$VAR"; including chained `sudo bash -c "$X"`)
         // surfaces as `wrapped-opaque` — there is no static script to re-parse,
@@ -621,7 +660,12 @@ async function evaluateInternal(
       annotations: keepOnlyErrors(annotations),
     };
   }
-  if (parseFailure === "unparsable" && terminal === null) {
+  if (parseFailure === "unparsable") {
+    // Route through proper merge semantics — NOT a `terminal === null` gate.
+    // A configured deny must WIN even when a prior (non-AST) rule already
+    // produced an ask (otherwise `onUnparsable:"deny"` is silently downgraded
+    // to the stray ask). Deny short-circuits + drops non-error annotations;
+    // ask is first-ask-wins (`terminal ??= esc`). Mirrors SA-02's esc handling.
     const esc = escalate(
       ctx.security.onUnparsable,
       "[hook-kit] command could not be parsed — cannot verify",
@@ -631,7 +675,7 @@ async function evaluateInternal(
       return { terminal: esc, annotations: keepOnlyErrors(annotations) };
     }
     if (esc?.kind === "ask") {
-      terminal = esc;
+      terminal ??= esc;
     }
   }
 

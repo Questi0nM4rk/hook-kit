@@ -106,6 +106,143 @@ describe("protectPath — command table", () => {
   });
 });
 
+describe("protectPath — -t/--target-directory write target (BUG 4)", () => {
+  test("denies cp -t into a protected dir (target is the flag value, not last positional)", async () => {
+    const o = await run(
+      "cp -t /etc/cron.d payload",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("denies install -t into a protected dir", async () => {
+    const o = await run("install -t /etc/dir f", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("denies mv -t into a protected dir", async () => {
+    const o = await run("mv -t /etc/dir f", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("denies cp --target-directory= into a protected dir", async () => {
+    const o = await run(
+      "cp --target-directory=/etc/cron.d payload",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("cp -t to a safe dir runs even with a protected-looking source under write mode", async () => {
+    const o = await run("cp -t /tmp/d payload", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal).toBeNull();
+  });
+
+  test("with -t present, positionals are sources (write mode ignores a protected source)", async () => {
+    const o = await run("cp -t /tmp/d /etc/secret", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal).toBeNull();
+  });
+
+  test("with -t present, a protected source is caught under read mode", async () => {
+    const o = await run("cp -t /tmp/d /etc/secret", protectPath(ETC, { mode: "read" }).deny("no"));
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("dynamic -t value escalates to ask", async () => {
+    const o = await run("cp -t $DST payload", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal?.kind).toBe("ask");
+  });
+
+  test("dynamic --target-directory= value escalates to ask", async () => {
+    const o = await run(
+      "cp --target-directory=$DST f",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("ask");
+  });
+
+  test("fires through a sudo wrapper with -t", async () => {
+    const o = await run(
+      "sudo cp -t /etc/cron.d payload",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("deny");
+  });
+});
+
+describe("protectPath — protected source moved/linked out (BUG 5)", () => {
+  test("both mode denies mv of a protected source", async () => {
+    const o = await run(
+      "mv /etc/important /tmp/exfil",
+      protectPath(ETC, { mode: "both" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("read mode denies mv of a protected source", async () => {
+    const o = await run(
+      "mv /etc/important /tmp/exfil",
+      protectPath(ETC, { mode: "read" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("both mode denies ln of a protected source", async () => {
+    const o = await run(
+      "ln /etc/important /tmp/exfil",
+      protectPath(ETC, { mode: "both" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("deny");
+  });
+
+  test("write mode still ignores a protected mv source", async () => {
+    const o = await run(
+      "mv /etc/important /tmp/exfil",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal).toBeNull();
+  });
+
+  test("mv into a protected dest still fires under write mode (last = write preserved)", async () => {
+    const o = await run("mv /tmp/x /etc/passwd", protectPath(ETC, { mode: "write" }).deny("no"));
+    expect(o.terminal?.kind).toBe("deny");
+  });
+});
+
+describe("protectPath — unrelated dynamic operand does not over-escalate (BUG 8)", () => {
+  test("dd with an unrelated dynamic operand (bs=$SIZE) runs when slots resolve safe", async () => {
+    const o = await run(
+      "dd bs=$SIZE if=/dev/zero of=/tmp/out",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal).toBeNull();
+  });
+
+  test("control: dd with no dynamic operands runs", async () => {
+    const o = await run(
+      "dd if=/dev/zero of=/tmp/out",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal).toBeNull();
+  });
+
+  test("dd with a dynamic of= value still escalates (protected slot is dynamic)", async () => {
+    const o = await run(
+      "dd bs=$SIZE if=/dev/zero of=$OUT",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("ask");
+  });
+
+  test("dd of= resolving into a protected path still denies", async () => {
+    const o = await run(
+      "dd bs=$SIZE if=/dev/zero of=/etc/x",
+      protectPath(ETC, { mode: "write" }).deny("no"),
+    );
+    expect(o.terminal?.kind).toBe("deny");
+  });
+});
+
 describe("protectPath — dynamic targets escalate", () => {
   test("dynamic write-redirect target escalates to ask (default)", async () => {
     const o = await run("echo x > $OUT", protectPath(ETC, { mode: "write" }).deny("no"));

@@ -106,3 +106,28 @@ export function escalate(
   uncertaintyDecisions.add(decision);
   return decision;
 }
+
+/**
+ * Builder-side entry to the uncertainty path. A matcher that finds it cannot
+ * statically certify a value it targets (dynamic command word, dynamic redirect
+ * target, opaque wrapper, dynamic flag value) calls this with the rule's own
+ * `decision`. Only TERMINAL rules (`deny` / `ask`) escalate — annotation rules
+ * (`warning` / `note`) are advisory, not gates, so promoting them would be a
+ * severity inversion. Returns the escalation `Terminal`, or `null` when the rule
+ * is non-terminal or `uncertaintyDecision` is `allow`.
+ *
+ * Single helper so the "is-terminal + escalate + thread the label" dance isn't
+ * re-coded per matcher (SA-01 / SA-05 / SA-06 / SA-09 and the redirect/pipe
+ * uncertainty paths all route through it).
+ * @experimental @since 0.9.0
+ */
+export function escalateUncertain(
+  decision: Decision,
+  security: SecurityOptions,
+  reason: string,
+): Terminal | null {
+  if (decision === null || (decision.kind !== "deny" && decision.kind !== "ask")) {
+    return null;
+  }
+  return escalate(security.uncertaintyDecision, reason, decision.label);
+}

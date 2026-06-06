@@ -6,6 +6,16 @@
 // subpath is the ergonomic primary lens.
 // biome-ignore-all lint/performance/noBarrelFile: subpath public API barrel for `@questi0nm4rk/hook-kit/testing`.
 
+// Security profiles — re-exported from the main barrel for ergonomic use with
+// `.withSecurity()` so consumers can reproduce their deploy-time profile
+// (e.g. `runShell(modules, { security: STRICT_DENY })`) in tests.
+export {
+  type EngineUnavailablePolicy,
+  type EscalationDecision,
+  type SecurityOptions,
+  STRICT_BUT_ASKS,
+  STRICT_DENY,
+} from "../core/security.js";
 // Event factories
 export { bashEvent, type EventOpts, editEvent, readEvent, writeEvent } from "./events.js";
 // Fluent runner
