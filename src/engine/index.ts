@@ -9,8 +9,10 @@ import {
   type ResolveFlagsOptions,
   type ShellFile,
   unwrapDeepParsed,
+  WasmLoadError,
+  WasmRuntimeError,
 } from "@questi0nm4rk/shell-ast";
-import { ask as askDecision, errorAnnotation } from "../core/decision.js";
+import { deny as denyDecision, errorAnnotation } from "../core/decision.js";
 import {
   HookKitError,
   ObserverError,
@@ -18,6 +20,12 @@ import {
   ShellAstParseError,
   StateStoreError,
 } from "../core/errors.js";
+import {
+  escalate,
+  isUncertaintyDecision,
+  type SecurityOptions,
+  STRICT_BUT_ASKS,
+} from "../core/security.js";
 import type {
   Annotation,
   Decision,
@@ -68,6 +76,12 @@ export interface EvaluateOptions {
    *  Undefined / empty short-circuits all observer-construction work so the
    *  default path stays zero-overhead. See docs/SPEC.md § Observability. */
   readonly observers?: readonly DecisionObserver[];
+  /** Security policy for the uncertainty path (issue #14): how to surface
+   *  values the parser cannot statically certify (dynamic args, unparsable
+   *  commands, recursion-depth exhaustion, engine unavailability). Default-
+   *  filled to `STRICT_BUT_ASKS` at engine entry. Spread a profile to override
+   *  a single knob: `{ ...STRICT_BUT_ASKS, onUnparsable: "deny" }`. */
+  readonly security?: SecurityOptions;
 }
 
 /** Internal evaluator state — never reachable from the public `evaluate()`
@@ -86,6 +100,31 @@ let MAX_RECURSE_DEPTH = 5;
 export function __setMaxRecurseDepthForTests(d: number): void {
   MAX_RECURSE_DEPTH = d;
 }
+
+/** Shell-interpreter wrappers whose `-c "<script>"` value (or, for `eval`,
+ *  the concatenated positional args) is itself a shell script. Mirrors the
+ *  script-wrapper rows of shell-ast's WRAPPERS registry. When such a wrapper
+ *  has a DYNAMIC body (`bash -c "$X"`, `eval "$VAR"`), shell-ast yields a
+ *  `wrapped-opaque` layer the recursion cannot re-parse — SA-02 escalates it.
+ *  Non-shell wrappers (sudo, gosu, exec, env, xargs, timeout) are deliberately
+ *  excluded: `sudo $X` is a dynamic command, not an inline-shell body.
+ *  TODO(shell-ast): swap for an exported `isShellInterpreter`/WRAPPERS so this
+ *  can't drift — tracked at Questi0nM4rk/shell-ast#12. */
+const INLINE_SHELL_WRAPPERS: ReadonlySet<string> = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "ksh",
+  "mksh",
+  "dash",
+  "ash",
+  "eval",
+  "su",
+  // `runuser` is `su`'s sibling — same `-c "<script>"` shell-script wrapper
+  // shape (shell-ast classifies both as wrapped-script / wrapped-opaque). Was
+  // missing, so `runuser -c "$EVIL"` escaped the SA-02 opaque escalation.
+  "runuser",
+]);
 
 /**
  * Test helper: evaluate a single rule against an event without hand-building
@@ -155,6 +194,7 @@ export async function runModule(opts: RunModuleOptions): Promise<EvaluationOutco
       : { recurseInlineShells: opts.recurseInlineShells }),
     ...(opts.shellAstOpts === undefined ? {} : { shellAstOpts: opts.shellAstOpts }),
     ...(opts.observers === undefined ? {} : { observers: opts.observers }),
+    ...(opts.security === undefined ? {} : { security: opts.security }),
   };
   return evaluate(event, modules, evalOpts);
 }
@@ -227,6 +267,8 @@ interface BuildRecordArgs {
   readonly ruleId: string;
   readonly ruleKind: string;
   readonly decision: DecisionEventRecord["decision"];
+  /** Defaults to "rule" when omitted. */
+  readonly reasonKind?: DecisionEventRecord["reasonKind"];
   readonly reason: string;
   readonly label?: string;
   readonly timingMs: number;
@@ -243,6 +285,7 @@ function buildRecord(args: BuildRecordArgs): DecisionEventRecord {
     ruleId: args.ruleId,
     ruleKind: args.ruleKind,
     decision: args.decision,
+    reasonKind: args.reasonKind ?? "rule",
     reason: args.reason,
     event: {
       eventName: args.event.eventName,
@@ -270,6 +313,8 @@ interface NotifyForArgs {
   readonly ruleId: string;
   readonly ruleKind: string;
   readonly decision: DecisionEventRecord["decision"];
+  /** Defaults to "rule" when omitted (only deny/ask escalations set it). */
+  readonly reasonKind?: DecisionEventRecord["reasonKind"];
   readonly reason: string;
   readonly label?: string;
   readonly timingMs: number;
@@ -310,7 +355,10 @@ async function evaluateInternal(
   let terminal: Terminal | null = null;
 
   const state = opts.state ?? noopState;
-  const { ctx, drainErrors } = buildEvalContext(event, state, modules, opts.shellAstOpts);
+  const { ctx, drainErrors, getParseFailure } = buildEvalContext(event, state, modules, {
+    shellAstOpts: opts.shellAstOpts,
+    security: opts.security ?? STRICT_BUT_ASKS,
+  });
 
   // Observer machinery — short-circuit when nobody's listening so the default
   // path stays zero-overhead (no hash, no Date.now, no performance.now, no
@@ -324,6 +372,13 @@ async function evaluateInternal(
     /* noop when observersActive=false; closure replaced below */
   };
   let notifyEngineError: (source: EngineErrorSource, err: HookKitError) => void = () => {
+    /* noop when observersActive=false; closure replaced below */
+  };
+  // SA-10: route an engine-side security terminal (depth / opaque-shell /
+  // unparsable / engine-unavailable) through the observer-notify path, tagged
+  // reasonKind:"uncertainty". A null `esc` (allow → nothing surfaced) is a
+  // no-op so the legacy silent fail-open path emits no record.
+  let notifyEscalation: (ruleKind: string, esc: Terminal | null) => void = () => {
     /* noop when observersActive=false; closure replaced below */
   };
   if (observersActive) {
@@ -344,6 +399,7 @@ async function evaluateInternal(
           ruleId: args.ruleId,
           ruleKind: args.ruleKind,
           decision: args.decision,
+          ...(args.reasonKind === undefined ? {} : { reasonKind: args.reasonKind }),
           reason: args.reason,
           ...(args.label === undefined ? {} : { label: args.label }),
           timingMs: args.timingMs,
@@ -359,6 +415,24 @@ async function evaluateInternal(
         ruleKind: source,
         decision: "error",
         reason: err.message,
+        timingMs: 0,
+      });
+    };
+    // Engine-side security terminals share the synthetic `<engine>:<ruleKind>`
+    // ruleId + timingMs=0 convention; reasonKind:"uncertainty" lets SA-10 noise
+    // tuning treat them like builder-emitted escalations. `allow` (esc=null)
+    // surfaces nothing, so no record is emitted.
+    notifyEscalation = (ruleKind, esc): void => {
+      if (esc === null) {
+        return;
+      }
+      notifyFor({
+        ruleId: `<engine>:${ruleKind}`,
+        ruleKind,
+        decision: esc.kind,
+        reasonKind: "uncertainty",
+        reason: esc.reason,
+        ...(esc.label === undefined ? {} : { label: esc.label }),
         timingMs: 0,
       });
     };
@@ -445,6 +519,7 @@ async function evaluateInternal(
           ruleId,
           ruleKind: rule.kind,
           decision: "deny",
+          reasonKind: isUncertaintyDecision(decision) ? "uncertainty" : "rule",
           reason: decision.reason,
           ...(decision.label === undefined ? {} : { label: decision.label }),
           timingMs,
@@ -458,6 +533,7 @@ async function evaluateInternal(
           ruleId,
           ruleKind: rule.kind,
           decision: "ask",
+          reasonKind: isUncertaintyDecision(decision) ? "uncertainty" : "rule",
           reason: decision.reason,
           ...(decision.label === undefined ? {} : { label: decision.label }),
           timingMs,
@@ -492,16 +568,93 @@ async function evaluateInternal(
     if (internal.depth >= MAX_RECURSE_DEPTH) {
       drainContextErrors();
       await flushState();
-      return {
-        terminal: askDecision("[hook-kit] inline-shell nesting exceeded inspection depth — review"),
-        annotations,
-      };
+      // SA-04: depth exhaustion escalates per onDepthExceeded (default ask).
+      // `allow` falls back to whatever this frame already accumulated.
+      const esc = escalate(
+        ctx.security.onDepthExceeded,
+        "[hook-kit] inline-shell nesting exceeded inspection depth — review",
+      );
+      // Route the escalation through the observer-notify path (tagged
+      // reasonKind:"uncertainty") BEFORE returning, so SA-10's reasonKind
+      // tuning can see engine-side security terminals — not just builder-emitted
+      // ones. No-op when no observers are registered.
+      notifyEscalation("depth", esc);
+      // A deny here is still a deny: drop warning/note per the merge contract
+      // (only error annotations survive a deny). Mirrors every other deny exit.
+      if (esc?.kind === "deny") {
+        return { terminal: esc, annotations: keepOnlyErrors(annotations) };
+      }
+      return { terminal: esc ?? terminal, annotations };
     }
     const ast = await ctx.getBashAst();
     if (ast !== null) {
       for (const call of findCalls(ast)) {
-        // biome-ignore lint/performance/noAwaitInLoops: shell-ast deep-unwrap is sync-ish but typed async; chained-wrapper recursion needs per-call ordering for the depth cap.
-        const chain = await unwrapDeepParsed(call, parse, ctx.shellAstOpts);
+        // BUG 11: the deep-unwrap re-parse is NOT covered by getBashAst's
+        // try/catch — a shell-ast WASM runtime throw here would propagate
+        // UNCAUGHT out of evaluateInternal, bypassing the SA-03 fail-closed
+        // path. Wrap it and route a throw through the same engine-unavailable
+        // handling (deny-all per policy, loud ShellAstParseError annotation;
+        // never a silent catch — 0-silent-fails).
+        let chain: Awaited<ReturnType<typeof unwrapDeepParsed>>;
+        try {
+          // biome-ignore lint/performance/noAwaitInLoops: shell-ast deep-unwrap is sync-ish but typed async; chained-wrapper recursion needs per-call ordering for the depth cap.
+          chain = await unwrapDeepParsed(call, parse, ctx.shellAstOpts);
+        } catch (cause) {
+          const { failure, annotate } = classifyParseError(cause);
+          const command =
+            typeof event.toolInput.command === "string" ? event.toolInput.command : "";
+          if (annotate) {
+            const err = new ShellAstParseError(command, cause);
+            annotations.push(errorAnnotation(err));
+            notifyEngineError("shell-ast", err);
+          }
+          if (failure === "engine-unavailable" && ctx.security.onEngineUnavailable === "deny-all") {
+            // Fail-closed hard deny on a dead WASM engine. Not an escalate()
+            // product, but observers must still get the audit record — tag it
+            // reasonKind:"uncertainty" (per SA-10; the reasonKind type permits
+            // only "rule" | "uncertainty", and a fail-closed deny is not a rule
+            // decision).
+            const engineDeny = denyDecision(
+              "[hook-kit] shell-AST engine unavailable — denying (fail-closed)",
+            );
+            notifyEscalation("engine-unavailable", engineDeny);
+            await flushState();
+            return {
+              terminal: engineDeny,
+              annotations: keepOnlyErrors(annotations),
+            };
+          }
+          // allow-all (or a non-WASM unexpected throw): fail open — skip this
+          // call's recursion, the annotation already surfaced the failure.
+          continue;
+        }
+        // SA-02: a shell-interpreter layer with a DYNAMIC body (eval "$X",
+        // sh -c "$DYN", bash -c "$VAR"; including chained `sudo bash -c "$X"`)
+        // surfaces as `wrapped-opaque` — there is no static script to re-parse,
+        // so the wrapped-script path below would silently skip it. Escalate per
+        // the security policy instead. Non-shell opaque wrappers (sudo $X) are
+        // a dynamic command, not an inline-shell body — left out of scope.
+        const opaqueShell = chain.find(
+          (u) => u.kind === "wrapped-opaque" && INLINE_SHELL_WRAPPERS.has(u.wrapper),
+        );
+        if (opaqueShell?.kind === "wrapped-opaque") {
+          const esc = escalate(
+            ctx.security.uncertaintyDecision,
+            `opaque inline-shell body (${opaqueShell.wrapper} with a dynamic script) — cannot inspect`,
+          );
+          // Fire the observer record once for this escalation (deny OR ask),
+          // tagged reasonKind:"uncertainty", before returning/accumulating.
+          notifyEscalation("opaque-shell", esc);
+          if (esc?.kind === "deny") {
+            drainContextErrors();
+            await flushState();
+            return { terminal: esc, annotations: keepOnlyErrors(annotations) };
+          }
+          if (esc?.kind === "ask") {
+            terminal ??= esc;
+          }
+          continue;
+        }
         const innerScript = chain.find((u) => u.kind === "wrapped-script");
         if (innerScript?.kind !== "wrapped-script") {
           continue;
@@ -530,8 +683,73 @@ async function evaluateInternal(
   }
 
   drainContextErrors();
+
+  // SA-03: apply the security policy for a parse failure discovered while
+  // evaluating. engine-unavailable fails CLOSED (deny-all) by default — a dead
+  // shell-AST engine can inspect nothing; unparsable escalates per onUnparsable
+  // (ask by default). Both are distinct from a genuine deny a rule already
+  // produced (handled above) and from infra fail-open (rule throw / state I/O).
+  const parseFailure = getParseFailure();
+  // A dead engine fails closed regardless of any non-deny terminal a custom
+  // (non-AST) rule may have produced — deny-all overrides ask. (No deny can
+  // reach here; every rule-produced deny short-circuits above.)
+  if (parseFailure === "engine-unavailable" && ctx.security.onEngineUnavailable === "deny-all") {
+    const engineDeny = denyDecision(
+      "[hook-kit] shell-AST engine unavailable — denying (fail-closed)",
+    );
+    notifyEscalation("engine-unavailable", engineDeny);
+    await flushState();
+    return {
+      terminal: engineDeny,
+      annotations: keepOnlyErrors(annotations),
+    };
+  }
+  if (parseFailure === "unparsable") {
+    // Route through proper merge semantics — NOT a `terminal === null` gate.
+    // A configured deny must WIN even when a prior (non-AST) rule already
+    // produced an ask (otherwise `onUnparsable:"deny"` is silently downgraded
+    // to the stray ask). Deny short-circuits + drops non-error annotations;
+    // ask is first-ask-wins (`terminal ??= esc`). Mirrors SA-02's esc handling.
+    const esc = escalate(
+      ctx.security.onUnparsable,
+      "[hook-kit] command could not be parsed — cannot verify",
+    );
+    // Fire the observer record once for this escalation (deny OR ask), tagged
+    // reasonKind:"uncertainty", covering BOTH the deny-return and ask-accumulate
+    // branches below.
+    notifyEscalation("unparsable", esc);
+    if (esc?.kind === "deny") {
+      await flushState();
+      return { terminal: esc, annotations: keepOnlyErrors(annotations) };
+    }
+    if (esc?.kind === "ask") {
+      terminal ??= esc;
+    }
+  }
+
   await flushState();
   return { terminal, annotations };
+}
+
+/** Route a thrown `parse()` error into the SA-03 buckets (kept out of
+ *  `getBashAst` to hold its complexity under the cap):
+ *  - WASM load/runtime failure → `engine-unavailable` (loud annotation +
+ *    fail-per-onEngineUnavailable).
+ *  - `ParseSyntaxError` → `unparsable` (no annotation — not infra — but
+ *    escalate per onUnparsable; shell-ast may reject what bash would run).
+ *  - anything else → unexpected; surface an annotation, no policy mark
+ *    (legacy fail-open). */
+function classifyParseError(cause: unknown): {
+  failure: "unparsable" | "engine-unavailable" | null;
+  annotate: boolean;
+} {
+  if (cause instanceof WasmLoadError || cause instanceof WasmRuntimeError) {
+    return { failure: "engine-unavailable", annotate: true };
+  }
+  if (cause instanceof ParseSyntaxError) {
+    return { failure: "unparsable", annotate: false };
+  }
+  return { failure: null, annotate: true };
 }
 
 /**
@@ -550,15 +768,29 @@ function buildEvalContext(
   event: HookEvent,
   state: StateStore,
   modules: readonly HookModule[],
-  shellAstOpts: ResolveFlagsOptions | undefined,
-): { ctx: EvalContext; drainErrors: () => HookKitError[] } {
+  cfg: {
+    readonly shellAstOpts: ResolveFlagsOptions | undefined;
+    readonly security: SecurityOptions;
+  },
+): {
+  ctx: EvalContext;
+  drainErrors: () => HookKitError[];
+  getParseFailure: () => "unparsable" | "engine-unavailable" | null;
+} {
   let cached: ShellFile | null | undefined;
   const errors: HookKitError[] = [];
+  // SA-03: distinguish "command can't be parsed" (ParseSyntaxError → escalate
+  // per onUnparsable) from "the shell-AST engine itself is unavailable" (WASM
+  // load/runtime failure → fail per onEngineUnavailable) from a genuine
+  // unexpected infra error (legacy fail-open). Set only when parse() is
+  // actually attempted, so an evaluation that never needs the AST is unaffected.
+  let parseFailure: "unparsable" | "engine-unavailable" | null = null;
   return {
     ctx: {
       state,
       modules,
-      ...(shellAstOpts === undefined ? {} : { shellAstOpts }),
+      security: cfg.security,
+      ...(cfg.shellAstOpts === undefined ? {} : { shellAstOpts: cfg.shellAstOpts }),
       async getBashAst(): Promise<ShellFile | null> {
         if (cached !== undefined) {
           return cached;
@@ -576,11 +808,9 @@ function buildEvalContext(
         try {
           cached = await parse(command);
         } catch (cause) {
-          // ParseSyntaxError on user input is normal — bash will reject it
-          // too, and we don't want to spam an error annotation on every
-          // malformed line. WASM-load / WASM-runtime failures are coverage-
-          // loss signals we want surfaced.
-          if (!(cause instanceof ParseSyntaxError)) {
+          const { failure, annotate } = classifyParseError(cause);
+          parseFailure = failure;
+          if (annotate) {
             errors.push(new ShellAstParseError(command, cause));
           }
           cached = null;
@@ -589,6 +819,7 @@ function buildEvalContext(
       },
     },
     drainErrors: () => errors.splice(0, errors.length),
+    getParseFailure: () => parseFailure,
   };
 }
 

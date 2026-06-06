@@ -6,19 +6,43 @@
 // path to set HOOK_KIT_ASKPASS to — this factory generates one.
 //
 // Implementation notes:
-// - Uses an unquoted heredoc so $ID expands but the response body is
-//   otherwise literal. Avoids POSIX printf's implementation-defined
-//   handling of \" in single-quoted format strings (dash vs bash diverge).
-//   Reference: ~/.claude/projects/.../memory/project/dash-vs-bash-printf-divergence.md
+// - The response body is built in TypeScript and JSON.stringify'd, then
+//   emitted from the script as a SINGLE-QUOTED shell string so that `$`,
+//   backticks and `\` in any field value are inert (no shell expansion, no
+//   command substitution). This is the security-relevant choice: response
+//   fields are author-controlled, but a `"`, backtick, `$(...)` or newline in
+//   `reason`/`by`/`decidedAt` must NOT forge JSON fields or execute a command
+//   when the script runs as $HOOK_KIT_ASKPASS. See escapeForSingleQuotes.
+// - The request id is substituted for a high-entropy sentinel via POSIX
+//   parameter expansion (`${t%%s*}` / `${t#*s}`) + printf, NOT sed — so the
+//   id is treated as a literal (no `/ & \` re-interpretation) and no second
+//   layer of expansion touches the data.
 // - mkdtemp under os.tmpdir() so concurrent test runs don't collide.
 // - Cleanup is sync (rmSync) — call from afterEach / using-statement.
 
+import { randomUUID } from "node:crypto";
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /** rwxr-xr-x — owner-rwx, group/other-rx; required for the askpass script to execute. */
 const EXECUTABLE_MODE = 0o755;
+
+/** Default `by` field when the caller omits one (auditing — who decided). */
+const DEFAULT_BY = "mockAskpass";
+/** Default `decidedAt` — fixed so test snapshots stay deterministic. */
+const DEFAULT_DECIDED_AT = "2026-01-01T00:00:00Z";
+
+/**
+ * Make `s` safe to embed inside a single-quoted POSIX shell string. The only
+ * byte that cannot appear literally inside `'...'` is `'` itself; the standard
+ * trick closes the quote, emits an escaped literal quote, and reopens:
+ * `'\''`. Every other byte ($, backtick, backslash, newline, ") is inert
+ * inside single quotes, so this single substitution is sufficient.
+ */
+function escapeForSingleQuotes(s: string): string {
+  return s.replaceAll("'", "'\\''");
+}
 
 /** @stable @since 1.0.0 */
 export interface MockAskpassResponse {
@@ -70,17 +94,39 @@ export interface MockAskpass {
  * @stable @since 1.0.0
  */
 export function mockAskpass(response: MockAskpassResponse): MockAskpass {
-  const decidedAt = response.decidedAt ?? "2026-01-01T00:00:00Z";
-  const by = response.by ?? "mockAskpass";
-  const reasonField = response.reason === undefined ? "" : `,"reason":"${response.reason}"`;
-  const byField = `,"by":"${by}"`;
+  const decidedAt = response.decidedAt ?? DEFAULT_DECIDED_AT;
+  const by = response.by ?? DEFAULT_BY;
 
+  // Build the response object in TypeScript and JSON.stringify it so every
+  // field value is correctly JSON-escaped (a `"` in reason becomes `\"`, a
+  // newline becomes `\n`, etc.) — the emitted body is always valid JSON and
+  // the fields round-trip exactly. `id` is a per-call high-entropy sentinel,
+  // substituted for the request id by the script (see below). Conditional
+  // spread keeps `reason` absent (not `undefined`) when omitted, per
+  // exactOptionalPropertyTypes.
+  const idSentinel = `__HK_ID_${randomUUID()}__`;
+  const responseJson = JSON.stringify({
+    id: idSentinel,
+    decision: response.decision,
+    ...(response.reason === undefined ? {} : { reason: response.reason }),
+    by,
+    decidedAt,
+  });
+
+  // Emit the JSON as a single-quoted shell string: $, backtick, backslash and
+  // newline in any field value are inert (no expansion, no command sub). The
+  // request id is spliced in via POSIX parameter expansion + printf rather
+  // than sed, so the id is treated as a literal. The grep pattern guarantees
+  // the extracted id contains no `"`; splitting the template at the unique
+  // sentinel and rejoining with printf '%s%s%s' keeps the data un-re-parsed.
+  const quotedTemplate = escapeForSingleQuotes(responseJson);
   const scriptBody = `#!/bin/sh
+RESPONSE='${quotedTemplate}'
 REQ=$(cat)
 ID=$(printf %s "$REQ" | grep -oE '"id":"[^"]*"' | head -1 | sed 's/"id":"//; s/"$//')
-cat <<EOF
-{"id":"$ID","decision":"${response.decision}"${reasonField}${byField},"decidedAt":"${decidedAt}"}
-EOF
+PRE=\${RESPONSE%%${idSentinel}*}
+POST=\${RESPONSE#*${idSentinel}}
+printf '%s%s%s\\n' "$PRE" "$ID" "$POST"
 `;
 
   const workDir = mkdtempSync(join(tmpdir(), "hook-kit-mockaskpass-"));

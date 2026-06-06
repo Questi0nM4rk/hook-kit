@@ -6,11 +6,13 @@
 export { type RawAdapter, type RawAdapterState, rawAdapter } from "./adapters/raw.js";
 export type { ProtocolAdapter } from "./adapters/types.js";
 // Rule builders
+export { allowOnly } from "./builders/allow-only.js";
 export { cmd } from "./builders/command.js";
 export { content } from "./builders/content.js";
 export { custom } from "./builders/custom.js";
 export { path } from "./builders/path.js";
 export { pipe } from "./builders/pipe.js";
+export { type ProtectMode, protectPath } from "./builders/protect-path.js";
 export { redirect } from "./builders/redirect.js";
 export { stateful } from "./builders/state.js";
 // Annotation formatters — re-exported for custom adapters emitting the
@@ -47,6 +49,18 @@ export {
 export { toToolEvent } from "./core/event.js";
 // Module factory
 export { createModule } from "./core/module.js";
+// Security uncertainty path (issue #14) — config surface, profiles, and the
+// `escalate` emit helper matchers call for values they cannot statically
+// certify. @experimental until the SA-01..SA-10 epic completes.
+export {
+  type EngineUnavailablePolicy,
+  type EscalationDecision,
+  escalate,
+  isUncertaintyDecision,
+  type SecurityOptions,
+  STRICT_BUT_ASKS,
+  STRICT_DENY,
+} from "./core/security.js";
 // Core types
 export type {
   Annotation,

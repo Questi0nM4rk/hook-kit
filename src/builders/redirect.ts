@@ -10,6 +10,7 @@ import {
   note as noteDecision,
   warning as warningDecision,
 } from "../core/decision.js";
+import { escalateUncertain } from "../core/security.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 
 /** Match write-redirects (cmd > path, cmd >> path, etc.) whose target matches
@@ -49,14 +50,34 @@ class RedirectRuleBuilder {
           return null;
         }
 
+        let sawUncertain = false;
         for (const redir of findRedirects(ast, { ops: "write" })) {
           if (pattern === undefined) {
             return decision;
           }
           const target = wordToLit(redir.word);
-          if (target !== null && pattern.test(target)) {
+          if (target === null) {
+            // SA (#14): a dynamic redirect target (`> $TARGET`, `> $(mktemp)`)
+            // can't be certified against the path pattern — wordToLit returns
+            // null. The legacy silent skip let any redirect deny be bypassed
+            // with a single variable. Defer escalation until after the loop so
+            // a resolved sibling target that DOES match still wins.
+            sawUncertain = true;
+            continue;
+          }
+          if (pattern.test(target)) {
             return decision;
           }
+        }
+        // SA (#14): a redirect target was dynamic but nothing definitively
+        // matched — escalate. escalateUncertain returns null for annotation
+        // rules, so warning/note stay silent (no severity inversion).
+        if (sawUncertain) {
+          return escalateUncertain(
+            decision,
+            ctx.security,
+            "redirect target is dynamic — cannot verify the path rule",
+          );
         }
         return null;
       },

@@ -10,14 +10,14 @@ import { stateful } from "../../src/builders/state.js";
 import { warning } from "../../src/core/decision.js";
 import { createModule } from "../../src/core/module.js";
 import { expectModule, expectRule } from "../../src/testing/expect.js";
+import { STRICT_BUT_ASKS, STRICT_DENY } from "../../src/testing/index.js";
 import { mockState } from "../../src/testing/mock-state.js";
+import { modOf as modOfHelper } from "../_helpers.js";
 
-function modOf(rule: Parameters<typeof createModule>[1][number]) {
-  return createModule(
-    { id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash", "Edit", "Write", "Read"] },
-    [rule],
-  );
-}
+// expect tests mix Bash + file-tool rules, so widen the shared `modOf` matchers
+// to all four tool channels via its second arg.
+const modOf = (rule: Parameters<typeof createModule>[1][number]) =>
+  modOfHelper(rule, ["Bash", "Edit", "Write", "Read"]);
 
 describe("expectModule.toDeny", () => {
   test("fires on matching rule", async () => {
@@ -150,6 +150,34 @@ describe("expectModule chained setup", () => {
     await expectModule(mod).onCommand('bash -c "rm /tmp/x"').toDeny();
     // Without recursion, only outer 'bash' is seen — rule doesn't fire
     await expectModule(mod).noInlineShellRecursion().onCommand('bash -c "rm /tmp/x"').toRun();
+  });
+});
+
+describe("expectModule.withSecurity", () => {
+  // A cmd() terminal rule whose target is a DYNAMIC command word ($CMD) can't
+  // be statically certified (SA-01), so it escalates per the security profile:
+  // ask under STRICT_BUT_ASKS, deny under STRICT_DENY. Same rule + command,
+  // different profile → different terminal. This is the exact test/prod
+  // divergence the SDK exists to prevent.
+  const denyRm = () => modOf(cmd("rm").deny("rm blocked"));
+
+  test("STRICT_BUT_ASKS profile yields ask", async () => {
+    await expectModule(denyRm()).withSecurity(STRICT_BUT_ASKS).onCommand("$CMD -rf /tmp/x").toAsk();
+  });
+
+  test("STRICT_DENY profile yields deny", async () => {
+    await expectModule(denyRm()).withSecurity(STRICT_DENY).onCommand("$CMD -rf /tmp/x").toDeny();
+  });
+
+  test("omitting withSecurity keeps the engine default (STRICT_BUT_ASKS → ask)", async () => {
+    await expectModule(denyRm()).onCommand("$CMD -rf /tmp/x").toAsk();
+  });
+
+  test("withSecurity threads through expectRule too", async () => {
+    await expectRule(cmd("rm").deny("rm blocked"))
+      .withSecurity(STRICT_DENY)
+      .onCommand("$CMD -rf /tmp/x")
+      .toDeny();
   });
 });
 

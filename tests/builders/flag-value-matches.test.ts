@@ -4,16 +4,13 @@
 // variants (so `cmd("gcc").flagValueMatches("-o", ...)` fires on `sudo gcc -o ...`).
 //
 // Multi-value semantics: ANY-match (at least one value must satisfy the predicate).
-// Dynamic-value policy: skipped silently — predicate doesn't get a chance.
+// Dynamic-value policy (SA-05): a dynamic value the matcher TARGETS escalates
+// per uncertaintyDecision (terminal rules); { onDynamic: "skip" } opts out.
 
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
-import { createModule } from "../../src/core/module.js";
 import { runModule } from "../../src/engine/index.js";
-
-function modOf(rule: Parameters<typeof createModule>[1][number]) {
-  return createModule({ id: "x", name: "x", events: ["PreToolUse"], matchers: ["Bash"] }, [rule]);
-}
+import { modOf } from "../_helpers.js";
 
 describe(".flagValueMatches() — regex predicate (A2)", () => {
   test("gcc -o /etc/passwd fires deny on system-path regex", async () => {
@@ -85,10 +82,22 @@ describe(".flagValueMatches() — regex predicate (A2)", () => {
     expect(out.annotations.find((a) => a.kind === "warning")).toBeDefined();
   });
 
-  test("dynamic value: -o $VAR — skipped silently, no match", async () => {
+  test("dynamic value: -o $VAR — escalates per uncertaintyDecision (SA-05)", async () => {
     const mod = modOf(
       cmd("gcc")
         .flagValueMatches("-o", /^\/etc/)
+        .deny("system path"),
+    );
+    const out = await runModule({ module: mod, command: "gcc -o $TARGET src.c" });
+    // Used to skip silently; now a dynamic value the matcher TARGETS escalates
+    // (default profile: ask). Opt out per-matcher with { onDynamic: "skip" }.
+    expect(out.terminal?.kind).toBe("ask");
+  });
+
+  test("dynamic value with { onDynamic: 'skip' } restores the legacy silent skip", async () => {
+    const mod = modOf(
+      cmd("gcc")
+        .flagValueMatches("-o", /^\/etc/, { onDynamic: "skip" })
         .deny("system path"),
     );
     const out = await runModule({ module: mod, command: "gcc -o $TARGET src.c" });
@@ -250,6 +259,14 @@ describe(".flagValueEquals() — exact-string predicate (A2)", () => {
       module: mod,
       command: "docker run --user rootless nginx",
     });
+    expect(out.terminal).toBeNull();
+  });
+
+  test("dynamic value with { onDynamic: 'skip' } restores the legacy silent skip", async () => {
+    const mod = modOf(
+      cmd("gcc").flagValueEquals("-o", "/etc/x", { onDynamic: "skip" }).deny("system path"),
+    );
+    const out = await runModule({ module: mod, command: "gcc -o $TARGET src.c" });
     expect(out.terminal).toBeNull();
   });
 });

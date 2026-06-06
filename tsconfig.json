@@ -14,7 +14,17 @@
     "skipLibCheck": true,
     "declaration": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@questi0nm4rk/hook-kit": ["./src/index.ts"],
+      "@questi0nm4rk/hook-kit/testing": ["./src/testing/index.ts"],
+      "@questi0nm4rk/hook-kit/engine": ["./src/engine/index.ts"],
+      "@questi0nm4rk/hook-kit/escalation": ["./src/escalation/index.ts"],
+      "@questi0nm4rk/hook-kit/state": ["./src/state/types.ts"],
+      "@questi0nm4rk/hook-kit/state/tmpdir": ["./src/state/tmpdir-store.ts"],
+      "@questi0nm4rk/hook-kit/state/memory": ["./src/state/memory-store.ts"],
+      "@questi0nm4rk/hook-kit/wrapper/hk": ["./src/wrapper/hk.ts"],
+      "@questi0nm4rk/hook-kit/adapters/raw": ["./src/adapters/raw.ts"],
+      "@questi0nm4rk/hook-kit/adapters/claude-code": ["./src/adapters/claude-code.ts"]
     }
   },
   "include": [

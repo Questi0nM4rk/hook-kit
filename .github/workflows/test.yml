@@ -11,44 +11,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # check-stable-exports needs the base ref reachable to diff against;
-          # fetch full history on PRs so origin/<base> resolves to a real commit.
+          # The PR-only checks (check-stable-exports / check-changelog) need the
+          # base ref reachable to diff against; fetch full history on PRs so
+          # origin/<base> resolves to a real commit.
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
       - name: Install deps
         run: bun install --frozen-lockfile
-      - name: Lint
-        run: bun run lint
-      - name: Test
-        run: bun run test
-      - name: Check STABLE-export removals
-        # Skip on direct pushes to main — there's no PR base to diff against;
-        # the guard runs on every PR before merge.
-        if: github.event_name == 'pull_request'
-        env:
-          # Indirect via env so github.base_ref can't shell-inject the run step.
-          BASE_REF: ${{ github.base_ref }}
-        run: bun scripts/check-stable-exports.ts --base "origin/$BASE_REF"
-      - name: Check CHANGELOG [Unreleased] discipline
-        # PR-only; same shell-injection-safe env indirection.
+      # Single gate. `bun run verify` runs lint + the full 3-process test split
+      # + the suppression/doc/table checks + markdownlint, and — on PRs — the
+      # PR-only stability guards against the base ref. verify collects failures
+      # (never stops at the first) and names each failed check in its summary.
+      - name: Verify (PR)
+        # On PRs, pass the base ref so the PR-only checks run. Indirect via env
+        # so github.base_ref can't shell-inject the run step.
         if: github.event_name == 'pull_request'
         env:
           BASE_REF: ${{ github.base_ref }}
-        run: bun scripts/check-changelog.ts --base "origin/$BASE_REF"
-      - name: Check inline suppression-comment reasons
-        # Runs on every push/PR -- no base ref needed; --all scans the full
-        # tree (CI has no staged set to drive the per-file lefthook variant).
-        run: bun scripts/check-suppress-comments.ts --all
-      - name: Check cross-doc count claims
-        # CI-only (per L-S4-1, content checks live in CI not pre-commit).
-        # Audits HookKitError subclass count + package.json subpath export targets.
-        run: bun scripts/check-doc-counts.ts
-      - name: Check cross-doc table sync (Output convention)
-        # CI-only; asserts CLAUDE.md and docs/ADAPTERS.md Output-convention
-        # tables stay byte-identical (intentionally duplicated per TASK-024).
-        run: bun scripts/check-output-table.ts
+        run: bun run verify --base "origin/$BASE_REF"
+      - name: Verify (push)
+        # On direct pushes to main there is no PR base; verify auto-skips the
+        # PR-only checks internally.
+        if: github.event_name != 'pull_request'
+        run: bun run verify
 
   semgrep:
     name: Semgrep
@@ -62,20 +49,3 @@ jobs:
         run: |
           pip install semgrep
           semgrep --config auto --error --exclude tests/ --exclude tests-isolated/ --exclude examples/ --exclude docs/
-
-  markdown:
-    name: Markdownlint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-      - name: Install deps
-        run: bun install --frozen-lockfile
-      - name: Markdownlint
-        # Broader scope than lefthook (which only sees staged files and excludes
-        # docs/plans|specs). Catches doc drift from contributors without the
-        # local hook. CI scans all *.md except node_modules / dist; the `#`
-        # prefix is markdownlint-cli2's exclude-glob syntax.
-        run: bunx --bun markdownlint-cli2 "**/*.md" "#node_modules/**" "#dist/**"

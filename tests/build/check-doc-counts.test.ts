@@ -58,6 +58,11 @@ interface FixtureOptions {
    *  treats an absent suite as a hard read-failure → exit 2, so callers that
    *  want a clean count stage all three). */
   readonly testSuites?: Readonly<Record<string, number>>;
+  /** `compilerOptions.paths` map to stage into a synthetic tsconfig.json. Omit
+   *  to stage NO tsconfig.json at all — audit 5 then skips (its existsSync
+   *  guard requires both package.json and tsconfig.json present). Set it to
+   *  exercise the tsconfig↔exports mirror audit. */
+  readonly tsconfigPaths?: Readonly<Record<string, readonly string[]>>;
 }
 
 /** Stage a tmpdir with the minimum layout the script needs. */
@@ -86,6 +91,13 @@ function stageFixture(opts: FixtureOptions): { dir: string; cleanup: () => void 
     pkg.version = opts.packageVersion;
   }
   writeFileSync(join(dir, "package.json"), JSON.stringify(pkg));
+
+  if (opts.tsconfigPaths !== undefined) {
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({ compilerOptions: { paths: opts.tsconfigPaths } }),
+    );
+  }
 
   if (opts.readme !== undefined) {
     writeFileSync(join(dir, "README.md"), opts.readme);
@@ -363,5 +375,103 @@ describe("scripts/check-doc-counts.ts", () => {
     });
     const r = await runScript(staged.dir);
     expect(r.exit).toBe(0);
+  });
+
+  // --- Audit 5: tsconfig paths ↔ package.json exports mirror ---
+
+  test("exit 0 when tsconfig paths mirror the package.json exports", async () => {
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: {
+        ".": { import: "./src/index.ts" },
+        "./state": { import: "./src/state/types.ts" },
+      },
+      existingFiles: ["src/index.ts", "src/state/types.ts"],
+      tsconfigPaths: {
+        // Internal alias — must be ignored by the audit, not required to mirror.
+        "@/*": ["./src/*"],
+        "@questi0nm4rk/hook-kit": ["./src/index.ts"],
+        "@questi0nm4rk/hook-kit/state": ["./src/state/types.ts"],
+      },
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("all audits passed");
+  });
+
+  test("exit 1 when a tsconfig paths entry has no matching export subpath", async () => {
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: { ".": { import: "./src/index.ts" } },
+      existingFiles: ["src/index.ts"],
+      tsconfigPaths: {
+        "@questi0nm4rk/hook-kit": ["./src/index.ts"],
+        // Declared in paths but absent from exports — the drift the guard catches.
+        "@questi0nm4rk/hook-kit/state": ["./src/state/types.ts"],
+      },
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(1);
+    expect(r.stderr).toContain("tsconfig-exports-mirror");
+    expect(r.stderr).toContain("@questi0nm4rk/hook-kit/state");
+    expect(r.stderr).toContain("no matching subpath");
+  });
+
+  test("exit 1 when an export subpath has no matching tsconfig paths entry", async () => {
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: {
+        ".": { import: "./src/index.ts" },
+        // Advertised in exports but missing from paths — the reverse direction.
+        "./engine": { import: "./src/engine/index.ts" },
+      },
+      existingFiles: ["src/index.ts", "src/engine/index.ts"],
+      tsconfigPaths: {
+        "@questi0nm4rk/hook-kit": ["./src/index.ts"],
+      },
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(1);
+    expect(r.stderr).toContain("tsconfig-exports-mirror");
+    expect(r.stderr).toContain("@questi0nm4rk/hook-kit/engine");
+    expect(r.stderr).toContain("no matching entry");
+  });
+
+  test("exit 1 when a shared key's target differs between exports and paths", async () => {
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: {
+        ".": { import: "./src/index.ts" },
+        "./state": { import: "./src/state/types.ts" },
+      },
+      existingFiles: ["src/index.ts", "src/state/types.ts"],
+      tsconfigPaths: {
+        "@questi0nm4rk/hook-kit": ["./src/index.ts"],
+        // Same key, different target — the irregular-mapping drift the guard exists for.
+        "@questi0nm4rk/hook-kit/state": ["./src/state/store.ts"],
+      },
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(1);
+    expect(r.stderr).toContain("tsconfig-exports-mirror");
+    expect(r.stderr).toContain("target mismatch");
+  });
+
+  test("audit 5 skips (exit 0) when no tsconfig.json is staged", async () => {
+    // No tsconfigPaths → no tsconfig.json on disk. The existsSync guard must
+    // skip the mirror audit rather than treat the absent file as a failure.
+    staged = stageFixture({
+      sourceClassCount: 10,
+      claudeClaims: ["Typed errors (10 `HookKitError` subclasses)"],
+      packageExports: { ".": { import: "./src/index.ts" } },
+      existingFiles: ["src/index.ts"],
+    });
+    const r = await runScript(staged.dir);
+    expect(r.exit).toBe(0);
+    expect(r.stderr).toContain("all audits passed");
   });
 });

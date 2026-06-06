@@ -7,6 +7,7 @@ import {
   findCalls,
   isDynamic,
   isResolved,
+  resolvedCmd,
   tokensAfter,
   unwrapCall,
   wordToLit,
@@ -17,6 +18,7 @@ import {
   note as noteDecision,
   warning as warningDecision,
 } from "../core/decision.js";
+import { escalateUncertain } from "../core/security.js";
 import type { Decision, EvalContext, HookEvent, Rule } from "../core/types.js";
 import { expandFlags, hasFlag, unwrappedName } from "../engine/helpers.js";
 
@@ -28,10 +30,84 @@ export function cmd(command: string, ...sub: string[]): CommandRuleBuilder {
 /** Discriminated predicate over `tokensAfter(u, flag)`. `match` fires when at
  *  least one resolved value satisfies `test`; `dynamic` fires when at least
  *  one value is DYNAMIC. Multiple predicates compose with AND across the
- *  builder; ANY-match across each flag's values. */
+ *  builder; ANY-match across each flag's values. A `match` predicate whose
+ *  flag has a DYNAMIC value (and no resolved value matched) escalates per the
+ *  security policy (SA-05) unless `onDynamic: "skip"` restores the legacy
+ *  silent behavior. */
 type FlagPredicate =
-  | { readonly kind: "match"; readonly flag: string; readonly test: (value: string) => boolean }
+  | {
+      readonly kind: "match";
+      readonly flag: string;
+      readonly test: (value: string) => boolean;
+      readonly onDynamic?: "skip";
+    }
   | { readonly kind: "dynamic"; readonly flag: string };
+
+/** Outcome of a value matcher against one call: a concrete match, a definitive
+ *  non-match, or "the value the matcher targets is dynamic — can't verify". */
+type MatchState = "match" | "no-match" | "uncertain";
+
+/** Three-state evaluation of argMatches patterns (AND). A pattern with no
+ *  resolved match but a dynamic arg present is "uncertain" — it might match at
+ *  runtime. Empty patterns are a vacuous "match" (no value targeted). */
+function argMatchesState(args: readonly ResolvedArg[], patterns: readonly RegExp[]): MatchState {
+  let uncertain = false;
+  for (const pattern of patterns) {
+    if (args.some((a) => isResolved(a) && pattern.test(a))) {
+      continue;
+    }
+    if (args.some((a) => isDynamic(a))) {
+      uncertain = true;
+      continue;
+    }
+    return "no-match";
+  }
+  return uncertain ? "uncertain" : "match";
+}
+
+/** Three-state evaluation of one flag predicate against its flag's tokens. */
+function flagValueState(predicate: FlagPredicate, tokens: readonly ResolvedArg[]): MatchState {
+  if (predicate.kind === "dynamic") {
+    return tokens.some((v) => isDynamic(v)) ? "match" : "no-match";
+  }
+  if (tokens.some((v) => isResolved(v) && predicate.test(v))) {
+    return "match";
+  }
+  if (predicate.onDynamic === "skip") {
+    return "no-match";
+  }
+  return tokens.some((v) => isDynamic(v)) ? "uncertain" : "no-match";
+}
+
+/** Combine every flag predicate (AND). Empty predicates are a vacuous match. */
+function flagValuesState(
+  predicates: readonly FlagPredicate[],
+  tokensFor: (flag: string) => readonly ResolvedArg[],
+): MatchState {
+  let uncertain = false;
+  for (const predicate of predicates) {
+    const state = flagValueState(predicate, tokensFor(predicate.flag));
+    if (state === "no-match") {
+      return "no-match";
+    }
+    if (state === "uncertain") {
+      uncertain = true;
+    }
+  }
+  return uncertain ? "uncertain" : "match";
+}
+
+/** Combine arg-match and flag-value states (AND): no-match dominates, then
+ *  uncertain, else match. */
+function combineStates(a: MatchState, b: MatchState): MatchState {
+  if (a === "no-match" || b === "no-match") {
+    return "no-match";
+  }
+  if (a === "uncertain" || b === "uncertain") {
+    return "uncertain";
+  }
+  return "match";
+}
 
 class CommandRuleBuilder {
   private anyOfFlags: string[][] = [];
@@ -148,10 +224,15 @@ class CommandRuleBuilder {
    *   cmd("curl").flagValueMatches("-o", /^\/(etc|root)/).deny("sensitive path")
    *   cmd("git", "commit").flagValueMatches("-F", /^\/tmp/).warning("tmpfs msg")
    */
-  flagValueMatches(flag: string, pattern: RegExp): this {
+  flagValueMatches(flag: string, pattern: RegExp, opts?: { onDynamic?: "skip" }): this {
     this.flagPredicates = [
       ...this.flagPredicates,
-      { kind: "match", flag, test: (v) => pattern.test(v) },
+      {
+        kind: "match",
+        flag,
+        test: (v) => pattern.test(v),
+        ...(opts?.onDynamic ? { onDynamic: opts.onDynamic } : {}),
+      },
     ];
     return this;
   }
@@ -163,10 +244,15 @@ class CommandRuleBuilder {
    *   cmd("docker", "run").flagValueEquals("--user", "root").ask("root container")
    *   cmd("kubectl").flagValueEquals("--context", "prod").ask("prod context")
    */
-  flagValueEquals(flag: string, value: string): this {
+  flagValueEquals(flag: string, value: string, opts?: { onDynamic?: "skip" }): this {
     this.flagPredicates = [
       ...this.flagPredicates,
-      { kind: "match", flag, test: (v) => v === value },
+      {
+        kind: "match",
+        flag,
+        test: (v) => v === value,
+        ...(opts?.onDynamic ? { onDynamic: opts.onDynamic } : {}),
+      },
     ];
     return this;
   }
@@ -246,13 +332,37 @@ class CommandRuleBuilder {
           return null;
         }
 
+        let sawUncertain = false;
         for (const call of findCalls(ast)) {
           const u = unwrapCall(call, ctx.shellAstOpts);
           if (u === null) {
+            // SA-01: unwrapCall returns null exactly when the command WORD is
+            // dynamic ($CMD, ${CMD}, $(which rm)) — we cannot certify it is NOT
+            // this rule's target. For terminal (deny/ask) security rules,
+            // escalate per ctx.security.uncertaintyDecision instead of the
+            // silent skip that would let any cmd() deny be bypassed with a
+            // single token. escalateUncertain returns null for annotation
+            // (warning/note) rules, so they stay silent — promoting an
+            // informational annotation would invert severity.
+            const esc = escalateUncertain(
+              decision,
+              ctx.security,
+              `command word is dynamic — cannot verify the "${cfg.command}" rule`,
+            );
+            if (esc !== null) {
+              return esc;
+            }
             continue;
           }
           // See `unwrappedName` in engine/helpers.ts for the dispatch policy.
-          if (unwrappedName(u, cfg.strictPath) !== cfg.command) {
+          // `resolved` is the basename-scoped name (resolvedCmd(u) ?? ""); in
+          // the default non-strict path it IS unwrappedName, so reuse it for the
+          // guard. In strict mode the guard needs the verbatim path, so recompute
+          // via unwrappedName(u, true). Either way expandFlags below scopes its
+          // aliases by `resolved` — alias groups are keyed by resolved basename.
+          const resolved = resolvedCmd(u) ?? "";
+          const name = cfg.strictPath ? unwrappedName(u, true) : resolved;
+          if (name !== cfg.command) {
             continue;
           }
 
@@ -268,8 +378,8 @@ class CommandRuleBuilder {
             continue;
           }
 
-          // Flag predicates (alias-aware)
-          const expanded = expandFlags(u.flags);
+          // Flag predicates (alias-aware, scoped to the resolved command — SA-07)
+          const expanded = expandFlags(u.flags, resolvedCmd(u) ?? "");
           if (!cfg.flags.every((f) => hasFlag(expanded, f))) {
             continue;
           }
@@ -280,45 +390,58 @@ class CommandRuleBuilder {
             continue;
           }
 
-          // Arg predicates
+          // Definitive arg gate: exact-membership includes.
           if (!cfg.argIncludeValues.every((v) => u.args.includes(v))) {
             continue;
           }
-          if (!cfg.argMatchPatterns.every((p) => u.args.some((a) => isResolved(a) && p.test(a)))) {
-            continue;
-          }
-
-          // POSIX `--` end-of-options separator (e.g. git checkout -- file)
+          // POSIX `--` end-of-options separator (e.g. git checkout -- file).
           if (cfg.requireDdash && !hasDdash(call)) {
             continue;
           }
 
-          // Flag-value predicates. Per-flag `tokensAfter` cache avoids
-          // re-walking call.args when multiple predicates target the same
-          // flag. Polymorphic dispatch: tokensAfter sees u.innerRaw for
-          // wrapped variants, u.raw for plain — works regardless of
-          // GLOBAL_VALUE_FLAGS registration.
-          const tokensCache = new Map<string, readonly ResolvedArg[]>();
-          const tokensFor = (flag: string): readonly ResolvedArg[] => {
-            let cached = tokensCache.get(flag);
-            if (cached === undefined) {
-              cached = tokensAfter(u, flag);
-              tokensCache.set(flag, cached);
-            }
-            return cached;
-          };
-          if (
-            !cfg.flagPredicates.every((p) => {
-              const tokens = tokensFor(p.flag);
-              return p.kind === "match"
-                ? tokens.some((v) => isResolved(v) && p.test(v))
-                : tokens.some((v) => isDynamic(v));
-            })
-          ) {
-            continue;
+          // Value matchers (argMatches + flag values) are three-state: a
+          // resolved match fires; a definitive non-match skips this call; a
+          // value the matcher TARGETS being dynamic is "uncertain" (SA-05/08).
+          // The per-flag `tokensAfter` cache/closure is only consulted when
+          // flagPredicates exist (flagValuesState never calls tokensFor for an
+          // empty predicate list — vacuous match), so skip the Map+closure
+          // allocation in the common empty-predicates case.
+          let tokensFor = noTokens;
+          if (cfg.flagPredicates.length > 0) {
+            const tokensCache = new Map<string, readonly ResolvedArg[]>();
+            tokensFor = (flag: string): readonly ResolvedArg[] => {
+              let cached = tokensCache.get(flag);
+              if (cached === undefined) {
+                cached = tokensAfter(u, flag);
+                tokensCache.set(flag, cached);
+              }
+              return cached;
+            };
           }
-
-          return decision;
+          const valueState = combineStates(
+            argMatchesState(u.args, cfg.argMatchPatterns),
+            flagValuesState(cfg.flagPredicates, tokensFor),
+          );
+          if (valueState === "match") {
+            return decision;
+          }
+          if (valueState === "uncertain") {
+            sawUncertain = true;
+          }
+          // "no-match" / "uncertain" → try the next call.
+        }
+        // SA-05/08: a value matcher targeted a dynamic value but nothing
+        // definitively matched — escalate for terminal rules (annotation rules
+        // stay silent, no severity inversion).
+        if (sawUncertain) {
+          const esc = escalateUncertain(
+            decision,
+            ctx.security,
+            `a value matched by the "${cfg.command}" rule is dynamic — cannot verify`,
+          );
+          if (esc !== null) {
+            return esc;
+          }
         }
         return null;
       },
@@ -329,4 +452,12 @@ class CommandRuleBuilder {
 /** True if the call's raw arg list contains the POSIX `--` separator. */
 function hasDdash(call: CallExprNode): boolean {
   return call.args.some((w) => wordToLit(w) === "--");
+}
+
+/** No-flag-predicate sentinel for the evaluate() loop's `tokensFor`: when a rule
+ *  has zero flag predicates, `flagValuesState` never invokes it, so the empty
+ *  result is never observed — it just avoids the per-call Map+closure allocation.
+ *  Takes (and ignores) the flag arg to share the cached closure's signature. */
+function noTokens(_flag: string): readonly ResolvedArg[] {
+  return [];
 }

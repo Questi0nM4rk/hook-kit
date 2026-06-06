@@ -1,35 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
-import type { Annotation, HookEvent, HookModule, Rule, Terminal } from "../../src/core/types.js";
+import type { Annotation, Rule, Terminal } from "../../src/core/types.js";
 import { runModule } from "../../src/engine/index.js";
+import { editEvent, moduleWith } from "../_helpers.js";
 
 // All rule evaluation flows through `runModule` — the 0.5 test harness. The
 // shortcut form (`{ module, command }`) builds the PreToolUse Bash event
 // internally so tests don't need to hand-roll `HookEvent` shapes.
 
-function nonBashEvent(): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Edit",
-    toolInput: { file_path: "/tmp/x" },
-    raw: {},
-  };
-}
-
-function moduleWith(rule: Rule): HookModule {
-  return { id: "m", name: "test", events: ["PreToolUse"], rules: [rule] };
-}
+const nonBashEvent = () => editEvent("/tmp/x");
 
 async function runCmd(command: string, rule: Rule): Promise<Terminal | null> {
-  const outcome = await runModule({ module: moduleWith(rule), command });
+  const outcome = await runModule({ module: moduleWith([rule]), command });
   return outcome.terminal;
 }
 
 async function runCmdAnnotations(command: string, rule: Rule): Promise<readonly Annotation[]> {
-  const outcome = await runModule({ module: moduleWith(rule), command });
+  const outcome = await runModule({ module: moduleWith([rule]), command });
   return outcome.annotations;
 }
 
@@ -46,7 +33,7 @@ describe("cmd() — basic matching", () => {
 
   test("does not run on non-Bash events", async () => {
     const outcome = await runModule({
-      module: moduleWith(cmd("rm").deny("blocked")),
+      module: moduleWith([cmd("rm").deny("blocked")]),
       event: nonBashEvent(),
     });
     expect(outcome.terminal).toBeNull();
@@ -58,9 +45,11 @@ describe("cmd() — basic matching", () => {
     expect(d).toBeNull();
   });
 
-  test("does not match on a malformed Bash command (parse error)", async () => {
+  test("escalates on a malformed Bash command (SA-03 — cannot verify)", async () => {
+    // A command shell-ast can't parse can't be certified against the rule;
+    // the default profile escalates (onUnparsable: ask) rather than skipping.
     const d = await runCmd("if; then", cmd("rm").deny("blocked"));
-    expect(d).toBeNull();
+    expect(d?.kind).toBe("ask");
   });
 });
 

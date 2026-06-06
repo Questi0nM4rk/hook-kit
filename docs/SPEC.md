@@ -200,6 +200,25 @@ custom("session-summary", async (event) => {
 });
 ```
 
+#### Security-uncertainty builders (0.9+, `@experimental`)
+
+Two opt-in Bash-only builders for high-risk contexts (CI runners, locked-down agents). Both consume the per-evaluation `SecurityOptions` (config object + the shipped `STRICT_BUT_ASKS` / `STRICT_DENY` profiles in `src/core/security.ts`, threaded onto `EvalContext` from `EvaluateOptions.security` and default-filled to `STRICT_BUT_ASKS`): when a value they target can't be statically resolved (a dynamic command word, a dynamic redirect/path target), they don't silently fall through the fail-open default — they **escalate per `SecurityOptions.uncertaintyDecision`** (`ask` / `deny` / `allow`) for terminal (`.deny()` / `.ask()`) rules. `allow` is the legacy fail-open silent path (the command runs). Annotation rules (`.warning()` / `.note()`) stay silent on dynamics — promoting an advisory to a gate would be a severity inversion. Both rely on the synthesized Bash event, so like `pipe()` / `redirect()` they fire under the shell wrapper and the cc-tools adapter's Bash channel, not on `Edit`/`Write`/`Read` tool events.
+
+```typescript
+// allowOnly(...commands) — whitelist inverter (opt-in inversion of blacklist semantics)
+allowOnly("git", "ls", "cat").deny("only git/ls/cat are permitted here");
+```
+
+`allowOnly()` INVERTS hook-kit's blacklist default (Iron Law 5): its decision fires on any command whose resolved basename is NOT in the allowlist. Basename-matched, so `/usr/bin/git` and `sudo git` both count as `git`. A dynamic command word (`$CMD`) — or a privilege/exec wrapper (`sudo`/`doas`/…) whose inner command word is itself dynamic — can't be checked against the allowlist, so for terminal rules it routes through the uncertainty path (`escalateUncertain` → `escalate`) rather than allowing the unverifiable command. Strictly opt-in: this is the one builder that flips the kit's default semantics, so reach for it only where a whitelist is the deliberate policy.
+
+```typescript
+// protectPath(pattern, { mode }) — gate shell-side file access to protected paths
+protectPath(/^\/etc\//, { mode: "write" }).deny("no writes to /etc");
+protectPath(/\.env(\.|$)/, { mode: "both" }).ask("touches an env file");
+```
+
+`protectPath()` closes the Bash-side half of file protection that `path()` can't reach (`path()` only fires under the cc-tools adapter). It covers two channels: shell redirects (read/write operators) and a small curated file-command table (`cp`/`mv`/`install`/`ln` last-arg writes + non-last-arg source reads, the `-t`/`--target-directory=` write-target override on cp/mv/install, `tee`/`rm` all-arg writes, `cat` reads, `dd if=`/`of=`). The `ProtectMode` option — `"read"` / `"write"` / `"both"`, default `"write"` — selects which access direction the rule guards. A dynamic target in a mode-relevant slot (`> $OUT`, `cp x $DST`, `cp -t $D x`) escalates per `SecurityOptions.uncertaintyDecision` for terminal rules; an UNRELATED dynamic operand (`dd bs=$N of=/tmp/x`) does not poison the result. The table is deliberately small (it resists growing toward "every CLI on earth"); commands outside it need an explicit composed rule or rely on the redirect channel.
+
 ### Engine
 
 ```typescript

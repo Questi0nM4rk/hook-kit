@@ -4,19 +4,23 @@
 
 // biome-ignore-all lint/suspicious/noConsole: silenceConsoleWarn + captureConsoleWarn intentionally rebind console.warn so tests can suppress or assert the M1.5 same-path warning emitted by TmpdirStore; this is the test-side dual of the production-side console.warn in src/state/tmpdir-store.ts.
 
+import { createModule } from "../src/core/module.js";
 import type { HookEvent, HookModule, Rule } from "../src/core/types.js";
+import { bashEvent as sdkBashEvent } from "../src/testing/events.js";
 
-/** Build a synthetic PreToolUse Bash event for engine/rule tests. */
+// Event factories: re-export the public testing-SDK builders so test authors
+// import them from one place. `_helpers.bashEvent` wraps the SDK factory with
+// this suite's historical defaults (`sessionId: "s1"`, a non-empty
+// transcriptPath) — `observer-terminal.test.ts` pins `r.event.sessionId === "s1"`,
+// so the wrapper preserves that shape while still de-duplicating onto the SDK.
+// biome-ignore lint/performance/noBarrelFile: `_helpers.ts` is the test-suite's shared helper hub (captureStderr, withEnv, moduleWith, modOf, parseCcStdout); re-exporting the SDK event factories here keeps one import site for migrated tests. It is never bundled into the shipped package, so the module-graph cost the rule guards against does not apply.
+export { editEvent, readEvent, writeEvent } from "../src/testing/events.js";
+
+/** Build a synthetic PreToolUse Bash event for engine/rule tests. Thin wrapper
+ *  over the testing-SDK `bashEvent` that keeps this suite's `sessionId: "s1"` /
+ *  `transcriptPath` defaults (pinned by `observer-terminal.test.ts`). */
 export function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
-  };
+  return sdkBashEvent(command, { sessionId: "s1", transcriptPath: "/tmp/t.jsonl" });
 }
 
 /** Build a minimal HookModule for engine tests. Defaults: PreToolUse only,
@@ -24,6 +28,17 @@ export function bashEvent(command: string): HookEvent {
  *  (`<id>:<rule.kind>:<index>` is the observer's ruleId format). */
 export function moduleWith(rules: Rule[], id = "m"): HookModule {
   return { id, name: id, events: ["PreToolUse"], rules };
+}
+
+/** Wrap a single rule in a `createModule`-built module with `Bash`-default
+ *  matchers — the shared form of the `modOf` factory copied across the builder
+ *  and engine suites. Pass `matchers` to widen coverage (e.g. the testing-SDK
+ *  expect suite needs `["Bash", "Edit", "Write", "Read"]`). */
+export function modOf(
+  rule: Parameters<typeof createModule>[1][number],
+  matchers: readonly string[] = ["Bash"],
+): HookModule {
+  return createModule({ id: "x", name: "x", events: ["PreToolUse"], matchers }, [rule]);
 }
 
 /** Capture writes to process.stderr until `restore()` is called. */

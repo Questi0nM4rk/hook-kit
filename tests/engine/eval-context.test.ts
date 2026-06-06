@@ -1,30 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import type { HookEvent, HookModule, Rule } from "../../src/core/types.js";
+import type { Rule } from "../../src/core/types.js";
 import { evaluate } from "../../src/engine/index.js";
+import { bashEvent, moduleWith, writeEvent } from "../_helpers.js";
 
-function bashEvent(command: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName: "Bash",
-    toolInput: { command },
-    raw: { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command } },
-  };
-}
-
-function nonBashEvent(toolName: string): HookEvent {
-  return {
-    eventName: "PreToolUse",
-    sessionId: "s1",
-    cwd: "/tmp",
-    transcriptPath: "/tmp/t.jsonl",
-    toolName,
-    toolInput: { file_path: "/tmp/f.txt" },
-    raw: {},
-  };
-}
+// `nonBashEvent` keeps a `Write`-tool, file-path event for the
+// non-Bash-AST-skip cases; the SDK `writeEvent` produces exactly that shape.
+const nonBashEvent = () => writeEvent("/tmp/f.txt");
 
 /** Helper rule that captures whatever the engine passed it. */
 function spyRule(callback: (ast: unknown) => void): Rule {
@@ -34,15 +15,6 @@ function spyRule(callback: (ast: unknown) => void): Rule {
       callback(await ctx.getBashAst());
       return null;
     },
-  };
-}
-
-function moduleWith(rules: Rule[]): HookModule {
-  return {
-    id: "m",
-    name: "spy module",
-    events: ["PreToolUse"],
-    rules,
   };
 }
 
@@ -56,7 +28,7 @@ describe("EvalContext.getBashAst", () => {
 
   test("returns null for non-Bash events", async () => {
     let captured: unknown = "untouched";
-    await evaluate(nonBashEvent("Write"), [moduleWith([spyRule((ast) => (captured = ast))])]);
+    await evaluate(nonBashEvent(), [moduleWith([spyRule((ast) => (captured = ast))])]);
     expect(captured).toBeNull();
   });
 

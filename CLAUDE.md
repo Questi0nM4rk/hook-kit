@@ -95,7 +95,7 @@ bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/a
 
 The coverage script internally runs `bun test tests/ --coverage`. Each invocation is a separate process to keep `mock.module()` and bun's resolution scopes isolated (oven-sh/bun#14516 / L-S1b-3).
 
-- `tests/` — the regular unit + integration suite (the bulk of the 649 tests across all three suites). The coverage-floor enforcer parses its `--coverage` output.
+- `tests/` — the regular unit + integration suite (the bulk of the 873 tests across all three suites). The coverage-floor enforcer parses its `--coverage` output.
 - `tests-isolated/` — tests that need `mock.module()` for module-level mocks. **Don't add `mock.module()` to anything under `tests/` — put it under `tests-isolated/` instead.**
 - `examples/adapter-template/tests/` — adapter template's in-process unit tests. Run in their own process so any future example-local `mock.module()` use can't poison the core suite.
 - `tests/builders/` — one file per builder primitive (renamed from `tests/rules/` in 0.5.1).
@@ -118,7 +118,7 @@ Add similar coverage when introducing new builder primitives or wrapper behavior
 
 `examples/escalation-listener-stdout/` — worked-example listener for hook-kit's escalation tree (~60-line `src/listener.ts`): polls one session spool, prompts on stdout, reads decision from stdin. Cross-references `docs/ESCALATION.md` § Listener authoring. Downstream consumers fork this for Slack / IDE / webhook / custom-UI integrations.
 
-Both in-repo, tsconfig-included examples (`adapter-template` + `escalation-listener-stdout`) declare `@questi0nm4rk/hook-kit` as a `"file:../.."` dependency and are listed as `bun` `workspaces` members in the root `package.json`. A fresh `bun install` links each to the local tree so `bun run typecheck` and `bun test examples/*/tests/` resolve the package exactly as a downstream consumer would — no hand-made `node_modules` symlink (the older L-M1.3-2 convention this replaces), so CI's clean `--frozen-lockfile` install resolves them too. `examples/ai-guardrails/` is not a workspace member: it is built/compiled (not unit-imported) by `tests/build/*` from the repo root, which resolves via Bun's root self-reference.
+Both in-repo, tsconfig-included examples (`adapter-template` + `escalation-listener-stdout`) resolve `@questi0nm4rk/hook-kit` (and its subpaths) via the root `tsconfig.json` `paths` map, which points each subpath at the local `./src/*` source. They are NOT `bun` `workspaces` members and the repo declares no `workspaces` array — so `bun install` never builds a self-referential `@root` hardlink farm in `node_modules`, and CI no longer needs `no-cache: true`. `bun run typecheck` and `bun test examples/*/tests/` resolve the package straight from source through those tsconfig paths. The `"^0.8.0"` range each example pins in its `package.json` documents what a real downstream consumer would pin against the published package; it is informational only and is never installed (the examples are not workspace members). `examples/ai-guardrails/` is built/compiled (not unit-imported) by `tests/build/*` from the repo root, which resolves via Bun's root self-reference.
 
 ## What 0.6.0 landed (workstream A — shipped)
 

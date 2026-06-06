@@ -11,6 +11,7 @@
 //   throws AssertionError on mismatch, returns the full EvaluationOutcome
 //   for chained inspection.
 
+import type { SecurityOptions } from "../core/security.js";
 import type {
   Annotation,
   EvaluationOutcome,
@@ -70,6 +71,7 @@ class ExpectationBuilder {
   private state?: StateStore;
   private shellAstOpts?: EvaluateOptions["shellAstOpts"];
   private recurseInlineShells?: boolean;
+  private security?: SecurityOptions;
 
   constructor(private readonly modules: readonly HookModule[]) {}
 
@@ -92,6 +94,17 @@ class ExpectationBuilder {
    *  and tests that disable it can mask bypass classes. */
   noInlineShellRecursion(): this {
     this.recurseInlineShells = false;
+    return this;
+  }
+
+  /** Bind the security profile for the uncertainty path (issue #14). Set this
+   *  to the SAME profile the consumer deploys with (e.g.
+   *  `runShell(modules, { security: STRICT_DENY })`) so escalation of an
+   *  uncertifiable value — dynamic command word, unparsable command,
+   *  recursion-depth exhaustion — resolves identically in tests and prod.
+   *  Omit to keep the engine default (`STRICT_BUT_ASKS`). */
+  withSecurity(security: SecurityOptions): this {
+    this.security = security;
     return this;
   }
 
@@ -129,6 +142,7 @@ class ExpectationBuilder {
       ...(this.recurseInlineShells === undefined
         ? {}
         : { recurseInlineShells: this.recurseInlineShells }),
+      ...(this.security === undefined ? {} : { security: this.security }),
     };
     return opts;
   }
@@ -243,6 +257,10 @@ class AssertionRunner {
  *
  *   const out = await expectModule([modA, modB]).onCommand("git push").outcome();
  *   expect(out.annotations).toHaveLength(2);
+ *
+ *   // Reproduce the deploy-time security profile so uncertainty escalations
+ *   // resolve the same in tests as in prod (issue #14):
+ *   await expectModule(mod).withSecurity(STRICT_DENY).onCommand("$CMD -rf /").toDeny();
  * @stable @since 1.0.0
  */
 export function expectModule(module: HookModule | readonly HookModule[]): ExpectationBuilder {
