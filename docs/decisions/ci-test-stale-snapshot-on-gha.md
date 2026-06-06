@@ -1,8 +1,44 @@
-# CI `test` job: stale test snapshot on GitHub Actions (unresolved)
+# CI `test` job: stale test snapshot on GitHub Actions (resolved)
 
-**Status:** Investigating — handoff for a fresh session. **Scope:** why `test.yml`'s
-`test` job is red on PR #29 (`feat/security-uncertainty`) while the code is green
-everywhere else, and what to try next.
+**Status:** Resolved. **Scope:** why `test.yml`'s `test` job was red on PR #29
+(`feat/security-uncertainty`) while the code was green everywhere else.
+
+## Resolution — corrected root cause (the "stale snapshot" was a symptom)
+
+The working tree was not stale on checkout, and `file:../..` was **not** the cause
+(removing it entirely still reproduced the failure). The actual cause:
+
+**`tests/build/adversarial.test.ts` executed a real `git checkout main` against the
+repository, mid-test.** `hk` is a `bash -c` substitute: any command it does not
+block, it **executes**. The adversarial corpus feeds it `git checkout main` (to
+prove the destructive-git rule allows branch checkout vs blocking
+`git checkout -- file`), and `runHk` spawned the compiled binary with **no `cwd`**,
+inheriting the repo root. So the allowed `git checkout main` ran for real, reverting
+the working tree to `main`'s pre-SA content (old tests, new SA test files gone) and
+moving HEAD — every later file in the same `bun test tests/` run then read old code
+(old assertions fail; new files `ENOENT`). It is git-invisible because HEAD + the
+working tree genuinely change, so `git status` stays clean.
+
+Why only CI: the executed `git checkout main` only **succeeds** where `main` is
+freely checkout-able. A developer worktree (main checked out in the primary) and a
+`.git`-less container tarball both make it **fail harmlessly** — which is exactly
+why it passed local + container validation and only reddened CI's detached
+`refs/pull/<n>/merge` checkout. Proven via the runner's reflog
+(`checkout: moving from <merge> to main`) and reproduced locally in a detached
+clone. `no-cache` / `coverageSkipTestFiles` never touched it because nothing was
+wrong with bun.
+
+**Fix:** spawn every compiled-binary invocation in the build tests with `cwd` inside
+a throwaway, non-git sandbox (`tests/build/_sandbox.ts`), so executed allowed
+commands cannot reach the real repo. A regression guard in `adversarial.test.ts`
+("allowed commands must never touch the real repo") locks it in. The `file:../..`
+self-referential workspace remains a separate latent smell (a `bun install`
+hardlink farm of the whole repo into `node_modules`), but it does not cause this
+failure and is out of scope here.
+
+Everything below is the original investigation record, kept for history; its
+"prime suspect" (`file:../..`) and "stale snapshot" framing are **superseded** by
+the resolution above.
 
 ## Symptom
 

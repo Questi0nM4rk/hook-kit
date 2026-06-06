@@ -26,6 +26,12 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runBuild } from "../../src/build/bundle.js";
+import { makeSandbox } from "./_sandbox.js";
+
+// Throwaway non-git cwd for the staged binary: hk EXECUTES the (allowed/annotated)
+// command after emitting annotations, so it must not run from the repo root —
+// see tests/build/_sandbox.ts.
+const sandbox = makeSandbox();
 
 const BUILD_TIMEOUT_MS = 120_000;
 const HOOK_KIT_ROOT = resolve(import.meta.dirname, "..", "..");
@@ -77,6 +83,7 @@ interface HkResult {
 
 async function runHk(bin: string, command: string): Promise<HkResult> {
   const proc = Bun.spawn([bin, "-c", command], {
+    cwd: sandbox.dir,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -121,6 +128,7 @@ beforeAll(async () => {
 
 afterAll(() => {
   cleanup?.();
+  sandbox.cleanup();
 });
 
 describe("annotations-only path — emit + separator + exec", () => {
