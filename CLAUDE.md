@@ -95,7 +95,7 @@ bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/a
 
 The coverage script internally runs `bun test tests/ --coverage`. Each invocation is a separate process to keep `mock.module()` and bun's resolution scopes isolated (oven-sh/bun#14516 / L-S1b-3).
 
-- `tests/` — the regular unit + integration suite (the bulk of the 826 tests across all three suites). The coverage-floor enforcer parses its `--coverage` output.
+- `tests/` — the regular unit + integration suite (the bulk of the 855 tests across all three suites). The coverage-floor enforcer parses its `--coverage` output.
 - `tests-isolated/` — tests that need `mock.module()` for module-level mocks. **Don't add `mock.module()` to anything under `tests/` — put it under `tests-isolated/` instead.**
 - `examples/adapter-template/tests/` — adapter template's in-process unit tests. Run in their own process so any future example-local `mock.module()` use can't poison the core suite.
 - `tests/builders/` — one file per builder primitive (renamed from `tests/rules/` in 0.5.1).

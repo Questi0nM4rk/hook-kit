@@ -88,6 +88,7 @@
     "lint:eslint": "bunx --bun eslint src/ tests/ tests-isolated/ scripts/ --max-warnings=0",
     "lint:fix": "biome check --write src/ tests/ tests-isolated/ scripts/ && bunx --bun eslint src/ tests/ tests-isolated/ scripts/ --fix",
     "test": "bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/adapter-template/tests/",
+    "verify": "bun scripts/verify.ts",
     "test:unit": "bun test tests/",
     "test:isolated": "bun test tests-isolated/",
     "build:types": "tsc -p tsconfig.build.json",
@@ -95,7 +96,7 @@
     "build:bin": "bun build src/build/cli.ts --compile --bytecode --outfile dist/hook-kit",
     "changelog": "git cliff -o CHANGELOG.md",
     "changelog:unreleased": "git cliff --unreleased --prepend CHANGELOG.md",
-    "prepublishOnly": "bun run build && bun run test",
+    "prepublishOnly": "bun run build && bun run verify",
     "prepare": "lefthook install"
   },
   "dependencies": {
