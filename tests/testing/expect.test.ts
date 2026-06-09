@@ -136,11 +136,15 @@ describe("expectModule chained setup", () => {
   });
 
   test("withShellAstOpts threads through to engine", async () => {
-    // terraform isn't in shell-ast's built-in globalFlags table — register here
-    const mod = modOf(cmd("terraform", "apply").deny("blocked"));
+    // kustomize isn't in shell-ast's built-in globalFlags table — register here.
+    // Re-pointed terraform -> kustomize: shell-ast 0.8.0 ships terraform built-in,
+    // so its registration is a no-op and the deny would fire even if
+    // withShellAstOpts didn't thread through. kustomize is still unregistered, so
+    // the deny PROVES the opts reached the engine's resolver.
+    const mod = modOf(cmd("kustomize", "build").deny("blocked"));
     await expectModule(mod)
-      .withShellAstOpts({ globalFlags: { terraform: ["-chdir"] } })
-      .onCommand("terraform -chdir ./infra apply")
+      .withShellAstOpts({ globalFlags: { kustomize: ["--load-restrictor"] } })
+      .onCommand("kustomize --load-restrictor LoadRestrictionsNone build /overlay")
       .toDeny();
   });
 

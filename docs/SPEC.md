@@ -147,7 +147,7 @@ Semantics:
 - `.warning(message, label?)` — annotation; non-blocking, surfaces as `[label] warning: <message>` above a `---` separator before the command runs.
 - `.note(message, label?)` — annotation; same mechanics as warning, rendered as `[label] note: <message>`. Distinct from warning so the AI can tell severity apart visually.
 
-**Engine-level `shellAstOpts.globalFlags` (0.6+):** `EvaluateOptions.shellAstOpts.globalFlags?: Record<string, readonly string[]>` registers per-tool value-taking flags so commands like `terraform -chdir ./infra apply` resolve `apply` as `args[0]`. Built-in shell-ast table covers `git`/`docker`/`kubectl`/`make`/`tar`/`xargs`; anything else needs registration. Threaded through `RunModuleOptions` / `RunShellOptions` / `RunOptions` (all extend `EvaluateOptions`) into every `unwrapCall(call, opts)` site — both the inline-shell recursion and the `cmd()` builder.
+**Engine-level `shellAstOpts.globalFlags` (0.6+):** `EvaluateOptions.shellAstOpts.globalFlags?: Record<string, readonly string[]>` registers per-tool value-taking flags so commands like `kustomize --load-restrictor X build` resolve `build` as `args[0]`. The built-in shell-ast table covers `git`/`docker`/`kubectl`/`make`/`tar`/`xargs` plus `aws`/`gcloud`/`terraform`/`npm`/`cargo`/`gh` (12 tools as of shell-ast 0.8.0); anything else (e.g. `kustomize`, `helm`) needs registration. Threaded through `RunModuleOptions` / `RunShellOptions` / `RunOptions` (all extend `EvaluateOptions`) into every `unwrapCall(call, opts)` site — both the inline-shell recursion and the `cmd()` builder.
 
 ```typescript
 // pipe(from, into) — `cmd1 | cmd2` detection via shell-AST BinaryCmd walk
