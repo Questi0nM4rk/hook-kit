@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import {
   findCalls,
+  isShellInterpreter,
   ParseSyntaxError,
   parse,
   type ResolveFlagsOptions,
@@ -100,31 +101,6 @@ let MAX_RECURSE_DEPTH = 5;
 export function __setMaxRecurseDepthForTests(d: number): void {
   MAX_RECURSE_DEPTH = d;
 }
-
-/** Shell-interpreter wrappers whose `-c "<script>"` value (or, for `eval`,
- *  the concatenated positional args) is itself a shell script. Mirrors the
- *  script-wrapper rows of shell-ast's WRAPPERS registry. When such a wrapper
- *  has a DYNAMIC body (`bash -c "$X"`, `eval "$VAR"`), shell-ast yields a
- *  `wrapped-opaque` layer the recursion cannot re-parse — SA-02 escalates it.
- *  Non-shell wrappers (sudo, gosu, exec, env, xargs, timeout) are deliberately
- *  excluded: `sudo $X` is a dynamic command, not an inline-shell body.
- *  TODO(shell-ast): swap for an exported `isShellInterpreter`/WRAPPERS so this
- *  can't drift — tracked at Questi0nM4rk/shell-ast#12. */
-const INLINE_SHELL_WRAPPERS: ReadonlySet<string> = new Set([
-  "bash",
-  "sh",
-  "zsh",
-  "ksh",
-  "mksh",
-  "dash",
-  "ash",
-  "eval",
-  "su",
-  // `runuser` is `su`'s sibling — same `-c "<script>"` shell-script wrapper
-  // shape (shell-ast classifies both as wrapped-script / wrapped-opaque). Was
-  // missing, so `runuser -c "$EVIL"` escaped the SA-02 opaque escalation.
-  "runuser",
-]);
 
 /**
  * Test helper: evaluate a single rule against an event without hand-building
@@ -635,7 +611,7 @@ async function evaluateInternal(
         // the security policy instead. Non-shell opaque wrappers (sudo $X) are
         // a dynamic command, not an inline-shell body — left out of scope.
         const opaqueShell = chain.find(
-          (u) => u.kind === "wrapped-opaque" && INLINE_SHELL_WRAPPERS.has(u.wrapper),
+          (u) => u.kind === "wrapped-opaque" && isShellInterpreter(u.wrapper),
         );
         if (opaqueShell?.kind === "wrapped-opaque") {
           const esc = escalate(

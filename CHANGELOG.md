@@ -97,6 +97,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
   status banner and the timeless "default adapter" framing (replacing stale
   per-version markers); every backtick-quoted API symbol in it resolves to a real
   export.
+- **Inline-shell wrapper classification is now registry-derived (shell-ast
+  0.8.0).** The SA-02 opaque-inline-shell escalation previously matched the inner
+  wrapper against a hand-mirrored `INLINE_SHELL_WRAPPERS` set that could drift
+  from shell-ast's wrapper registry. It now calls shell-ast 0.8.0's
+  `isShellInterpreter(wrapper)` predicate, which is derived from the registry and
+  basename-normalized — so it cannot drift, and it covers `runuser -c "$DYN"` and
+  `su -c "$DYN"` (which the hand-set under-covered). Equivalence preserved: every
+  interpreter the old set escalated still escalates, and no non-shell wrapper
+  (`sudo`, `env`, `timeout`, …) escalates. Bumps the `@questi0nm4rk/shell-ast`
+  dependency to `^0.8.0`. Closes the consumer side of shell-ast#12.
 
 ### Fixed
 

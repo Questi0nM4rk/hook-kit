@@ -4,7 +4,10 @@
 // `apply` as args[0] instead of being shifted by the unconsumed -chdir value.
 //
 // shell-ast's built-in GLOBAL_VALUE_FLAGS covers git/docker/kubectl/make/tar/
-// xargs. Anything outside that list needs registration — this is the path.
+// xargs + aws/gcloud/terraform/npm/cargo/gh (since shell-ast 0.8.0). Anything
+// outside that list needs registration — this is the path. `kustomize` is a
+// deliberately-unregistered tool here precisely because shell-ast does NOT ship
+// it, so it still demonstrates the space-form value-flag bypass.
 
 import { describe, expect, test } from "bun:test";
 import { cmd } from "../../src/builders/command.js";
@@ -12,18 +15,18 @@ import { runModule } from "../../src/engine/index.js";
 import { modOf } from "../_helpers.js";
 
 describe("shellAstOpts.globalFlags pass-through (A4)", () => {
-  test("terraform without registration: -chdir=./infra shifts apply out of args[0] (no match)", async () => {
-    // Without globalFlags registration, shell-ast treats -chdir=./infra as a
-    // boolean flag and 'apply' lands at u.args[0]. But because resolveFlags
-    // already handles `--longflag=value` (= form) specially, args[0] IS 'apply'.
-    // Switch to space form to actually demonstrate the bypass.
-    const mod = modOf(cmd("terraform", "apply").deny("blocked"));
+  test("unregistered tool: --load-restrictor X shifts build out of args[0] (no match)", async () => {
+    // Without globalFlags registration, shell-ast treats --load-restrictor as a
+    // boolean flag (space form), so its value 'LoadRestrictionsNone' lands at
+    // u.args[0] and 'build' shifts to args[1]. cmd("kustomize","build") requires
+    // args[0]==="build" — NO match. (terraform -chdir would NO LONGER show this:
+    // shell-ast 0.8.0 ships terraform in its built-in GLOBAL_VALUE_FLAGS, so
+    // -chdir is consumed without registration. kustomize is still unregistered.)
+    const mod = modOf(cmd("kustomize", "build").deny("blocked"));
     const out = await runModule({
       module: mod,
-      command: "terraform -chdir ./infra apply", // space form
+      command: "kustomize --load-restrictor LoadRestrictionsNone build /overlay", // space form
     });
-    // Without registration: -chdir is boolean, ./infra is args[0], apply is args[1]
-    // cmd("terraform","apply") requires args[0]==="apply" — NO match.
     expect(out.terminal).toBeNull();
   });
 

@@ -100,7 +100,7 @@
     "prepare": "lefthook install"
   },
   "dependencies": {
-    "@questi0nm4rk/shell-ast": "^0.7.0",
+    "@questi0nm4rk/shell-ast": "^0.8.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
