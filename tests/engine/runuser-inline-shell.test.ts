@@ -5,9 +5,11 @@ import { moduleWith } from "../_helpers.js";
 
 // BUG 6 (SA-02 fail-open): `runuser -u root -c "$EVIL"` is a shell-script
 // wrapper exactly like its sibling `su` (shell-ast classifies both as
-// wrapped-opaque with a dynamic body). `runuser` was missing from
-// INLINE_SHELL_WRAPPERS, so the opaque-inline-shell escalation silently
-// skipped it — a banned command could hide behind `runuser -c "$DYN"`.
+// wrapped-opaque with a dynamic body). The engine now classifies inline-shell
+// wrappers via shell-ast's registry-derived `isShellInterpreter` predicate
+// (closing the consumer side of shell-ast#12), so `runuser` is covered with no
+// hand-maintained set to drift — a banned command can no longer hide behind
+// `runuser -c "$DYN"`.
 
 const mod = () => moduleWith([cmd("rm").deny("rm blocked")]);
 
