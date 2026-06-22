@@ -1,0 +1,364 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 8574a92..612b392 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -97,6 +97,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Version
+   status banner and the timeless "default adapter" framing (replacing stale
+   per-version markers); every backtick-quoted API symbol in it resolves to a real
+   export.
++- **Inline-shell wrapper classification is now registry-derived (shell-ast
++  0.8.0).** The SA-02 opaque-inline-shell escalation previously matched the inner
++  wrapper against a hand-mirrored `INLINE_SHELL_WRAPPERS` set that could drift
++  from shell-ast's wrapper registry. It now calls shell-ast 0.8.0's
++  `isShellInterpreter(wrapper)` predicate, which is derived from the registry and
++  basename-normalized — so it cannot drift, and it covers `runuser -c "$DYN"` and
++  `su -c "$DYN"` (which the hand-set under-covered). Equivalence preserved: every
++  interpreter the old set escalated still escalates, and no non-shell wrapper
++  (`sudo`, `env`, `timeout`, …) escalates. Bumps the `@questi0nm4rk/shell-ast`
++  dependency to `^0.8.0`. Closes the consumer side of shell-ast#12.
+ 
+ ### Fixed
+ 
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 4546a05..a92d2c5 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -95,7 +95,7 @@ bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/a
+ 
+ The coverage script internally runs `bun test tests/ --coverage`. Each invocation is a separate process to keep `mock.module()` and bun's resolution scopes isolated (oven-sh/bun#14516 / L-S1b-3).
+ 
+-- `tests/` — the regular unit + integration suite (the bulk of the 873 tests across all three suites). The coverage-floor enforcer parses its `--coverage` output.
++- `tests/` — the regular unit + integration suite (the bulk of the 874 tests across all three suites). The coverage-floor enforcer parses its `--coverage` output.
+ - `tests-isolated/` — tests that need `mock.module()` for module-level mocks. **Don't add `mock.module()` to anything under `tests/` — put it under `tests-isolated/` instead.**
+ - `examples/adapter-template/tests/` — adapter template's in-process unit tests. Run in their own process so any future example-local `mock.module()` use can't poison the core suite.
+ - `tests/builders/` — one file per builder primitive (renamed from `tests/rules/` in 0.5.1).
+diff --git a/README.md b/README.md
+index 53b0c90..190100f 100644
+--- a/README.md
++++ b/README.md
+@@ -597,7 +597,7 @@ The engine is intentionally minimal — its only job is to map `(event, modules)
+ 
+ ## Quality bar
+ 
+-- **873 tests** covering rule builders (incl. `pipe` / `redirect` / `withDdash`), the engine (incl. inline-shell recursion + depth limit + the `DecisionObserver` feed), the shell wrapper output convention, the cc-tools adapter, both state stores, the entire escalation system (envelope schemas, askpass child-process invocation, broker spool atomicity, listener marker liveness, `NO PARENT ATTACHED` validator, escalate-up forwarding, the TUI render function), git enrichment, and real compile + execute end-to-end smokes for both binary modes. (Run via `bun run test` — the regular suite plus the isolated- and example-test processes.)
++- **874 tests** covering rule builders (incl. `pipe` / `redirect` / `withDdash`), the engine (incl. inline-shell recursion + depth limit + the `DecisionObserver` feed), the shell wrapper output convention, the cc-tools adapter, both state stores, the entire escalation system (envelope schemas, askpass child-process invocation, broker spool atomicity, listener marker liveness, `NO PARENT ATTACHED` validator, escalate-up forwarding, the TUI render function), git enrichment, and real compile + execute end-to-end smokes for both binary modes. (Run via `bun run test` — the regular suite plus the isolated- and example-test processes.)
+ - **CI gate** (`.github/workflows/test.yml`) — `bun install --frozen-lockfile` + `biome check` + `bun test` on push to main and every PR. Red CI = no merge.
+ - **`mock.module()` isolation** — Bun's process-sticky module mocks ([oven-sh/bun#14516](https://github.com/oven-sh/bun/issues/14516)) would poison sibling tests in the regular suite. The `tests-isolated/` directory runs as its own `bun test` process so each isolated test file is its own context.
+ - **Compiled-binary smoke tests** baked in — `tests/build/example-ai-guardrails.test.ts` and `tests/build/adversarial.test.ts` build a real `dist/hk` and run 50+ adversarial inputs (alias expansion, sudo unwrap, inline-shell recursion, redirects, edge cases). A regression in the bundler or shell-ast WASM loading fails the build, not silently fails at user-deploy.
+diff --git a/bun.lock b/bun.lock
+index df0e948..909d5fe 100644
+--- a/bun.lock
++++ b/bun.lock
+@@ -5,7 +5,7 @@
+     "": {
+       "name": "@questi0nm4rk/hook-kit",
+       "dependencies": {
+-        "@questi0nm4rk/shell-ast": "^0.7.0",
++        "@questi0nm4rk/shell-ast": "^0.8.0",
+         "zod": "^4.4.3",
+       },
+       "devDependencies": {
+@@ -77,7 +77,7 @@
+ 
+     "@questi0nm4rk/feats": ["@questi0nm4rk/feats@1.0.1", "", { "dependencies": { "@cucumber/cucumber-expressions": "^19.0.0", "@cucumber/gherkin": "^37.0.0", "@cucumber/messages": "^32.0.0", "smol-toml": "^1.5.0", "yaml": "^2.7.0" } }, "sha512-Hdz1IMllNs08EIuYr9nT09NplqekvVdfoi+a8uKZotu95seSgqCjMSkaFaO78m/mAEDTj8K1sLpntQt86Q4IEg=="],
+ 
+-    "@questi0nm4rk/shell-ast": ["@questi0nm4rk/shell-ast@0.7.0", "", {}, "sha512-3iWq0pkctfZocjRNZOOctOqATFQimjt82E5fJ+NRJ4NLh94jCucUfjaR4/PPNnQT3JZkdXaHttBKEcSSmq3B3Q=="],
++    "@questi0nm4rk/shell-ast": ["@questi0nm4rk/shell-ast@0.8.0", "", {}, "sha512-MmLkFEgNoDxRMUQE/Tscx8DN4576Bmtcxo1wf10ZGGNRZZLdqTxQOhu4ft/v8E7UKfAoI4pk3Wk1WZJ7PF2yzA=="],
+ 
+     "@sindresorhus/merge-streams": ["@sindresorhus/merge-streams@4.0.0", "", {}, "sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ=="],
+ 
+diff --git a/docs/SPEC.md b/docs/SPEC.md
+index d796e9a..1bb6834 100644
+--- a/docs/SPEC.md
++++ b/docs/SPEC.md
+@@ -147,7 +147,7 @@ Semantics:
+ - `.warning(message, label?)` — annotation; non-blocking, surfaces as `[label] warning: <message>` above a `---` separator before the command runs.
+ - `.note(message, label?)` — annotation; same mechanics as warning, rendered as `[label] note: <message>`. Distinct from warning so the AI can tell severity apart visually.
+ 
+-**Engine-level `shellAstOpts.globalFlags` (0.6+):** `EvaluateOptions.shellAstOpts.globalFlags?: Record<string, readonly string[]>` registers per-tool value-taking flags so commands like `terraform -chdir ./infra apply` resolve `apply` as `args[0]`. Built-in shell-ast table covers `git`/`docker`/`kubectl`/`make`/`tar`/`xargs`; anything else needs registration. Threaded through `RunModuleOptions` / `RunShellOptions` / `RunOptions` (all extend `EvaluateOptions`) into every `unwrapCall(call, opts)` site — both the inline-shell recursion and the `cmd()` builder.
++**Engine-level `shellAstOpts.globalFlags` (0.6+):** `EvaluateOptions.shellAstOpts.globalFlags?: Record<string, readonly string[]>` registers per-tool value-taking flags so commands like `kustomize --load-restrictor X build` resolve `build` as `args[0]`. The built-in shell-ast table covers `git`/`docker`/`kubectl`/`make`/`tar`/`xargs` plus `aws`/`gcloud`/`terraform`/`npm`/`cargo`/`gh` (12 tools as of shell-ast 0.8.0); anything else (e.g. `kustomize`, `helm`) needs registration. Threaded through `RunModuleOptions` / `RunShellOptions` / `RunOptions` (all extend `EvaluateOptions`) into every `unwrapCall(call, opts)` site — both the inline-shell recursion and the `cmd()` builder.
+ 
+ ```typescript
+ // pipe(from, into) — `cmd1 | cmd2` detection via shell-AST BinaryCmd walk
+diff --git a/package.json b/package.json
+index ee85c20..9eb0bbe 100644
+--- a/package.json
++++ b/package.json
+@@ -100,7 +100,7 @@
+     "prepare": "lefthook install"
+   },
+   "dependencies": {
+-    "@questi0nm4rk/shell-ast": "^0.7.0",
++    "@questi0nm4rk/shell-ast": "^0.8.0",
+     "zod": "^4.4.3"
+   },
+   "devDependencies": {
+diff --git a/src/engine/index.ts b/src/engine/index.ts
+index e13c83f..84b30ba 100644
+--- a/src/engine/index.ts
++++ b/src/engine/index.ts
+@@ -4,6 +4,7 @@
+ import { createHash } from "node:crypto";
+ import {
+   findCalls,
++  isShellInterpreter,
+   ParseSyntaxError,
+   parse,
+   type ResolveFlagsOptions,
+@@ -101,31 +102,6 @@ export function __setMaxRecurseDepthForTests(d: number): void {
+   MAX_RECURSE_DEPTH = d;
+ }
+ 
+-/** Shell-interpreter wrappers whose `-c "<script>"` value (or, for `eval`,
+- *  the concatenated positional args) is itself a shell script. Mirrors the
+- *  script-wrapper rows of shell-ast's WRAPPERS registry. When such a wrapper
+- *  has a DYNAMIC body (`bash -c "$X"`, `eval "$VAR"`), shell-ast yields a
+- *  `wrapped-opaque` layer the recursion cannot re-parse — SA-02 escalates it.
+- *  Non-shell wrappers (sudo, gosu, exec, env, xargs, timeout) are deliberately
+- *  excluded: `sudo $X` is a dynamic command, not an inline-shell body.
+- *  TODO(shell-ast): swap for an exported `isShellInterpreter`/WRAPPERS so this
+- *  can't drift — tracked at Questi0nM4rk/shell-ast#12. */
+-const INLINE_SHELL_WRAPPERS: ReadonlySet<string> = new Set([
+-  "bash",
+-  "sh",
+-  "zsh",
+-  "ksh",
+-  "mksh",
+-  "dash",
+-  "ash",
+-  "eval",
+-  "su",
+-  // `runuser` is `su`'s sibling — same `-c "<script>"` shell-script wrapper
+-  // shape (shell-ast classifies both as wrapped-script / wrapped-opaque). Was
+-  // missing, so `runuser -c "$EVIL"` escaped the SA-02 opaque escalation.
+-  "runuser",
+-]);
+-
+ /**
+  * Test helper: evaluate a single rule against an event without hand-building
+  * an EvalContext or module. Wraps the rule in a synthetic single-rule module
+@@ -635,7 +611,7 @@ async function evaluateInternal(
+         // the security policy instead. Non-shell opaque wrappers (sudo $X) are
+         // a dynamic command, not an inline-shell body — left out of scope.
+         const opaqueShell = chain.find(
+-          (u) => u.kind === "wrapped-opaque" && INLINE_SHELL_WRAPPERS.has(u.wrapper),
++          (u) => u.kind === "wrapped-opaque" && isShellInterpreter(u.wrapper),
+         );
+         if (opaqueShell?.kind === "wrapped-opaque") {
+           const esc = escalate(
+diff --git a/tests/engine/global-flags-option.test.ts b/tests/engine/global-flags-option.test.ts
+index 82893b8..e7352df 100644
+--- a/tests/engine/global-flags-option.test.ts
++++ b/tests/engine/global-flags-option.test.ts
+@@ -4,7 +4,10 @@
+ // `apply` as args[0] instead of being shifted by the unconsumed -chdir value.
+ //
+ // shell-ast's built-in GLOBAL_VALUE_FLAGS covers git/docker/kubectl/make/tar/
+-// xargs. Anything outside that list needs registration — this is the path.
++// xargs + aws/gcloud/terraform/npm/cargo/gh (since shell-ast 0.8.0). Anything
++// outside that list needs registration — this is the path. `kustomize` is a
++// deliberately-unregistered tool here precisely because shell-ast does NOT ship
++// it, so it still demonstrates the space-form value-flag bypass.
+ 
+ import { describe, expect, test } from "bun:test";
+ import { cmd } from "../../src/builders/command.js";
+@@ -12,37 +15,57 @@ import { runModule } from "../../src/engine/index.js";
+ import { modOf } from "../_helpers.js";
+ 
+ describe("shellAstOpts.globalFlags pass-through (A4)", () => {
+-  test("terraform without registration: -chdir=./infra shifts apply out of args[0] (no match)", async () => {
+-    // Without globalFlags registration, shell-ast treats -chdir=./infra as a
+-    // boolean flag and 'apply' lands at u.args[0]. But because resolveFlags
+-    // already handles `--longflag=value` (= form) specially, args[0] IS 'apply'.
+-    // Switch to space form to actually demonstrate the bypass.
+-    const mod = modOf(cmd("terraform", "apply").deny("blocked"));
++  test("unregistered tool: --load-restrictor X shifts build out of args[0] (no match)", async () => {
++    // Without globalFlags registration, shell-ast treats --load-restrictor as a
++    // boolean flag (space form), so its value 'LoadRestrictionsNone' lands at
++    // u.args[0] and 'build' shifts to args[1]. cmd("kustomize","build") requires
++    // args[0]==="build" — NO match. (terraform -chdir would NO LONGER show this:
++    // shell-ast 0.8.0 ships terraform in its built-in GLOBAL_VALUE_FLAGS, so
++    // -chdir is consumed without registration. kustomize is still unregistered.)
++    const mod = modOf(cmd("kustomize", "build").deny("blocked"));
+     const out = await runModule({
+       module: mod,
+-      command: "terraform -chdir ./infra apply", // space form
++      command: "kustomize --load-restrictor LoadRestrictionsNone build /overlay", // space form
+     });
+-    // Without registration: -chdir is boolean, ./infra is args[0], apply is args[1]
+-    // cmd("terraform","apply") requires args[0]==="apply" — NO match.
+     expect(out.terminal).toBeNull();
+   });
+ 
+-  test("terraform WITH registration: space form fires correctly", async () => {
+-    const mod = modOf(cmd("terraform", "apply").deny("blocked"));
++  test("unregistered tool WITH registration: space form fires correctly", async () => {
++    // Re-pointed terraform -> kustomize: shell-ast 0.8.0 ships terraform built-in,
++    // so registering it is a no-op and this test would pass even if the
++    // registration path were broken. kustomize is still unregistered, so the
++    // registration is genuinely load-bearing here.
++    const mod = modOf(cmd("kustomize", "build").deny("blocked"));
+     const out = await runModule({
+       module: mod,
+-      command: "terraform -chdir ./infra apply",
+-      shellAstOpts: { globalFlags: { terraform: ["-chdir"] } },
++      command: "kustomize --load-restrictor LoadRestrictionsNone build /overlay",
++      shellAstOpts: { globalFlags: { kustomize: ["--load-restrictor"] } },
+     });
+-    // With registration: -chdir consumes ./infra; args[0] = "apply"
++    // With registration: --load-restrictor consumes its value; args[0] = "build"
+     expect(out.terminal?.kind).toBe("deny");
+   });
+ 
+-  test("terraform = form fires regardless of registration", async () => {
++  test("built-in tool needs no registration: terraform -chdir resolves (0.8.0)", async () => {
++    // shell-ast 0.8.0 added terraform to GLOBAL_VALUE_FLAGS, so -chdir is consumed
++    // without any globalFlags registration — args[0] = "apply". (Pre-0.8.0 this
++    // required registration; the test now documents the built-in coverage.)
+     const mod = modOf(cmd("terraform", "apply").deny("blocked"));
+     const out = await runModule({
+       module: mod,
+-      command: "terraform -chdir=./infra apply",
++      command: "terraform -chdir ./infra apply", // space form, NO registration
++    });
++    expect(out.terminal?.kind).toBe("deny");
++  });
++
++  test("= form fires regardless of registration", async () => {
++    // = form is special-cased by resolveFlags independently of the value-flag
++    // table, so it resolves even for an unregistered tool. kustomize (still
++    // unregistered) keeps this discriminating — terraform would now resolve via
++    // its built-in table entry and no longer isolate the = form path.
++    const mod = modOf(cmd("kustomize", "build").deny("blocked"));
++    const out = await runModule({
++      module: mod,
++      command: "kustomize --load-restrictor=LoadRestrictionsNone build /overlay",
+     });
+     expect(out.terminal?.kind).toBe("deny");
+   });
+@@ -52,30 +75,34 @@ describe("shellAstOpts.globalFlags pass-through (A4)", () => {
+     const out = await runModule({
+       module: mod,
+       command: "git -C /tmp worktree add /tmp/x main",
+-      shellAstOpts: { globalFlags: { terraform: ["-chdir"] } }, // unrelated
++      shellAstOpts: { globalFlags: { kustomize: ["--load-restrictor"] } }, // unrelated, still-unregistered
+     });
+     // built-in git table still active even when extra tool registered
+     expect(out.terminal?.kind).toBe("deny");
+   });
+ 
+   test("multiple tools registered at once", async () => {
+-    const tfMod = modOf(cmd("terraform", "destroy").deny("blocked"));
++    // Both tools must be genuinely unregistered for the registration to be
++    // load-bearing. terraform was re-pointed -> helm: shell-ast 0.8.0 ships
++    // terraform built-in, so registering it proved nothing. helm + kustomize are
++    // both still unregistered.
++    const helmMod = modOf(cmd("helm", "install").deny("blocked"));
+     const kustomizeMod = modOf(cmd("kustomize", "build").warning("kustomize build"));
+     const opts = {
+       shellAstOpts: {
+         globalFlags: {
+-          terraform: ["-chdir"],
++          helm: ["--namespace"],
+           kustomize: ["--load-restrictor"],
+         },
+       },
+     };
+ 
+-    const tfOut = await runModule({
+-      module: tfMod,
+-      command: "terraform -chdir /infra destroy",
++    const helmOut = await runModule({
++      module: helmMod,
++      command: "helm --namespace kube-system install mychart",
+       ...opts,
+     });
+-    expect(tfOut.terminal?.kind).toBe("deny");
++    expect(helmOut.terminal?.kind).toBe("deny");
+ 
+     const kOut = await runModule({
+       module: kustomizeMod,
+@@ -86,25 +113,31 @@ describe("shellAstOpts.globalFlags pass-through (A4)", () => {
+   });
+ 
+   test("opts threaded through inline-shell recursion", async () => {
+-    // bash -c "terraform -chdir /infra apply" — engine recurses into the
++    // bash -c "kustomize --load-restrictor X build" — engine recurses into the
+     // inner script and runs the same modules. The shellAstOpts must follow.
+-    const mod = modOf(cmd("terraform", "apply").deny("blocked"));
++    // Re-pointed terraform -> kustomize: terraform is built-in to shell-ast 0.8.0,
++    // so its registration is a no-op and this test would pass even if threading
++    // were broken. kustomize is still unregistered, so reaching a deny PROVES the
++    // registration threaded through the recursion.
++    const mod = modOf(cmd("kustomize", "build").deny("blocked"));
+     const out = await runModule({
+       module: mod,
+-      command: 'bash -c "terraform -chdir /infra apply"',
+-      shellAstOpts: { globalFlags: { terraform: ["-chdir"] } },
++      command: 'bash -c "kustomize --load-restrictor LoadRestrictionsNone build /overlay"',
++      shellAstOpts: { globalFlags: { kustomize: ["--load-restrictor"] } },
+     });
+     expect(out.terminal?.kind).toBe("deny");
+   });
+ 
+   test("opts threaded through sudo unwrap", async () => {
+-    // sudo terraform -chdir /infra apply — wrapped variant. unwrapCall(call, opts)
+-    // re-resolves the inner with the same opts.
+-    const mod = modOf(cmd("terraform", "apply").deny("blocked"));
++    // sudo kustomize --load-restrictor X build — wrapped variant. unwrapCall(call,
++    // opts) re-resolves the inner with the same opts. Re-pointed terraform ->
++    // kustomize (still unregistered) so the deny actually proves the threading;
++    // terraform would now resolve via its built-in table regardless.
++    const mod = modOf(cmd("kustomize", "build").deny("blocked"));
+     const out = await runModule({
+       module: mod,
+-      command: "sudo terraform -chdir /infra apply",
+-      shellAstOpts: { globalFlags: { terraform: ["-chdir"] } },
++      command: "sudo kustomize --load-restrictor LoadRestrictionsNone build /overlay",
++      shellAstOpts: { globalFlags: { kustomize: ["--load-restrictor"] } },
+     });
+     expect(out.terminal?.kind).toBe("deny");
+   });
+diff --git a/tests/engine/runuser-inline-shell.test.ts b/tests/engine/runuser-inline-shell.test.ts
+index e0dcc67..c5a79ec 100644
+--- a/tests/engine/runuser-inline-shell.test.ts
++++ b/tests/engine/runuser-inline-shell.test.ts
+@@ -5,9 +5,11 @@ import { moduleWith } from "../_helpers.js";
+ 
+ // BUG 6 (SA-02 fail-open): `runuser -u root -c "$EVIL"` is a shell-script
+ // wrapper exactly like its sibling `su` (shell-ast classifies both as
+-// wrapped-opaque with a dynamic body). `runuser` was missing from
+-// INLINE_SHELL_WRAPPERS, so the opaque-inline-shell escalation silently
+-// skipped it — a banned command could hide behind `runuser -c "$DYN"`.
++// wrapped-opaque with a dynamic body). The engine now classifies inline-shell
++// wrappers via shell-ast's registry-derived `isShellInterpreter` predicate
++// (closing the consumer side of shell-ast#12), so `runuser` is covered with no
++// hand-maintained set to drift — a banned command can no longer hide behind
++// `runuser -c "$DYN"`.
+ 
+ const mod = () => moduleWith([cmd("rm").deny("rm blocked")]);
+ 
+diff --git a/tests/testing/expect.test.ts b/tests/testing/expect.test.ts
+index b84c40e..d265283 100644
+--- a/tests/testing/expect.test.ts
++++ b/tests/testing/expect.test.ts
+@@ -136,11 +136,15 @@ describe("expectModule chained setup", () => {
+   });
+ 
+   test("withShellAstOpts threads through to engine", async () => {
+-    // terraform isn't in shell-ast's built-in globalFlags table — register here
+-    const mod = modOf(cmd("terraform", "apply").deny("blocked"));
++    // kustomize isn't in shell-ast's built-in globalFlags table — register here.
++    // Re-pointed terraform -> kustomize: shell-ast 0.8.0 ships terraform built-in,
++    // so its registration is a no-op and the deny would fire even if
++    // withShellAstOpts didn't thread through. kustomize is still unregistered, so
++    // the deny PROVES the opts reached the engine's resolver.
++    const mod = modOf(cmd("kustomize", "build").deny("blocked"));
+     await expectModule(mod)
+-      .withShellAstOpts({ globalFlags: { terraform: ["-chdir"] } })
+-      .onCommand("terraform -chdir ./infra apply")
++      .withShellAstOpts({ globalFlags: { kustomize: ["--load-restrictor"] } })
++      .onCommand("kustomize --load-restrictor LoadRestrictionsNone build /overlay")
+       .toDeny();
+   });
+ 
