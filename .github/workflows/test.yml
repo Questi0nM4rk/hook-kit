@@ -9,13 +9,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # The PR-only checks (check-stable-exports / check-changelog) need the
           # base ref reachable to diff against; fetch full history on PRs so
           # origin/<base> resolves to a real commit.
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
       - name: Install deps
@@ -41,7 +41,7 @@ jobs:
     name: Semgrep
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Run semgrep
         # --config auto = semgrep registry default ruleset (security + ecosystem).
         # --error makes any finding fail the job (CP-1: no warn, only error).
