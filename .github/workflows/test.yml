@@ -8,6 +8,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -35,7 +37,35 @@ jobs:
         # On direct pushes to main there is no PR base; verify auto-skips the
         # PR-only checks internally.
         if: github.event_name != 'pull_request'
-        run: bun run verify
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run verify 2>&1 | tee "$RUNNER_TEMP/test.log"
+      - name: Publish badges
+        # Force-pushes one commit to the badges branch; shields.io reads it from there.
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          log="$RUNNER_TEMP/test.log"
+          out="$RUNNER_TEMP/badges"; mkdir -p "$out"
+          badge() { printf '{"schemaVersion":1,"label":"%s","message":"%s","color":"%s"}\n' "$2" "$3" "$4" > "$out/$1.json"; }
+          # verify runs three bun test suites, each printing its own summary: sum them.
+          pass=0; fail=0
+          for n in $(grep -Eo '^ *[0-9]+ pass' "$log" 2>/dev/null | grep -Eo '[0-9]+'); do pass=$((pass + n)); done
+          for n in $(grep -Eo '^ *[0-9]+ fail' "$log" 2>/dev/null | grep -Eo '[0-9]+'); do fail=$((fail + n)); done
+          # No summary at all means the suites never ran: that is red, not green.
+          if [ "$fail" != 0 ] || [ "$pass" = 0 ]; then color=red; else color=brightgreen; fi
+          badge tests tests "$pass passed, $fail failed" "$color"
+          cd "$out"
+          git init -q -b badges
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "badges for ${GITHUB_SHA::7}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges
 
   semgrep:
     name: Semgrep

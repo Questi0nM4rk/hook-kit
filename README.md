@@ -6,6 +6,7 @@
 
 [![npm](https://img.shields.io/npm/v/@questi0nm4rk/hook-kit?color=cb3837&label=npm)](https://www.npmjs.com/package/@questi0nm4rk/hook-kit)
 [![CI](https://github.com/Questi0nM4rk/hook-kit/actions/workflows/test.yml/badge.svg)](https://github.com/Questi0nM4rk/hook-kit/actions/workflows/test.yml)
+[![tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Questi0nM4rk/hook-kit/badges/tests.json&style=flat-square)](https://github.com/Questi0nM4rk/hook-kit/actions/workflows/test.yml)
 [![license](https://img.shields.io/github/license/Questi0nM4rk/hook-kit?color=blue)](./LICENSE)
 
 </div>
@@ -43,7 +44,7 @@ It would have no reason to exist if harnesses gave every caller one shared, pars
 
 ## Quickstart
 
-Requires Bun 1.2+ (`engines`). Tested with Bun 1.3.14.
+Requires Bun 1.2+ (`engines`).
 
 ```bash
 git clone https://github.com/Questi0nM4rk/hook-kit && cd hook-kit && bun install
@@ -57,7 +58,7 @@ git clone https://github.com/Questi0nM4rk/hook-kit && cd hook-kit && bun install
 
 ```bash
 bun run test
-# 851 pass + 7 pass + 15 pass, 0 fail
+# the pass/fail summary ends with `0 fail`
 ```
 
 The example rules ask for review (exit 1) instead of deny (exit 2). The example builds against the published npm package, not your clone.
@@ -90,15 +91,15 @@ More in [docs/architecture.md](docs/architecture.md) and [docs/guide.md](docs/gu
 
 ## Numbers
 
-Measured 2026-10-12 on Arch Linux, Bun 1.3.14.
+[![tests](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/Questi0nM4rk/hook-kit/badges/tests.json&style=flat-square)](https://github.com/Questi0nM4rk/hook-kit/actions/workflows/test.yml)
 
-| What | Value | How measured |
-| --- | --- | --- |
-| Tests | 873 pass, 0 fail (851 + 7 + 15) | `bun run test` |
-| Test time | about 19 s | `time bun run test` |
-| Source size | 4714 code lines, 45 files | `scc src --no-cocomo` |
-| `hk` binary | 90.7 MB | `bun run build:hk` in `examples/ai-guardrails`, then `ls -lh dist/hk` |
-| Cost per `hk -c true` | about 87 ms wall | `time` over 20 runs in a shell loop, divided by 20 |
+| What | How to measure |
+| --- | --- |
+| Tests | `bun run test`, then read the summary |
+| Test time | `time bun run test` |
+| Source size | `scc src --no-cocomo` |
+| `hk` binary | `bun run build:hk` in `examples/ai-guardrails`, then `ls -lh dist/hk` |
+| Cost per `hk -c true` | `time` over 20 runs in a shell loop, divided by 20 |
 
 Commits include agent-authored work under my identity; design, orchestration and review are mine.
 
