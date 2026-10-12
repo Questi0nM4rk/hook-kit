@@ -121,4 +121,6 @@ Reference: [guide](docs/guide.md), [architecture](docs/architecture.md), [compar
 
 ## License
 
-MIT. Built on [shell-ast](https://github.com/Questi0nM4rk/shell-ast) (MIT), which wraps [mvdan/sh](https://github.com/mvdan/sh) (BSD-3).
+MPL-2.0. Built on [shell-ast](https://github.com/Questi0nM4rk/shell-ast) (MPL-2.0), which wraps [mvdan/sh](https://github.com/mvdan/sh) (BSD-3).
+
+Releases published before 2026-10-12 remain available under MIT.
