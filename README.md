@@ -6,7 +6,7 @@
 
 [![npm](https://img.shields.io/npm/v/@questi0nm4rk/hook-kit?color=cb3837&label=npm)](https://www.npmjs.com/package/@questi0nm4rk/hook-kit)
 [![CI](https://github.com/Questi0nM4rk/hook-kit/actions/workflows/test.yml/badge.svg)](https://github.com/Questi0nM4rk/hook-kit/actions/workflows/test.yml)
-[![license](https://img.shields.io/npm/l/@questi0nm4rk/hook-kit?color=blue)](./LICENSE)
+[![license](https://img.shields.io/github/license/Questi0nM4rk/hook-kit?color=blue)](./LICENSE)
 
 </div>
 
@@ -43,7 +43,7 @@ It would have no reason to exist if harnesses gave every caller one shared, pars
 
 ## Quickstart
 
-Requires Bun 1.2+ (tested with 1.3.14).
+Requires Bun 1.2+ (`engines`). Tested with Bun 1.3.14.
 
 ```bash
 git clone https://github.com/Questi0nM4rk/hook-kit && cd hook-kit && bun install
@@ -66,7 +66,7 @@ The example rules ask for review (exit 1) instead of deny (exit 2). The example 
 
 ```mermaid
 flowchart LR
-  A[caller: agent, human, CI] -->|hk -c "cmd"| B[hk binary]
+  A[caller: agent, human, CI] -->|"hk -c cmd"| B[hk binary]
   B --> C[shell-ast parse]
   C --> D[rule engine]
   D -->|no match| E[exec command]
@@ -83,6 +83,8 @@ Fail-open is a design choice.
 If a rule throws, the parser fails to load or the state store cannot write, the command runs and an `error` line goes to stderr.
 The exception is `ask` with a broken askpass or no listener, which denies. Rules that must never be bypassed belong in the harness's own deny list.
 The known gaps are listed under Status.
+
+Used by [ai-guardrails](https://github.com/Questi0nM4rk/ai-guardrails).
 
 More in [docs/architecture.md](docs/architecture.md) and [docs/guide.md](docs/guide.md).
 
