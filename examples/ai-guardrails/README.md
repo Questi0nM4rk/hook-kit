@@ -1,6 +1,6 @@
 # ai-guardrails example
 
-A faithful port of [ai-guardrails](https://github.com/Questi0nM4rk/ai-guardrails)
+A port of [ai-guardrails](https://github.com/Questi0nM4rk/ai-guardrails)
 built on `@questi0nm4rk/hook-kit`. One compiled binary covers what the original
 did via four separate Claude Code hooks (`dangerous-cmd`, `protect-configs`,
 `protect-reads`, `suppress-comments`) plus its own check engine.

@@ -2,7 +2,7 @@
 
 > **Status:** spec describes the 0.8 surface, audited 2026-05-20. Every symbol mentioned below exists in `src/` at this revision. Stability tiers are tagged at the declaration site — see [`STABILITY.md`](./STABILITY.md) and the full export inventory in [`v1.0-exports.md`](./v1.0-exports.md). Features marked "subject to a future minor" reflect planned 1.x evolution; their shape may shift before 1.0.0 ships.
 
-Build caller-agnostic shell-wrapper hook binaries — they work for any caller that shells out (an AI agent, a human, a CI script). Real shell-AST parsing, output via stdout/stderr/exit-code, no JSON wire protocol with the caller, no harness coupling. For harnesses with non-shell tool channels (Claude Code's `Edit` / `Write` / `Read`, etc.), an optional companion adapter bin (~50 LOC) extends coverage to the cases that bypass the shell.
+Build caller-agnostic shell-wrapper hook binaries — they work for any caller that shells out (an AI agent, a human, a CI script). Real shell-AST parsing, output via stdout/stderr/exit-code, no JSON wire protocol with the caller, no harness coupling. For harnesses with non-shell tool channels (Claude Code's `Edit` / `Write` / `Read`, etc.), an optional companion adapter bin extends coverage to the cases that bypass the shell.
 
 ## Problem
 
@@ -327,7 +327,7 @@ The adapter reads CC's hook JSON from stdin and writes CC's hook JSON to stdout.
 | `deny` (annotations dropped) | `{hookSpecificOutput:{permissionDecision:"block",permissionDecisionReason}}` | stderr + exit 2 |
 | `ask` (annotations bundled) | Resolved via askpass → allow (annotations surfaced as `additionalContext`) / deny / harness-ask (annotations bundled into `permissionDecisionReason`) | Resolved via askpass → silent / deny / `additionalContext` |
 
-Anyone can author additional adapter bins (`hk-cursor-tools`, `hk-opencode-tools`, …) by importing the engine + writing ~50 LOC of stdin/stdout glue. The shell wrapper remains the primary gate; adapters extend coverage to harness-specific channels.
+Anyone can author additional adapter bins (`hk-cursor-tools`, `hk-opencode-tools`, …) by importing the engine + writing stdin/stdout glue. The shell wrapper remains the primary gate; adapters extend coverage to harness-specific channels.
 
 ### State Management
 
