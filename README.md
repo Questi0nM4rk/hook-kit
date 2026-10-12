@@ -35,7 +35,11 @@ hello
 
 ## Why it exists
 
-Hooks are usually written for one harness, such as the `hooks.json` of Claude Code. The same gating logic is then copied to every place that runs commands. Agents also reach shell commands through paths a harness hook does not see, such as `sudo`, `bash -c "..."` and `curl | bash`. hook-kit gates at the one channel every caller shares, the shell command string, and parses it with a real shell parser instead of regexes. It refuses to be a sandbox or a security boundary, and it fails open when its own code breaks. It would have no reason to exist if harnesses gave every caller one shared, parsed command gate.
+Hooks are usually written for one harness, such as the `hooks.json` of Claude Code, so the same gating logic is copied to every place that runs commands.
+Agents also reach shell commands through paths a harness hook does not see, such as `sudo`, `bash -c "..."` and `curl | bash`.
+hook-kit gates at the one channel every caller shares, the shell command string, and parses it with a real shell parser instead of regexes.
+It refuses to be a sandbox or a security boundary, and it fails open when its own code breaks.
+It would have no reason to exist if harnesses gave every caller one shared, parsed command gate.
 
 ## Quickstart
 
@@ -70,11 +74,15 @@ flowchart LR
   D -->|ask| G[exit 1, or escalate to a listener]
 ```
 
-The binary parses the command with [shell-ast](https://github.com/Questi0nM4rk/shell-ast) and runs your rules on the result. A rule can deny, ask, warn, note or stay silent. Decisions go out as stdout, stderr and the exit code. There is no JSON protocol with the caller.
+The binary parses the command with [shell-ast](https://github.com/Questi0nM4rk/shell-ast) and runs your rules on the result.
+A rule can deny, ask, warn, note or stay silent. Decisions go out as stdout, stderr and the exit code. There is no JSON protocol with the caller.
 
 Everything here is deterministic. No part of hook-kit calls a model.
 
-Fail-open is a design choice. If a rule throws, the parser fails to load or the state store cannot write, the command runs and an `error` line goes to stderr. The exception is `ask` with a broken askpass or no listener, which denies. Rules that must never be bypassed belong in the harness's own deny list. The known gaps are listed under Status.
+Fail-open is a design choice.
+If a rule throws, the parser fails to load or the state store cannot write, the command runs and an `error` line goes to stderr.
+The exception is `ask` with a broken askpass or no listener, which denies. Rules that must never be bypassed belong in the harness's own deny list.
+The known gaps are listed under Status.
 
 More in [docs/architecture.md](docs/architecture.md) and [docs/guide.md](docs/guide.md).
 
@@ -94,11 +102,20 @@ Commits include agent-authored work under my identity; design, orchestration and
 
 ## Status
 
-- **Works:** shell-wrapper `hk` binary; `cmd`, `pipe` and `redirect` rules; `deny`, `ask`, `warning` and `note` decisions; state across invocations; escalation spool with a TUI listener; a testing SDK; a Claude Code adapter for `Edit`, `Write` and `Read` events.
-- **Experimental:** the escalation tree (`ask` forwarded up a chain of listeners). Cursor, OpenCode and KiloCode adapters are not in CI.
-- **Known gaps:** fail-open means a hook bug lets a command run. Only bash, POSIX and mksh parse; fish, nushell and PowerShell do not. Each `hk` call costs the binary start time (see Numbers). The binary is large because it embeds the Bun runtime. Version `0.x` has no stability promise beyond [docs/STABILITY.md](docs/STABILITY.md). Open friction is tracked in [docs/BUGS.md](docs/BUGS.md).
+- **Works:** shell-wrapper `hk` binary; `cmd`, `pipe` and `redirect` rules;
+  `deny`, `ask`, `warning` and `note` decisions; state across invocations; escalation spool with a TUI listener; a testing SDK; a Claude Code adapter for `Edit`, `Write` and `Read` events.
+- **Experimental:** the escalation tree (`ask` forwarded up a chain of listeners). Only the Claude Code and raw adapters ship;
+  [docs/ADAPTERS.md](docs/ADAPTERS.md) explains how to write one for another harness.
+- **Known gaps:**
+  - Fail-open means a hook bug lets a command run.
+  - Only bash, POSIX and mksh parse; fish, nushell and PowerShell do not.
+  - Each `hk` call costs the binary start time (see Numbers).
+  - The binary is large because it embeds the Bun runtime.
+  - Version `0.x` has no stability promise beyond [docs/STABILITY.md](docs/STABILITY.md).
+  - Open friction is tracked in [docs/BUGS.md](docs/BUGS.md).
 
-Reference: [guide](docs/guide.md), [architecture](docs/architecture.md), [comparison](docs/comparison.md), [development](docs/development.md), [spec](docs/SPEC.md), [adapters](docs/ADAPTERS.md), [escalation](docs/ESCALATION.md), [state](docs/STATE.md), [changelog](CHANGELOG.md).
+Reference: [guide](docs/guide.md), [architecture](docs/architecture.md), [comparison](docs/comparison.md), [development](docs/development.md),
+[spec](docs/SPEC.md), [adapters](docs/ADAPTERS.md), [escalation](docs/ESCALATION.md), [state](docs/STATE.md), [changelog](CHANGELOG.md).
 
 ## License
 
