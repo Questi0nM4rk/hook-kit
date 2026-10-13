@@ -45,11 +45,11 @@ bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/a
 
 ### Releasing
 
-Releases are cut manually. To ship a new version:
+Pushing a `v*` tag publishes to npm through `.github/workflows/release.yml` (npm trusted publishing: no token). The workflow fails unless the tag matches the `version` in `package.json`. To ship a new version:
 
 ```bash
-bun run build && bun test     # full gate (mirrors prepublishOnly)
-npm version patch             # or minor / major; bumps package.json + tag
-npm publish --access public
-git push --follow-tags
+# 1. set "version" in package.json to X.Y.Z, then:
+git commit -am "chore: release vX.Y.Z"
+git tag -a vX.Y.Z -m "vX.Y.Z"
+git push origin vX.Y.Z
 ```
