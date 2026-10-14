@@ -3,8 +3,10 @@
 # ----------------------------------------------------------------------------
 #  Auth is npm trusted publishing (OIDC from this workflow): no NPM_TOKEN, no
 #  secrets. The package's npmjs.com settings must name this file (release.yml)
-#  as its trusted publisher. npm publish runs prepublishOnly, which builds the
-#  types the package exports (dist/types) and runs verify before the upload.
+#  as its trusted publisher, and that publisher is stage-only. npm stage publish
+#  runs prepublishOnly, which builds the types the package exports (dist/types)
+#  and runs verify, then puts the version in the npm stage queue: it is not live
+#  until a maintainer approves it on npmjs.com (2FA).
 # ============================================================================
 name: release
 
@@ -37,5 +39,7 @@ jobs:
         with:
           node-version: "24"
           registry-url: https://registry.npmjs.org
-      - name: Publish
-        run: npm publish --access public --provenance
+      - name: Upgrade npm
+        run: npm install -g npm@^11.15.0   # npm stage needs 11.15+; setup-node's node 24 bundles 11.11
+      - name: Stage
+        run: npm stage publish --access public --provenance

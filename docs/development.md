@@ -53,3 +53,5 @@ git commit -am "chore: release vX.Y.Z"
 git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
+
+The workflow only stages the version (`npm stage publish`); a maintainer approves it on npmjs.com with 2FA before it is live.
