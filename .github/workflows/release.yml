@@ -42,4 +42,4 @@ jobs:
       - name: Upgrade npm
         run: npm install -g npm@^11.15.0 # npm stage needs npm 11.15.0 or newer
       - name: Stage on npm
-        run: npm stage publish --access public --provenance
+        run: npm stage publish --tag beta --access public --provenance

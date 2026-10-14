@@ -53,3 +53,5 @@ git commit -am "chore: release vX.Y.Z"
 git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
+
+Versions are `X.Y.Z-beta.N` under the npm dist-tag `beta`; nothing is promised in a beta.
