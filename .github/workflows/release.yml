@@ -40,6 +40,6 @@ jobs:
           node-version: "24"
           registry-url: https://registry.npmjs.org
       - name: Upgrade npm
-        run: npm install -g npm@^11.15.0   # npm stage needs 11.15+; setup-node's node 24 bundles 11.11
-      - name: Stage
+        run: npm install -g npm@^11.15.0 # npm stage needs npm 11.15.0 or newer; setup-node bundles 11.11.0
+      - name: Stage on npm
         run: npm stage publish --access public --provenance

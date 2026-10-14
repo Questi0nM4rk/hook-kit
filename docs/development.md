@@ -45,7 +45,7 @@ bun scripts/check-coverage.ts && bun test tests-isolated/ && bun test examples/a
 
 ### Releasing
 
-Pushing a `v*` tag publishes to npm through `.github/workflows/release.yml` (npm trusted publishing: no token). The workflow fails unless the tag matches the `version` in `package.json`. To ship a new version:
+Pushing a `v*` tag stages to npm through `.github/workflows/release.yml` (npm trusted publishing: no token); a maintainer approves the staged version on npmjs.com with 2FA before it is live. The workflow fails unless the tag matches the `version` in `package.json`. To ship a new version:
 
 ```bash
 # 1. set "version" in package.json to X.Y.Z, then:
@@ -53,5 +53,3 @@ git commit -am "chore: release vX.Y.Z"
 git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
-
-The workflow only stages the version (`npm stage publish`); a maintainer approves it on npmjs.com with 2FA before it is live.
